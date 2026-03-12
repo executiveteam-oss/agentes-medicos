@@ -21,11 +21,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, markAsRead } from '@/lib/whatsapp/client'
 import { sanitizePatientMessage, isSupportedMessageType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
+import { verifyWebhookSignature } from '@/lib/whatsapp/verify-signature'
 import { runAppointmentAgent } from '@/agents/appointment-agent'
+import { trackTokenUsage, isClinicPaused } from '@/lib/api-usage'
+import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
-import type { Clinic, Doctor, Conversation, Patient, Message } from '@/types/database'
+import type { Clinic, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 
 // Máximo tiempo de ejecución en Vercel (en segundos)
 // El plan gratuito de Vercel permite hasta 60s para serverless functions
@@ -59,15 +62,52 @@ export async function GET(request: NextRequest) {
 // Meta permite hasta 15 segundos, Claude responde en ~2-3s
 // ============================================================
 export async function POST(request: NextRequest) {
-  // 1. Leer el body
+  // 1. Leer el body como texto para verificar la firma HMAC
+  let rawBody: string
+  try {
+    rawBody = await request.text()
+  } catch {
+    return NextResponse.json({ error: 'Body inválido' }, { status: 400 })
+  }
+
+  // 2. Verificar firma HMAC de Meta (X-Hub-Signature-256)
+  const signature = request.headers.get('x-hub-signature-256')
+  if (!verifyWebhookSignature(rawBody, signature)) {
+    console.warn('[Webhook] Firma HMAC inválida — posible solicitud falsificada')
+    return NextResponse.json({ error: 'Firma inválida' }, { status: 403 })
+  }
+
+  // 3. Rate limit por IP (general) antes de parsear
+  const ip = getClientIp(request)
+  const ipLimit = checkRateLimit(`webhook:ip:${ip}`, RATE_LIMITS.general)
+  if (!ipLimit.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
+  }
+
+  // 4. Parsear el body
   let body: unknown
   try {
-    body = await request.json()
+    body = JSON.parse(rawBody)
   } catch {
     return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
   }
 
-  // 2. Procesar el mensaje completo antes de responder
+  // 5. Rate limit por teléfono del remitente (30 req/min)
+  try {
+    const parsed = whatsappWebhookSchema.safeParse(body)
+    if (parsed.success) {
+      const phone = parsed.data.entry[0]?.changes[0]?.value?.messages?.[0]?.from
+      if (phone) {
+        const phoneLimit = checkRateLimit(`webhook:phone:${phone}`, RATE_LIMITS.webhook)
+        if (!phoneLimit.allowed) {
+          console.warn(`[Webhook] Rate limit excedido para teléfono: ${phone.slice(0, 5)}***`)
+          return NextResponse.json({ status: 'rate_limited' }, { status: 429 })
+        }
+      }
+    }
+  } catch { /* no bloquear si falla el rate limit check */ }
+
+  // 6. Procesar el mensaje completo antes de responder
   //    Esto garantiza que el código se ejecuta en Vercel
   try {
     await processWebhook(body)
@@ -117,12 +157,17 @@ async function processWebhook(body: unknown): Promise<void> {
       }
       console.log(`[Webhook] Clínica: ${clinic.name}`)
 
-      // 4. Obtener el doctor principal (el primero activo)
-      const doctor = await findMainDoctor(clinic.id)
-      if (!doctor) {
+      // 3.5. Cargar configuración del agente
+      const waConfig = getWhatsAppConfig(clinic)
+
+      // 4. Obtener doctores activos (filtrados por config)
+      const doctors = await findActiveDoctors(clinic.id, waConfig)
+      if (doctors.length === 0) {
         console.error(`[Webhook] No hay doctor activo para clínica: ${clinic.id}`)
         return
       }
+      // Doctor principal = primero (para compatibilidad)
+      const doctor = doctors[0]
 
       // 5. Marcar mensaje como leído (checks azules ✓✓)
       await markAsRead(message.id)
@@ -190,7 +235,47 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
-      // 17. Ejecutar el agente de IA
+      // 16.5. Verificar horario de atención (antes de invocar Claude)
+      if (!isWithinOperatingHours(waConfig)) {
+        const oohMsg = waConfig.schedule.out_of_hours_message
+        await saveMessage(conversation.id, 'agent', oohMsg)
+        await sendWhatsAppMessage(message.from, oohMsg)
+        console.log(`[Webhook] Fuera de horario, mensaje automático enviado`)
+        return
+      }
+
+      // 16.6. Verificar palabras clave de escalamiento
+      const escalationMatch = checkEscalationKeywords(sanitizedText, waConfig)
+      if (escalationMatch) {
+        const escalationMsg = `Entiendo que necesitas ayuda urgente. Voy a pasar tu mensaje a alguien del consultorio para que te atienda lo antes posible. 🙏`
+        await saveMessage(conversation.id, 'agent', escalationMsg)
+        await sendWhatsAppMessage(message.from, escalationMsg)
+        await supabaseAdmin
+          .from('conversations')
+          .update({ status: 'escalated', escalated_at: new Date().toISOString() })
+          .eq('id', conversation.id)
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'conversation_escalated',
+            actor_type: 'system',
+            details: { reason: `Palabra clave: "${escalationMatch}"`, urgency: 'high' },
+          })
+        } catch { /* no crítico */ }
+        console.log(`[Webhook] Escalado por keyword: "${escalationMatch}"`)
+        return
+      }
+
+      // 17. Verificar si la clínica está pausada por exceder tokens
+      if (await isClinicPaused(clinic.id)) {
+        const pausedMsg = 'Nuestro asistente virtual está temporalmente fuera de servicio. Por favor comunícate directamente con el consultorio.'
+        await saveMessage(conversation.id, 'agent', pausedMsg)
+        await sendWhatsAppMessage(message.from, pausedMsg)
+        console.warn(`[Webhook] Clínica ${clinic.id} pausada — token limit excedido`)
+        return
+      }
+
+      // 18. Ejecutar el agente de IA
       console.log(`[Webhook] Ejecutando agente con mensaje: "${sanitizedText.slice(0, 50)}..."`)
 
       const agentResponse = await runAppointmentAgent({
@@ -198,13 +283,20 @@ async function processWebhook(body: unknown): Promise<void> {
         messageHistory,
         clinic,
         doctor,
+        doctors,
+        waConfig,
         patientPhone,
         patientName: patient.name,
       })
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
       console.log(`[Webhook] Respuesta: "${agentResponse.text.slice(0, 100)}..."`)
 
-      // 18. Guardar respuesta del agente en DB
+      // 18.1. Registrar uso de tokens
+      if (agentResponse.tokenUsage) {
+        await trackTokenUsage(clinic.id, agentResponse.tokenUsage.input, agentResponse.tokenUsage.output)
+      }
+
+      // 19. Guardar respuesta del agente en DB
       await saveMessage(conversation.id, 'agent', agentResponse.text)
 
       // 19. Enviar respuesta por WhatsApp
@@ -261,19 +353,74 @@ async function findClinicByPhoneId(phoneNumberId: string): Promise<Clinic | null
 }
 
 /**
- * Obtiene el doctor principal (primer doctor activo) de una clínica
+ * Extrae y normaliza la config de WhatsApp de la clínica
  */
-async function findMainDoctor(clinicId: string): Promise<Doctor | null> {
+function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
+  const DEFAULT: WhatsAppConfig = {
+    schedule: {
+      start: '07:00',
+      end: '20:00',
+      days: [1, 2, 3, 4, 5, 6],
+      out_of_hours_message: 'Hola, nuestro horario de atención es de 7am a 8pm. Te responderemos mañana.',
+    },
+    appointment: { default_duration: 30, max_duration: 60 },
+    escalation_keywords: ['urgencia', 'dolor', 'emergencia', 'hablar con alguien', 'médico', 'sangrado'],
+    doctors: {},
+  }
+  return (clinic.whatsapp_config as WhatsAppConfig | null) ?? DEFAULT
+}
+
+/**
+ * Verifica si la hora actual (Colombia) está dentro del horario de atención
+ */
+function isWithinOperatingHours(config: WhatsAppConfig): boolean {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }))
+  const currentDay = now.getDay() // 0=dom, 1=lun, ..., 6=sáb
+
+  if (!config.schedule.days.includes(currentDay)) return false
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  const [startH, startM] = config.schedule.start.split(':').map(Number)
+  const [endH, endM] = config.schedule.end.split(':').map(Number)
+  const startMinutes = startH * 60 + startM
+  const endMinutes = endH * 60 + endM
+
+  return currentMinutes >= startMinutes && currentMinutes < endMinutes
+}
+
+/**
+ * Verifica si el mensaje contiene alguna palabra clave de escalamiento
+ * Retorna la keyword encontrada o null
+ */
+function checkEscalationKeywords(message: string, config: WhatsAppConfig): string | null {
+  const normalized = message.toLowerCase()
+  for (const keyword of config.escalation_keywords) {
+    if (normalized.includes(keyword.toLowerCase())) {
+      return keyword
+    }
+  }
+  return null
+}
+
+/**
+ * Obtiene doctores activos, filtrando por la config de WhatsApp
+ * Si un doctor está marcado como inactivo en config.doctors, se excluye
+ */
+async function findActiveDoctors(clinicId: string, config: WhatsAppConfig): Promise<Doctor[]> {
   const { data } = await supabaseAdmin
     .from('doctors')
     .select('*')
     .eq('clinic_id', clinicId)
     .eq('is_active', true)
     .order('created_at', { ascending: true })
-    .limit(1)
-    .single()
 
-  return data as Doctor | null
+  const allDoctors = (data ?? []) as Doctor[]
+
+  // Filtrar por config: si doctor tiene config explícita con active=false, excluir
+  return allDoctors.filter((doc) => {
+    const docConfig = config.doctors[doc.id]
+    return docConfig ? docConfig.active : true
+  })
 }
 
 /**

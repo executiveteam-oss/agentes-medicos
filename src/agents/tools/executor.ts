@@ -13,7 +13,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { calculateEndTime, formatForPatient, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { syncClinicSheet } from '@/lib/google-sheets'
-import type { Clinic, Doctor, WorkingDay } from '@/types/database'
+import type { Clinic, Doctor, WorkingDay, WhatsAppConfig } from '@/types/database'
 import { parseISO, addMinutes, format, startOfDay, endOfDay, isValid } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 
@@ -96,26 +96,45 @@ async function checkAvailability(
     return { success: false, error: 'Fecha no válida. Formato esperado: YYYY-MM-DD' }
   }
 
-  // Verificar si el consultorio atiende ese día
-  const dayOfWeek = getDayOfWeek(date)
-  const workingHours = doctor.working_hours ?? clinic.working_hours
-  const dayConfig: WorkingDay = workingHours[dayOfWeek as keyof typeof workingHours]
+  // Verificar config per-doctor desde whatsapp_config
+  const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
+  const docConfig = waConfig?.doctors[doctorId]
 
-  if (!dayConfig || !dayConfig.active) {
+  // Determinar horario: per-doctor config > doctor.working_hours > clinic.working_hours
+  const dayOfWeek = getDayOfWeek(date)
+  let startTime: string
+  let endTime: string
+  let isDayActive: boolean
+
+  if (docConfig) {
+    // Usar config de WhatsApp para este doctor
+    const dayNum = date.getDay() // 0=dom
+    isDayActive = docConfig.days.includes(dayNum)
+    startTime = docConfig.start
+    endTime = docConfig.end
+  } else {
+    // Fallback a working_hours del doctor o la clínica
+    const workingHours = doctor.working_hours ?? clinic.working_hours
+    const dayConfig: WorkingDay = workingHours[dayOfWeek as keyof typeof workingHours]
+    isDayActive = dayConfig?.active ?? false
+    startTime = dayConfig?.start ?? '08:00'
+    endTime = dayConfig?.end ?? '18:00'
+  }
+
+  if (!isDayActive) {
     return {
       success: true,
       data: {
         available: false,
         date: dateStr,
-        reason: `El consultorio no atiende los ${dayOfWeek === 'sunday' ? 'domingos' : dayOfWeek === 'saturday' ? 'sábados' : 'días ' + dayOfWeek}`,
-        working_hours: workingHours,
+        reason: `El doctor no atiende ese día`,
       },
     }
   }
 
   // Buscar citas existentes para ese día y doctor
-  const dayStart = `${dateStr}T${dayConfig.start}:00-05:00`
-  const dayEnd = `${dateStr}T${dayConfig.end}:00-05:00`
+  const dayStart = `${dateStr}T${startTime}:00-05:00`
+  const dayEnd = `${dateStr}T${endTime}:00-05:00`
 
   const { data: existingAppointments, error } = await supabaseAdmin
     .from('appointments')
@@ -132,9 +151,9 @@ async function checkAvailability(
     return { success: false, error: 'Error consultando disponibilidad' }
   }
 
-  // Generar todos los slots posibles del día
-  const duration = clinic.consultation_duration_minutes
-  const allSlots = generateTimeSlots(dateStr, dayConfig.start, dayConfig.end, duration)
+  // Duración: per-doctor config > whatsapp_config default > clinic default
+  const duration = docConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
+  const allSlots = generateTimeSlots(dateStr, startTime, endTime, duration)
 
   // Filtrar los que ya están ocupados
   const occupiedTimes = new Set(
@@ -218,14 +237,15 @@ async function createAppointment(
   const dateOfBirth = (input.date_of_birth as string) ?? null
   const documentType = (input.document_type as string) ?? null
   const documentNumber = (input.document_number as string) ?? null
-  const patientAddress = (input.patient_address as string) ?? null
-  const patientSecondaryPhone = (input.patient_secondary_phone as string) ?? null
   const patientEmail = (input.patient_email as string) ?? null
   const patientEps = (input.patient_eps as string) ?? null
   const procedureEntity = (input.procedure_entity as string) ?? null
 
-  // Calcular hora de fin
-  const endsAt = calculateEndTime(startsAt, clinic.consultation_duration_minutes)
+  // Calcular hora de fin (usar duración per-doctor si existe en config)
+  const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
+  const docConfig = waConfig?.doctors[doctorId]
+  const duration = docConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
+  const endsAt = calculateEndTime(startsAt, duration)
 
   // Verificar que no haya otra cita en ese horario (doble booking)
   const { data: conflict } = await supabaseAdmin

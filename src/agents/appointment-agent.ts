@@ -15,7 +15,7 @@ import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
-import type { Clinic, Doctor, Message } from '@/types/database'
+import type { Clinic, Doctor, Message, WhatsAppConfig } from '@/types/database'
 import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 
 const MAX_TOOL_ITERATIONS = 5 // Máximo de veces que Claude puede usar tools en una conversación
@@ -24,7 +24,9 @@ interface AgentParams {
   patientMessage: string      // Lo que el paciente escribió
   messageHistory: Message[]   // Últimos 20 mensajes de la conversación
   clinic: Clinic
-  doctor: Doctor
+  doctor: Doctor              // Doctor principal (primer activo)
+  doctors?: Doctor[]          // Todos los doctores activos (multi-doctor)
+  waConfig?: WhatsAppConfig   // Configuración del agente
   patientPhone: string        // Para pasarle a las tools
   patientName: string         // Nombre del paciente
 }
@@ -32,6 +34,10 @@ interface AgentParams {
 interface AgentResponse {
   text: string                // Respuesta para enviar por WhatsApp
   toolsUsed: string[]         // Qué tools se usaron (para auditoría)
+  tokenUsage: {               // Tokens consumidos (para tracking de costos)
+    input: number
+    output: number
+  }
 }
 
 /**
@@ -44,10 +50,11 @@ interface AgentResponse {
  * 4. Máximo 5 vueltas de tools para evitar que se quede en un ciclo infinito
  */
 export async function runAppointmentAgent(params: AgentParams): Promise<AgentResponse> {
-  const { patientMessage, messageHistory, clinic, doctor, patientPhone, patientName } = params
+  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, patientPhone, patientName } = params
 
   // 1. Generar el system prompt con datos reales de la clínica y del paciente actual
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, patientPhone, patientName })
+  const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, patientPhone, patientName })
 
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens
@@ -61,6 +68,8 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
 
   // 3. Loop de tool-use: Claude puede usar hasta 5 tools antes de responder
   const toolsUsed: string[] = []
+  let totalInputTokens = 0
+  let totalOutputTokens = 0
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     // Llamar a Claude
@@ -73,6 +82,10 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       messages,
     })
 
+    // Acumular tokens de cada llamada
+    totalInputTokens += response.usage?.input_tokens ?? 0
+    totalOutputTokens += response.usage?.output_tokens ?? 0
+
     // Si Claude terminó de hablar (no quiere más tools) → devolver texto
     if (response.stop_reason === 'end_turn') {
       const textContent = response.content.find(
@@ -81,6 +94,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       return {
         text: textContent?.text ?? 'Lo siento, tuve un problema. Escribe "hablar con humano" para asistencia.',
         toolsUsed,
+        tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
       }
     }
 
@@ -136,6 +150,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     return {
       text: fallbackText?.text ?? 'Disculpa, tuve un problema técnico. Intenta de nuevo o escribe "hablar con humano".',
       toolsUsed,
+      tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
     }
   }
 
@@ -143,6 +158,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   return {
     text: 'Disculpa, estoy teniendo dificultades. Escribe "hablar con humano" y alguien del consultorio te ayudará.',
     toolsUsed,
+    tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
   }
 }
 

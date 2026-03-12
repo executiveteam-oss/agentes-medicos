@@ -26,6 +26,34 @@ export interface FaqItem {
   respuesta: string
 }
 
+// --- Configuración WhatsApp del agente ---
+export interface WhatsAppScheduleConfig {
+  start: string          // "07:00"
+  end: string            // "20:00"
+  days: number[]         // 0=dom, 1=lun, ..., 6=sáb
+  out_of_hours_message: string
+}
+
+export interface WhatsAppAppointmentConfig {
+  default_duration: number   // minutos
+  max_duration: number       // minutos
+}
+
+export interface WhatsAppDoctorConfig {
+  active: boolean
+  days: number[]             // días activos (0-6)
+  start: string              // "08:00"
+  end: string                // "18:00"
+  duration: number           // duración de cita en minutos
+}
+
+export interface WhatsAppConfig {
+  schedule: WhatsAppScheduleConfig
+  appointment: WhatsAppAppointmentConfig
+  escalation_keywords: string[]
+  doctors: Record<string, WhatsAppDoctorConfig>  // doctor_id → config
+}
+
 // --- CLÍNICAS (tabla: clinics) ---
 export interface Clinic {
   id: string
@@ -37,7 +65,7 @@ export interface Clinic {
   address: string | null
   city: string
   department: string
-  specialty: string | null
+  specialty: string[]                      // Array de especialidades (migración 00008)
   consultation_price: number | null        // COP sin decimales
   consultation_duration_minutes: number
   working_hours: WorkingHours
@@ -48,8 +76,11 @@ export interface Clinic {
   subscription_status: 'trial' | 'active' | 'cancelled' | 'expired'
   subscription_plan: 'basic' | 'pro'
   trial_ends_at: string | null             // ISO 8601
+  whatsapp_config: WhatsAppConfig | null    // Configuración del agente (migración 00012)
   google_sheet_id: string | null           // ID de Google Sheets vinculado
   doctor_email: string | null              // Email del doctor para compartir Sheet
+  daily_goal_appointments: number          // Meta diaria (punto de equilibrio), migración 00006
+  onboarded_at: string | null              // Null = no ha completado el wizard (migración 00007)
   created_at: string
   updated_at: string
 }
@@ -101,6 +132,12 @@ export type AppointmentSource =
   | 'manual'
   | 'dashboard'
 
+export type PaymentType = 'EPS' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
+
+export type InvoiceStatus = 'pendiente' | 'emitida' | 'en_tramite' | 'pagada' | 'glosada' | 'vencida'
+
+export type EpsName = 'Sura' | 'Compensar' | 'Nueva EPS' | 'Sanitas'
+
 export interface Appointment {
   id: string
   clinic_id: string
@@ -117,6 +154,17 @@ export interface Appointment {
   confirmation_received: boolean
   cancelled_at: string | null
   cancellation_reason: string | null
+  payment_type: PaymentType               // Tipo de pago (migración 00006)
+  invoice_status: InvoiceStatus           // Estado factura (migración 00006)
+  outstanding_balance: number             // Saldo pendiente COP (migración 00006)
+  eps_name: EpsName | null                // EPS que cubre al paciente (migración 00010)
+  authorization_code: string | null       // Código autorización EPS (migración 00010)
+  clinic_value: number                    // Valor cobrado por la clínica COP (migración 00010)
+  eps_value: number                       // Valor que paga la EPS COP (migración 00010)
+  patient_copago: number                  // Cuota moderadora COP (migración 00010)
+  invoice_radication_date: string | null  // Fecha radicación YYYY-MM-DD (migración 00010)
+  glosa_value: number                     // Monto glosa COP (migración 00010)
+  glosa_reason: string | null             // Razón de la glosa (migración 00010)
   created_at: string
   updated_at: string
 }
@@ -197,6 +245,54 @@ export interface AuditLog {
   target_type: string | null
   target_id: string | null
   details: Record<string, unknown>
+  created_at: string
+}
+
+// --- CARTERA (tabla: cartera) ---
+export type CarteraStatus = 'pendiente' | 'pagado' | 'castigado'
+
+export interface CarteraEntry {
+  id: string
+  clinic_id: string
+  patient_id: string
+  appointment_id: string | null
+  amount: number                           // COP sin decimales
+  days_overdue: number
+  treatment: string | null
+  payment_type: PaymentType
+  collection_attempts: number
+  last_collection_at: string | null
+  status: CarteraStatus
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CarteraEntryWithDetails extends CarteraEntry {
+  patient: Pick<Patient, 'name' | 'phone'>
+}
+
+// --- ROLES DE CLÍNICA (tabla: clinic_roles) ---
+import type { Permissions } from '@/types/permissions'
+
+export interface ClinicRole {
+  id: string
+  clinic_id: string
+  name: string
+  description: string | null
+  permissions: Permissions
+  is_default: boolean
+  created_at: string
+}
+
+// --- USUARIOS DE CLÍNICA (tabla: clinic_users) ---
+export interface ClinicUser {
+  id: string
+  clinic_id: string
+  auth_user_id: string
+  full_name: string
+  role_id: string | null
+  is_active: boolean
   created_at: string
 }
 

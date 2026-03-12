@@ -4,23 +4,25 @@
 // Esto es lo que Claude "lee" antes de responder al paciente
 // ============================================================
 
-import type { Clinic, Doctor, FaqItem } from '@/types/database'
+import type { Clinic, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
 import { formatCOP, nowColombia } from '@/lib/utils/dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 interface SystemPromptParams {
   clinic: Clinic
-  doctor: Doctor
-  patientPhone: string  // Teléfono WhatsApp del paciente (ya lo tenemos, no pedirlo)
-  patientName: string   // Nombre del perfil WhatsApp (puede diferir del nombre real)
+  doctor: Doctor              // Doctor principal (compatibilidad)
+  doctors?: Doctor[]          // Todos los doctores activos
+  waConfig?: WhatsAppConfig   // Configuración del agente
+  patientPhone: string        // Teléfono WhatsApp del paciente (ya lo tenemos, no pedirlo)
+  patientName: string         // Nombre del perfil WhatsApp (puede diferir del nombre real)
 }
 
 /**
  * Genera el system prompt con datos reales de la clínica
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
-export function buildSystemPrompt({ clinic, doctor, patientPhone, patientName }: SystemPromptParams): string {
+export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPhone, patientName }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
 
@@ -35,19 +37,39 @@ export function buildSystemPrompt({ clinic, doctor, patientPhone, patientName }:
     ? formatCOP(clinic.consultation_price)
     : 'Consultar con el consultorio'
 
+  // Construir info de doctores
+  const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
+  const isMultiDoctor = allDoctors.length > 1
+  const doctorLines = allDoctors.map((d) => {
+    const spec = d.specialty ?? (clinic.specialty.length > 0 ? clinic.specialty.join(', ') : 'General')
+    const dcConfig = waConfig?.doctors[d.id]
+    const duration = dcConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
+    return `  - ${d.name} — ${spec} | ID: ${d.id} | Duración cita: ${duration} min`
+  }).join('\n')
+
+  const multiDoctorRules = isMultiDoctor
+    ? `\nREGLAS MULTI-DOCTOR:
+- La clínica tiene ${allDoctors.length} doctores activos. Cuando el paciente quiera agendar, pregunta con cuál doctor prefiere la cita.
+- Si el paciente no sabe o no tiene preferencia, lista los doctores disponibles con su nombre y especialidad para que elija.
+- NUNCA asumas un doctor — siempre confirma la elección del paciente antes de usar check_availability.
+- Usa el doctor_id correcto del doctor elegido en todas las tools.\n`
+    : ''
+
   return `Eres el asistente virtual de ${clinic.name}. Tu nombre es ${clinic.agent_name}.
 
 ROL: Secretaria virtual. Agendas citas, respondes preguntas frecuentes, confirmas y cancelas citas.
 
 INFO DEL CONSULTORIO:
-- Especialidad: ${clinic.specialty ?? 'General'}
+- Especialidades: ${clinic.specialty.length > 0 ? clinic.specialty.join(', ') : 'General'}
 - Dirección: ${clinic.address ?? 'Consultar'}, ${clinic.city}
 - Precio consulta: ${priceText}
-- Duración consulta: ${clinic.consultation_duration_minutes} minutos
+- Duración consulta por defecto: ${waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes} minutos
 - Horarios de atención:
 ${workingHoursText}
-- Doctor: ${doctor.name} — ${doctor.specialty ?? clinic.specialty ?? 'General'}
-- ID del doctor (para tools): ${doctor.id}
+
+DOCTORES DISPONIBLES:
+${doctorLines}
+${multiDoctorRules}
 
 ${faqText ? `PREGUNTAS FRECUENTES:\n${faqText}\n` : ''}
 REGLAS INQUEBRANTABLES:

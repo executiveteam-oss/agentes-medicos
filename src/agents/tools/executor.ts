@@ -263,11 +263,8 @@ async function createAppointment(
         date_of_birth: dateOfBirth,
         document_type: documentType,
         document_number: documentNumber,
-        ...(patientAddress && { address: patientAddress }),
-        ...(patientSecondaryPhone && { secondary_phone: patientSecondaryPhone }),
         ...(patientEmail && { email: patientEmail }),
         ...(patientEps && { eps: patientEps }),
-        ...(procedureEntity && { procedure_entity: procedureEntity }),
       })
       .select('id')
       .single()
@@ -286,14 +283,18 @@ async function createAppointment(
         ...(dateOfBirth && { date_of_birth: dateOfBirth }),
         ...(documentType && { document_type: documentType }),
         ...(documentNumber && { document_number: documentNumber }),
-        ...(patientAddress && { address: patientAddress }),
-        ...(patientSecondaryPhone && { secondary_phone: patientSecondaryPhone }),
         ...(patientEmail && { email: patientEmail }),
         ...(patientEps && { eps: patientEps }),
-        ...(procedureEntity && { procedure_entity: procedureEntity }),
       })
       .eq('id', patient.id)
   }
+
+  // Mapear procedure_entity a payment_type para la cita
+  // EPS → EPS, Póliza → Póliza, ARL → ARL, SOAT → SOAT, cualquier otra → Particular
+  const validPaymentTypes = ['EPS', 'Particular', 'Póliza', 'ARL', 'SOAT']
+  const paymentType = procedureEntity && validPaymentTypes.includes(procedureEntity)
+    ? procedureEntity
+    : 'Particular'
 
   // Crear la cita
   const { data: appointment, error: aptError } = await supabaseAdmin
@@ -306,6 +307,7 @@ async function createAppointment(
       ends_at: endsAt,
       reason,
       source: 'whatsapp_agent',
+      payment_type: paymentType,
     })
     .select('id, starts_at, ends_at')
     .single()
@@ -315,12 +317,9 @@ async function createAppointment(
     return { success: false, error: 'Error creando la cita' }
   }
 
-  // Actualizar contador de citas del paciente (no crítico si falla)
+  // Incrementar contador de citas del paciente (no crítico si falla)
   try {
-    await supabaseAdmin
-      .from('patients')
-      .update({ total_appointments: 1 })
-      .eq('id', patient.id)
+    await supabaseAdmin.rpc('increment_patient_appointments', { p_patient_id: patient.id })
   } catch { /* no crítico */ }
 
   // Registrar en auditoría (no crítico si falla)
@@ -495,7 +494,7 @@ async function rescheduleAppointment(
   // Verificar que la cita existe
   const { data: appointment } = await supabaseAdmin
     .from('appointments')
-    .select('id, doctor_id, patient_id, starts_at')
+    .select('id, doctor_id, patient_id, starts_at, payment_type, reason')
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
     .single()
@@ -530,7 +529,7 @@ async function rescheduleAppointment(
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
 
-  // Crear la nueva cita
+  // Crear la nueva cita (copiar payment_type y reason de la original)
   const { data: newAppointment, error } = await supabaseAdmin
     .from('appointments')
     .insert({
@@ -540,6 +539,8 @@ async function rescheduleAppointment(
       starts_at: newStartsAt,
       ends_at: newEndsAt,
       source: 'whatsapp_agent',
+      payment_type: appointment.payment_type,
+      reason: appointment.reason,
     })
     .select('id, starts_at')
     .single()

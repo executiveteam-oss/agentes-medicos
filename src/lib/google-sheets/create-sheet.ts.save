@@ -1,0 +1,78 @@
+wnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.tsnano src/lib/google-sheets/create-sheet.ts// ============================================================
+// Crea un nuevo Google Sheet para una clínica
+// - 4 pestañas: Pacientes, Citas, Finanzas, Estadísticas No-Show
+// - Headers formateados (negrita + fondo gris + fila congelada)
+// - Comparte con el email del doctor (solo lectura)
+// ============================================================
+
+import { getSheetsClient, getDriveClient } from './client'
+
+export async function createClinicSheet(
+  clinicName: string,
+  doctorEmail?: string
+): Promise<string> {
+  const sheets = getSheetsClient()
+
+  // 1. Crear spreadsheet con 4 pestañas
+  const response = await sheets.spreadsheets.create({
+    requestBody: {
+      properties: {
+        title: `${clinicName} — Datos del Agente`,
+      },
+      sheets: [
+        { properties: { title: 'Pacientes', index: 0 } },
+        { properties: { title: 'Citas', index: 1 } },
+        { properties: { title: 'Finanzas', index: 2 } },
+        { properties: { title: 'Estadísticas No-Show', index: 3 } },
+      ],
+    },
+  })
+
+  const spreadsheetId = response.data.spreadsheetId!
+  const sheetIds = response.data.sheets?.map(s => s.properties?.sheetId!) ?? []
+
+  // 2. Formatear headers: negrita + fondo gris + fila congelada
+  const formatRequests = sheetIds.map(sheetIdNum => ({
+    repeatCell: {
+      range: { sheetId: sheetIdNum, startRowIndex: 0, endRowIndex: 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: { red: 0.9, green: 0.9, blue: 0.9 },
+          textFormat: { bold: true },
+        },
+      },
+      fields: 'userEnteredFormat(backgroundColor,textFormat)',
+    },
+  }))
+
+  const freezeRequests = sheetIds.map(sheetIdNum => ({
+    updateSheetProperties: {
+      properties: {
+        sheetId: sheetIdNum,
+        gridProperties: { frozenRowCount: 1 },
+      },
+      fields: 'gridProperties.frozenRowCount',
+    },
+  }))
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [...formatRequests, ...freezeRequests] },
+  })
+
+  // 3. Compartir con el doctor si tiene email
+  if (doctorEmail) {
+    const drive = getDriveClient()
+    await drive.permissions.create({
+      fileId: spreadsheetId,
+      requestBody: {
+        type: 'user',
+        role: 'reader',
+        emailAddress: doctorEmail,
+      },
+      sendNotificationEmail: true,
+    })
+  }
+
+  return spreadsheetId
+}

@@ -23,6 +23,7 @@ type IconName =
   | 'UserCog'
   | 'Settings'
   | 'Phone'
+  | 'Shield'
 
 const ALL_NAV_ITEMS: Array<{
   href: string
@@ -40,6 +41,7 @@ const ALL_NAV_ITEMS: Array<{
   { href: '/dashboard/asistente', label: 'Asistente IA', iconName: 'Bot', module: 'asistente' },
   { href: '/dashboard/whatsapp', label: 'WhatsApp', iconName: 'Phone', module: 'whatsapp' },
   { href: '/dashboard/analytics', label: 'Estadísticas', iconName: 'BarChart2', module: 'analytics' },
+  { href: '/dashboard/legal', label: 'Legal', iconName: 'Shield', module: 'settings' },
   { href: '/dashboard/settings', label: 'Configuración', iconName: 'Settings', module: 'user_management' },
 ]
 
@@ -83,7 +85,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
               </div>
               <div className="min-w-0">
                 <p className="text-white font-semibold text-sm truncate">{clinicName}</p>
-                <p className="text-white/50 text-xs truncate">Sekre</p>
+                <p className="text-white/50 text-xs truncate">Omuwan</p>
               </div>
             </div>
           </div>

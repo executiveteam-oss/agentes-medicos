@@ -23,6 +23,7 @@ export interface DoctorForConfig {
   id: string
   name: string
   specialty: string | null
+  phone: string | null
   is_active: boolean
 }
 
@@ -80,7 +81,7 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
     // Doctores de la clínica
     supabaseAdmin
       .from('doctors')
-      .select('id, name, specialty, is_active')
+      .select('id, name, specialty, phone, is_active')
       .eq('clinic_id', clinicId)
       .order('created_at', { ascending: true }),
   ])

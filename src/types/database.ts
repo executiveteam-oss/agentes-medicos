@@ -65,6 +65,9 @@ export interface Clinic {
   address: string | null
   city: string
   department: string
+  building: string | null                  // Edificio / Centro médico (migración 00015)
+  floor: string | null                     // Piso (migración 00015)
+  office: string | null                    // Consultorio / Oficina (migración 00015)
   specialty: string[]                      // Array de especialidades (migración 00008)
   consultation_price: number | null        // COP sin decimales
   consultation_duration_minutes: number
@@ -80,9 +83,25 @@ export interface Clinic {
   google_sheet_id: string | null           // ID de Google Sheets vinculado
   doctor_email: string | null              // Email del doctor para compartir Sheet
   daily_goal_appointments: number          // Meta diaria (punto de equilibrio), migración 00006
+  contact_email: string | null              // Email de contacto (migración 00016)
+  website: string | null                    // Sitio web (migración 00016)
+  logo_url: string | null                   // URL del logo (migración 00016)
+  notification_settings: NotificationSettings // Config notificaciones (migración 00016)
   onboarded_at: string | null              // Null = no ha completado el wizard (migración 00007)
   created_at: string
   updated_at: string
+}
+
+// --- NOTIFICACIONES ---
+export interface NotificationSettings {
+  reminder_24h: boolean
+  reminder_2h: boolean
+  morning_report: boolean
+  morning_report_hour: string
+  noshow_alert: boolean
+  noshow_alert_threshold: number
+  overdue_billing_alert: boolean
+  overdue_billing_days: number
 }
 
 // --- DOCTORES (tabla: doctors) ---
@@ -136,6 +155,8 @@ export type PaymentType = 'EPS' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
 
 export type InvoiceStatus = 'pendiente' | 'emitida' | 'en_tramite' | 'pagada' | 'glosada' | 'vencida'
 
+export type CollectionStatus = 'pendiente' | 'en_tramite' | 'cobrada' | 'glosada' | 'vencida'
+
 export type EpsName = 'Sura' | 'Compensar' | 'Nueva EPS' | 'Sanitas'
 
 export interface Appointment {
@@ -165,6 +186,11 @@ export interface Appointment {
   invoice_radication_date: string | null  // Fecha radicación YYYY-MM-DD (migración 00010)
   glosa_value: number                     // Monto glosa COP (migración 00010)
   glosa_reason: string | null             // Razón de la glosa (migración 00010)
+  invoice_number: string | null           // N° factura del software externo (migración 00014)
+  invoice_date: string | null             // Fecha emisión YYYY-MM-DD (migración 00014)
+  invoice_amount: number | null           // Valor facturado COP (migración 00014)
+  invoice_observations: string | null     // Notas de facturación (migración 00014)
+  collection_status: CollectionStatus     // Estado cobro (migración 00014)
   created_at: string
   updated_at: string
 }
@@ -219,6 +245,8 @@ export interface Reminder {
 export type WaitlistStatus = 'waiting' | 'notified' | 'converted' | 'expired'
 export type PreferredTime = 'morning' | 'afternoon' | 'any'
 
+export type WaitlistPriority = 'normal' | 'urgente'
+
 export interface WaitlistEntry {
   id: string
   clinic_id: string
@@ -227,6 +255,7 @@ export interface WaitlistEntry {
   preferred_dates: string[]                // ["2026-02-15", "2026-02-16"]
   preferred_time: PreferredTime
   reason: string | null
+  priority: WaitlistPriority               // normal | urgente (migración 00017)
   status: WaitlistStatus
   notified_at: string | null
   converted_appointment_id: string | null

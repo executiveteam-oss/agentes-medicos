@@ -235,16 +235,7 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
-      // 16.5. Verificar horario de atención (antes de invocar Claude)
-      if (!isWithinOperatingHours(waConfig)) {
-        const oohMsg = waConfig.schedule.out_of_hours_message
-        await saveMessage(conversation.id, 'agent', oohMsg)
-        await sendWhatsAppMessage(message.from, oohMsg)
-        console.log(`[Webhook] Fuera de horario, mensaje automático enviado`)
-        return
-      }
-
-      // 16.6. Verificar palabras clave de escalamiento
+      // 16.5. Verificar palabras clave de escalamiento
       const escalationMatch = checkEscalationKeywords(sanitizedText, waConfig)
       if (escalationMatch) {
         const escalationMsg = `Entiendo que necesitas ayuda urgente. Voy a pasar tu mensaje a alguien del consultorio para que te atienda lo antes posible. 🙏`
@@ -368,24 +359,6 @@ function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
     doctors: {},
   }
   return (clinic.whatsapp_config as WhatsAppConfig | null) ?? DEFAULT
-}
-
-/**
- * Verifica si la hora actual (Colombia) está dentro del horario de atención
- */
-function isWithinOperatingHours(config: WhatsAppConfig): boolean {
-  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }))
-  const currentDay = now.getDay() // 0=dom, 1=lun, ..., 6=sáb
-
-  if (!config.schedule.days.includes(currentDay)) return false
-
-  const currentMinutes = now.getHours() * 60 + now.getMinutes()
-  const [startH, startM] = config.schedule.start.split(':').map(Number)
-  const [endH, endM] = config.schedule.end.split(':').map(Number)
-  const startMinutes = startH * 60 + startM
-  const endMinutes = endH * 60 + endM
-
-  return currentMinutes >= startMinutes && currentMinutes < endMinutes
 }
 
 /**

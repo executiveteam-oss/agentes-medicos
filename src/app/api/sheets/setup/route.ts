@@ -7,14 +7,26 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getUserSession } from '@/lib/session'
 import { createClinicSheet, syncClinicSheet } from '@/lib/google-sheets'
+import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 
 export const maxDuration = 30
 
 export async function POST(request: NextRequest) {
-  // Verificar autorización
+  // Rate limit general
+  const ip = getClientIp(request)
+  const rateLimit = checkRateLimit(`sheets:${ip}`, RATE_LIMITS.general)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
+  }
+
+  // Autenticación: aceptar sesión de usuario O CRON_SECRET
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  const session = await getUserSession()
+  const isCronAuth = authHeader === `Bearer ${process.env.CRON_SECRET}`
+
+  if (!session && !isCronAuth) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
@@ -23,6 +35,11 @@ export async function POST(request: NextRequest) {
 
     if (!clinicId) {
       return NextResponse.json({ error: 'clinicId es requerido' }, { status: 400 })
+    }
+
+    // Verificar ownership: el clinicId debe coincidir con la sesión del usuario
+    if (session && session.clinicId !== clinicId) {
+      return NextResponse.json({ error: 'No tienes acceso a esta clínica' }, { status: 403 })
     }
 
     if (!providedSheetId) {

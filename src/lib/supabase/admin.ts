@@ -6,17 +6,10 @@
 
 import { createClient } from '@supabase/supabase-js'
 
-// Verificar que las variables de entorno existen
-// Si faltan, el servidor no arranca (mejor fallar temprano que con errores raros)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-
-if (!supabaseUrl) {
-  throw new Error('Falta NEXT_PUBLIC_SUPABASE_URL en .env.local')
-}
-if (!supabaseServiceKey) {
-  throw new Error('Falta SUPABASE_SERVICE_ROLE_KEY en .env.local')
-}
+// Usar placeholders en build-time para que no falle la compilación.
+// En runtime las variables reales deben estar configuradas en Vercel.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://placeholder.supabase.co'
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? 'placeholder'
 
 // Singleton: se crea UNA sola vez y se reutiliza en toda la app
 // auth: autoRefreshToken y persistSession desactivados porque es server-side

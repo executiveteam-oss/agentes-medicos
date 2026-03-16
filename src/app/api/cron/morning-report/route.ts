@@ -15,6 +15,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { formatTimeForPatient, nowColombia } from '@/lib/utils/dates'
 import { calculateDailyNoShowRisk, calculateNoShowProbability } from '@/lib/utils/noshow'
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { format } from 'date-fns'
 
 // Máximo tiempo de ejecución
@@ -25,6 +26,12 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  }
+
+  // Rate limit: 5 req/min
+  const rateLimit = checkRateLimit('cron:morning-report', RATE_LIMITS.cron)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
   }
 
   console.log('[Cron:MorningReport] Generando reporte matutino...')

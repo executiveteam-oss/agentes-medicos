@@ -16,6 +16,7 @@ import {
   UserCog,
   Settings,
   Phone,
+  Shield,
 } from 'lucide-react'
 
 const ICON_MAP = {
@@ -31,6 +32,7 @@ const ICON_MAP = {
   UserCog,
   Settings,
   Phone,
+  Shield,
 } as const
 
 type IconName = keyof typeof ICON_MAP

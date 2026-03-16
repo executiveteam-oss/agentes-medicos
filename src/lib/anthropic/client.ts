@@ -6,11 +6,9 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 
-const apiKey = process.env.ANTHROPIC_API_KEY
-
-if (!apiKey) {
-  throw new Error('Falta ANTHROPIC_API_KEY en .env.local')
-}
+// Usar placeholder en build-time para que no falle la compilación.
+// En runtime la variable real debe estar configurada en Vercel.
+const apiKey = process.env.ANTHROPIC_API_KEY ?? 'placeholder'
 
 // Singleton: una sola instancia del cliente para toda la app
 // Esto es eficiente porque reutiliza la conexión HTTP

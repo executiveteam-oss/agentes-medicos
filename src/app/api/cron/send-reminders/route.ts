@@ -12,6 +12,7 @@ import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import { calculateNoShowProbability } from '@/lib/utils/noshow'
 import { syncClinicSheet } from '@/lib/google-sheets'
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 // Máximo tiempo de ejecución
 export const maxDuration = 30
@@ -22,6 +23,12 @@ export async function GET(request: NextRequest) {
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     console.warn('[Cron:Reminders] Acceso no autorizado')
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  }
+
+  // Rate limit: 5 req/min
+  const rateLimit = checkRateLimit('cron:send-reminders', RATE_LIMITS.cron)
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
   }
 
   console.log('[Cron:Reminders] Iniciando envío de recordatorios...')

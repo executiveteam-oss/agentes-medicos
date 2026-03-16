@@ -44,7 +44,18 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPh
     const spec = d.specialty ?? (clinic.specialty.length > 0 ? clinic.specialty.join(', ') : 'General')
     const dcConfig = waConfig?.doctors[d.id]
     const duration = dcConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
-    return `  - ${d.name} — ${spec} | ID: ${d.id} | Duración cita: ${duration} min`
+    let line = `  - ${d.name} — ${spec} | ID: ${d.id} | Duración cita: ${duration} min`
+    // Agregar horario específico del doctor si existe
+    if (dcConfig?.days && dcConfig.days.length > 0) {
+      const dayNames: Record<number, string> = {
+        0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb',
+      }
+      const days = dcConfig.days.sort((a: number, b: number) => a - b).map((n: number) => dayNames[n]).join(', ')
+      const start = formatHour(dcConfig.start)
+      const end = formatHour(dcConfig.end)
+      line += ` | Atiende: ${days} ${start}-${end}`
+    }
+    return line
   }).join('\n')
 
   const multiDoctorRules = isMultiDoctor
@@ -55,17 +66,31 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPh
 - Usa el doctor_id correcto del doctor elegido en todas las tools.\n`
     : ''
 
+  // Formatear horario de citas del agente (waConfig)
+  const appointmentScheduleText = formatAppointmentSchedule(waConfig)
+
+  // Construir dirección completa para confirmaciones
+  const fullLocationText = formatFullLocation(clinic)
+
   return `Eres el asistente virtual de ${clinic.name}. Tu nombre es ${clinic.agent_name}.
 
 ROL: Secretaria virtual. Agendas citas, respondes preguntas frecuentes, confirmas y cancelas citas.
+Respondes 24/7 — SIEMPRE estás disponible para chatear, responder preguntas y ayudar al paciente.
 
 INFO DEL CONSULTORIO:
 - Especialidades: ${clinic.specialty.length > 0 ? clinic.specialty.join(', ') : 'General'}
-- Dirección: ${clinic.address ?? 'Consultar'}, ${clinic.city}
+- Teléfono de contacto: ${clinic.phone || 'No disponible'}${clinic.contact_email ? `\n- Email de contacto: ${clinic.contact_email}` : ''}${clinic.website ? `\n- Sitio web: ${clinic.website}` : ''}
+- Ubicación completa: ${fullLocationText}
 - Precio consulta: ${priceText}
 - Duración consulta por defecto: ${waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes} minutos
-- Horarios de atención:
+- Horarios del consultorio:
 ${workingHoursText}
+
+HORARIO DE CITAS DISPONIBLES:
+${appointmentScheduleText}
+IMPORTANTE: Puedes chatear y responder preguntas a CUALQUIER hora. Pero las citas SOLO se pueden agendar dentro del horario de citas.
+Si un paciente pide cita fuera de este horario, responde naturalmente: "Las citas están disponibles de [días] [hora inicio] a [hora fin]. ¿Te agendo para [próximo día hábil]?"
+NUNCA dejes de responder por estar fuera de horario — siempre atiende al paciente.
 
 DOCTORES DISPONIBLES:
 ${doctorLines}
@@ -105,13 +130,11 @@ FORMATO Y TONO:
 - Dinero: con punto de miles y COP ($80.000 COP, no 80000)
 
 CONFIRMACIÓN DE CITA (usar este formato EXACTO al confirmar):
-✅ Cita agendada:
-📅 [día y fecha, ej: martes 15 de febrero]
-🕐 [hora, ej: 2:00 PM]
-👨‍⚕️ [nombre del doctor]
-📍 [dirección]
+✅ Cita confirmada con [nombre completo del doctor, ej: la Dra. Carolina Montoya]
+📅 [día y fecha, ej: Martes 18 de marzo] a las [hora, ej: 10:00 AM]
+📍 ${fullLocationText}
 
-Si necesitas cambiar algo, escríbeme.
+Te esperamos. Si necesitas cancelar o reagendar, escríbenos con anticipación.
 
 ZONA HORARIA: America/Bogota (UTC-5). NO existe horario de verano en Colombia.
 FECHA Y HORA ACTUAL: ${currentDateTime}
@@ -206,6 +229,56 @@ function formatHour(time24: string): string {
   if (hours < 12) return `${hours}:${minutes} AM`
   if (hours === 12) return `12:${minutes} PM`
   return `${hours - 12}:${minutes} PM`
+}
+
+/**
+ * Construye la dirección completa de la clínica para confirmaciones de cita
+ * Ejemplo: "Clínica Los Puchis — Torre Médica Los Alpes, Piso 3, Consultorio 302, Calle 10 # 5-23, Pereira"
+ */
+function formatFullLocation(clinic: Clinic): string {
+  const parts: string[] = []
+
+  // Nombre de la clínica
+  parts.push(clinic.name)
+
+  // Edificio, piso, consultorio
+  const locationDetails: string[] = []
+  if (clinic.building) locationDetails.push(clinic.building)
+  if (clinic.floor) locationDetails.push(clinic.floor)
+  if (clinic.office) locationDetails.push(clinic.office)
+
+  // Dirección + ciudad
+  if (clinic.address) locationDetails.push(clinic.address)
+  if (clinic.city) locationDetails.push(clinic.city)
+
+  if (locationDetails.length > 0) {
+    parts.push(locationDetails.join(', '))
+  }
+
+  return parts.join(' — ')
+}
+
+/**
+ * Formatea el horario de citas disponibles desde la config del agente
+ * Ejemplo: "  Lunes a Sábado: 7:00 AM - 8:00 PM"
+ */
+function formatAppointmentSchedule(waConfig?: WhatsAppConfig): string {
+  if (!waConfig) return '  No configurado — usar horarios del consultorio'
+
+  const dayNames: Record<number, string> = {
+    0: 'Domingo', 1: 'Lunes', 2: 'Martes', 3: 'Miércoles',
+    4: 'Jueves', 5: 'Viernes', 6: 'Sábado',
+  }
+
+  const activeDays = waConfig.schedule.days
+    .sort((a, b) => a - b)
+    .map((d) => dayNames[d])
+    .join(', ')
+
+  const start = formatHour(waConfig.schedule.start)
+  const end = formatHour(waConfig.schedule.end)
+
+  return `  Días: ${activeDays}\n  Horario: ${start} - ${end}`
 }
 
 /**

@@ -31,6 +31,7 @@ export async function getUserSession(): Promise<UserSession | null> {
         full_name,
         is_active,
         role_id,
+        doctor_id,
         clinic_roles (
           id,
           name,
@@ -74,6 +75,7 @@ export async function getUserSession(): Promise<UserSession | null> {
       clinicId: clinicUser.clinic_id,
       fullName: clinicUser.full_name,
       email: user.email ?? '',
+      doctorId: (clinicUser as Record<string, unknown>).doctor_id as string | null ?? null,
       role: {
         id: role?.id ?? '',
         name: role?.name ?? 'Sin rol',

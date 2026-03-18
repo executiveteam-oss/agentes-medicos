@@ -42,6 +42,7 @@ export interface UserSession {
   clinicId: string
   fullName: string
   email: string
+  doctorId: string | null      // Si el usuario tiene rol Doctor, su doctor_id vinculado
   role: {
     id: string
     name: string

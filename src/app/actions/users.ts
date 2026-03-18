@@ -19,6 +19,7 @@ export interface ClinicUserRow {
   created_at: string
   auth_user_id: string
   clinic_roles: { id: string; name: string } | null
+  doctor_id: string | null
 }
 
 /** Invitar un nuevo usuario al consultorio */
@@ -224,6 +225,39 @@ export async function removeUserFromClinic(
   }
 }
 
+/** Actualizar el doctor vinculado a un usuario */
+export async function updateUserDoctor(
+  clinicUserId: string,
+  doctorId: string | null
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('user_management')
+
+    const { error } = await supabaseAdmin
+      .from('clinic_users')
+      .update({ doctor_id: doctorId || null })
+      .eq('id', clinicUserId)
+      .eq('clinic_id', clinicId)
+
+    if (error) return { ok: false, error: 'Error actualizando médico vinculado' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'user_doctor_updated',
+      actor_type: 'staff',
+      target_type: 'clinic_user',
+      target_id: clinicUserId,
+      details: { doctor_id: doctorId },
+    })
+
+    revalidatePath('/dashboard/settings/users')
+    return { ok: true }
+  } catch (err) {
+    console.error('[updateUserDoctor]', err)
+    return { ok: false, error: 'Error inesperado' }
+  }
+}
+
 /** Obtener lista de usuarios del consultorio (enriquecida con email y estado) */
 export async function getClinicUsers(): Promise<ClinicUserRow[]> {
   const clinicId = await getSessionClinicId()
@@ -236,6 +270,7 @@ export async function getClinicUsers(): Promise<ClinicUserRow[]> {
       is_active,
       created_at,
       auth_user_id,
+      doctor_id,
       clinic_roles (
         id,
         name
@@ -279,6 +314,7 @@ export async function getClinicUsers(): Promise<ClinicUserRow[]> {
       created_at: cu.created_at,
       auth_user_id: cu.auth_user_id,
       clinic_roles: role as { id: string; name: string } | null,
+      doctor_id: (cu as Record<string, unknown>).doctor_id as string | null ?? null,
     })
   }
 

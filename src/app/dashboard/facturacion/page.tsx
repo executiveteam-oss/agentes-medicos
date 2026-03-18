@@ -1,13 +1,14 @@
 // ============================================================
 // PÁGINA FACTURACIÓN — Control diario de facturación
 // Ruta: /dashboard/facturacion
-// Secciones: Pendientes de facturar + Facturas del mes + Resumen
+// Merge: facturas de appointments + facturas standalone (invoices)
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
 import { redirect } from 'next/navigation'
 import { FacturacionPanel } from '@/components/dashboard/facturacion-panel'
+import type { InvoicedItem } from '@/components/dashboard/facturacion-panel'
 import type { CollectionStatus } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
@@ -29,11 +30,9 @@ export default async function FacturacionPage() {
 
   // --- Pendientes: citas completadas de hoy y ayer SIN invoice_number ---
   const now = new Date()
-  // Ayer a las 00:00 Colombia (UTC-5 → sumar 5h)
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
   yesterday.setHours(0, 0, 0, 0)
-  // Ajustar a UTC desde Colombia (sumar 5 horas)
   const yesterdayUTC = new Date(yesterday.getTime() + 5 * 60 * 60 * 1000)
 
   const { data: pendingRaw } = await supabaseAdmin
@@ -63,23 +62,39 @@ export default async function FacturacionPage() {
     }
   })
 
-  // --- Facturas del mes: citas CON invoice_number en el mes actual ---
+  // --- Facturas del mes: dos fuentes en paralelo ---
   const inicioMes = new Date(now.getFullYear(), now.getMonth(), 1)
-  const inicioMesUTC = new Date(inicioMes.getTime() + 5 * 60 * 60 * 1000)
+  const inicioMesStr = `${inicioMes.getFullYear()}-${String(inicioMes.getMonth() + 1).padStart(2, '0')}-01`
 
-  const { data: invoicedRaw } = await supabaseAdmin
-    .from('appointments')
-    .select(`
-      id, starts_at, invoice_number, invoice_date, invoice_amount,
-      payment_type, collection_status,
-      patients(name)
-    `)
-    .eq('clinic_id', clinicId)
-    .not('invoice_number', 'is', null)
-    .gte('invoice_date', inicioMesUTC.toISOString().split('T')[0])
-    .order('invoice_date', { ascending: false })
+  const [appointmentInvoicesRes, standaloneInvoicesRes] = await Promise.all([
+    // 1. Facturas en appointments
+    supabaseAdmin
+      .from('appointments')
+      .select(`
+        id, starts_at, invoice_number, invoice_date, invoice_amount,
+        payment_type, collection_status,
+        patients(name)
+      `)
+      .eq('clinic_id', clinicId)
+      .not('invoice_number', 'is', null)
+      .gte('invoice_date', inicioMesStr)
+      .order('invoice_date', { ascending: false }),
 
-  const invoiced = (invoicedRaw ?? []).map((apt) => {
+    // 2. Facturas standalone
+    supabaseAdmin
+      .from('invoices')
+      .select(`
+        id, invoice_number, invoice_date, invoice_amount,
+        payment_type, collection_status,
+        patients(name)
+      `)
+      .eq('clinic_id', clinicId)
+      .gte('invoice_date', inicioMesStr)
+      .order('invoice_date', { ascending: false }),
+  ])
+
+  // Mapear facturas de appointments
+  const aptInvoices: InvoicedItem[] = (appointmentInvoicesRes.data ?? []).map((apt) => {
     const raw = apt as Record<string, unknown>
     const patients = raw.patients as { name: string } | null
     return {
@@ -87,12 +102,37 @@ export default async function FacturacionPage() {
       starts_at: apt.starts_at as string,
       patient_name: patients?.name ?? 'Sin nombre',
       invoice_number: apt.invoice_number as string,
-      invoice_date: (apt.invoice_date as string) ?? apt.starts_at as string,
+      invoice_date: (apt.invoice_date as string) ?? (apt.starts_at as string),
       payment_type: (apt.payment_type as string) ?? 'Particular',
       invoice_amount: (apt.invoice_amount as number) || defaultPrice,
       collection_status: ((apt.collection_status as string) ?? 'en_tramite') as CollectionStatus,
+      source: 'appointment',
     }
   })
+
+  // Mapear facturas standalone
+  const standaloneInvoices: InvoicedItem[] = (standaloneInvoicesRes.data ?? []).map((inv) => {
+    const raw = inv as Record<string, unknown>
+    const patients = raw.patients as { name: string } | null
+    return {
+      id: inv.id as string,
+      starts_at: inv.invoice_date as string,
+      patient_name: patients?.name ?? 'Sin nombre',
+      invoice_number: inv.invoice_number as string,
+      invoice_date: inv.invoice_date as string,
+      payment_type: (inv.payment_type as string) ?? 'Particular',
+      invoice_amount: (inv.invoice_amount as number) || 0,
+      collection_status: ((inv.collection_status as string) ?? 'en_tramite') as CollectionStatus,
+      source: 'standalone',
+    }
+  })
+
+  // Merge y deduplicar (si una factura standalone tiene appointment_id,
+  // el appointment ya la muestra — evitar duplicados por invoice_number)
+  const aptInvoiceNumbers = new Set(aptInvoices.map((i) => i.invoice_number))
+  const uniqueStandalone = standaloneInvoices.filter((i) => !aptInvoiceNumbers.has(i.invoice_number))
+  const allInvoiced = [...aptInvoices, ...uniqueStandalone]
+    .sort((a, b) => (b.invoice_date > a.invoice_date ? 1 : -1))
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -103,7 +143,7 @@ export default async function FacturacionPage() {
 
       <FacturacionPanel
         pending={pending}
-        invoiced={invoiced}
+        invoiced={allInvoiced}
         defaultAmount={defaultPrice}
       />
     </div>

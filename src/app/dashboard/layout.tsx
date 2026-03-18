@@ -31,7 +31,7 @@ const ALL_NAV_ITEMS: Array<{
   iconName: IconName
   module: ModuleKey
 }> = [
-  { href: '/dashboard', label: 'Citas del día', iconName: 'CalendarDays', module: 'agenda' },
+  { href: '/dashboard', label: 'Agenda', iconName: 'CalendarDays', module: 'agenda' },
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow' },
   { href: '/dashboard/cartera', label: 'Cartera', iconName: 'CreditCard', module: 'cartera' },
   { href: '/dashboard/facturacion', label: 'Facturación', iconName: 'FileText', module: 'facturacion' },

@@ -14,12 +14,18 @@ interface Role {
   name: string
 }
 
+interface DoctorOption {
+  id: string
+  name: string
+}
+
 interface Props {
   users: ClinicUserRow[]
   roles: Role[]
+  doctors: DoctorOption[]
 }
 
-export function UsersPanel({ users, roles }: Props) {
+export function UsersPanel({ users, roles, doctors }: Props) {
   const [toast, setToast] = useState<string | null>(null)
 
   function showToast(msg: string) {
@@ -72,6 +78,7 @@ export function UsersPanel({ users, roles }: Props) {
                 key={user.id}
                 user={user}
                 roles={roles}
+                doctors={doctors}
                 onToast={showToast}
               />
             ))}

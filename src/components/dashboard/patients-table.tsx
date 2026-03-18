@@ -1,25 +1,28 @@
 'use client'
 
 // ============================================================
-// PatientsTable — REESCRITO desde cero
-// Carga todos los pacientes una vez, filtra client-side
+// PatientsTable — Pure client-side filtering, no server calls
 // ============================================================
 
 import { useState } from 'react'
 import Link from 'next/link'
 import { deletePatient, getPatientForEdit } from '@/app/actions/patients'
 import type { PatientFormData } from '@/app/actions/patients'
-import type { SimplePatient } from '@/app/actions/all-patients'
 import { PatientFormModal } from '@/components/dashboard/patient-form-modal'
 import { formatPhone } from '@/lib/utils/dates'
 
-const EPS_OPTIONS = ['todas', 'Sura', 'Compensar', 'Nueva EPS', 'Sanitas', 'Coosalud', 'Medimás', 'Particular']
-
-interface PatientsTableProps {
-  initialPatients: SimplePatient[]
+interface Patient {
+  id: string
+  name: string
+  phone: string
+  eps: string | null
+  total_appointments: number
+  no_show_count: number
 }
 
-export function PatientsTable({ initialPatients }: PatientsTableProps) {
+const EPS_OPTIONS = ['todas', 'Sura', 'Compensar', 'Nueva EPS', 'Sanitas', 'Coosalud', 'Medimás', 'Particular']
+
+export function PatientsTable({ initialPatients }: { initialPatients: Patient[] }) {
   const [allPatients, setAllPatients] = useState(initialPatients)
   const [search, setSearch] = useState('')
   const [epsFilter, setEpsFilter] = useState('todas')
@@ -27,21 +30,12 @@ export function PatientsTable({ initialPatients }: PatientsTableProps) {
   const [editData, setEditData] = useState<PatientFormData | undefined>(undefined)
   const [toast, setToast] = useState<string | null>(null)
 
-  function showToast(msg: string) {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3000)
-  }
-
-  // Filtrado 100% client-side
+  // 100% client-side filter
   const filtered = allPatients.filter((p) => {
-    // Filtro por texto (nombre o teléfono)
     if (search.trim()) {
       const term = search.trim().toLowerCase()
-      const matchName = p.name.toLowerCase().includes(term)
-      const matchPhone = p.phone.toLowerCase().includes(term)
-      if (!matchName && !matchPhone) return false
+      if (!p.name.toLowerCase().includes(term) && !p.phone.toLowerCase().includes(term)) return false
     }
-    // Filtro por EPS
     if (epsFilter !== 'todas') {
       if (epsFilter === 'Particular') {
         if (p.eps !== null && p.eps !== 'Particular') return false
@@ -51,6 +45,11 @@ export function PatientsTable({ initialPatients }: PatientsTableProps) {
     }
     return true
   })
+
+  function showToast(msg: string) {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3000)
+  }
 
   async function handleEdit(patientId: string) {
     const fullData = await getPatientForEdit(patientId)
@@ -73,21 +72,16 @@ export function PatientsTable({ initialPatients }: PatientsTableProps) {
     }
   }
 
-  function handleSaved() {
-    // Recargar la página para obtener datos frescos
-    window.location.reload()
-  }
-
   return (
     <div className="space-y-4">
-      {/* Barra de búsqueda + filtro + botón agregar */}
+      {/* Search + EPS filter + Add */}
       <div className="flex flex-col sm:flex-row gap-3">
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar por nombre o teléfono..."
-          className="flex-1 input-field"
+          className="flex-1 input-field text-slate-900 bg-white border border-slate-200"
         />
         <select
           value={epsFilter}
@@ -113,7 +107,7 @@ export function PatientsTable({ initialPatients }: PatientsTableProps) {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         initialData={editData}
-        onSaved={handleSaved}
+        onSaved={() => window.location.reload()}
       />
 
       {/* Toast */}
@@ -123,7 +117,7 @@ export function PatientsTable({ initialPatients }: PatientsTableProps) {
         </div>
       )}
 
-      {/* Tabla */}
+      {/* Table */}
       <div className="card overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900">Directorio de pacientes</h2>
@@ -160,29 +154,18 @@ export function PatientsTable({ initialPatients }: PatientsTableProps) {
                 {filtered.map((p) => (
                   <tr key={p.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
                     <td className="py-3.5 px-5">
-                      <Link
-                        href={`/dashboard/patients/${p.id}`}
-                        className="text-sm font-medium text-blue-700 hover:text-blue-800 hover:underline"
-                      >
+                      <Link href={`/dashboard/patients/${p.id}`} className="text-sm font-medium text-blue-700 hover:text-blue-800 hover:underline">
                         {p.name}
                       </Link>
                     </td>
-                    <td className="py-3.5 px-5 text-slate-500 text-sm">
-                      {formatPhone(p.phone)}
-                    </td>
+                    <td className="py-3.5 px-5 text-slate-500 text-sm">{formatPhone(p.phone)}</td>
                     <td className="py-3.5 px-5">
-                      <span className="badge badge-slate">
-                        {p.eps ?? 'Particular'}
-                      </span>
+                      <span className="badge badge-slate">{p.eps ?? 'Particular'}</span>
                     </td>
-                    <td className="py-3.5 px-5 text-center text-slate-700 text-sm font-medium">
-                      {p.total_appointments}
-                    </td>
+                    <td className="py-3.5 px-5 text-center text-slate-700 text-sm font-medium">{p.total_appointments}</td>
                     <td className="py-3.5 px-5 text-center">
                       {p.no_show_count > 0 ? (
-                        <span className={`text-sm font-medium ${p.no_show_count >= 3 ? 'text-red-600' : 'text-amber-600'}`}>
-                          {p.no_show_count}
-                        </span>
+                        <span className={`text-sm font-medium ${p.no_show_count >= 3 ? 'text-red-600' : 'text-amber-600'}`}>{p.no_show_count}</span>
                       ) : (
                         <span className="text-slate-400 text-sm">0</span>
                       )}

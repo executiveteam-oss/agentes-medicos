@@ -277,6 +277,23 @@ export interface AuditLog {
   created_at: string
 }
 
+// --- FACTURAS STANDALONE (tabla: invoices) ---
+export interface Invoice {
+  id: string
+  clinic_id: string
+  patient_id: string
+  appointment_id: string | null
+  invoice_number: string
+  invoice_date: string              // YYYY-MM-DD
+  invoice_amount: number            // COP sin decimales
+  payment_type: string
+  eps_name: string | null
+  collection_status: CollectionStatus
+  observations: string | null
+  created_at: string
+  updated_at: string
+}
+
 // --- CARTERA (tabla: cartera) ---
 export type CarteraStatus = 'pendiente' | 'pagado' | 'castigado'
 

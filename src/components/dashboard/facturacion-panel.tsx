@@ -1,13 +1,13 @@
 'use client'
 
 // ============================================================
-// FacturacionPanel — REESCRITO desde cero
-// Pendientes de facturar + Facturas del mes
+// FacturacionPanel — Pendientes + Nueva factura + Facturas del mes
 // ============================================================
 
 import { useState } from 'react'
 import { registerInvoice } from '@/app/actions/register-invoice'
-import { actualizarEstadoCobro } from '@/app/actions/facturacion'
+import { actualizarEstadoCobro, actualizarEstadoCobroFactura } from '@/app/actions/facturacion'
+import { NuevaFacturaModal } from '@/components/dashboard/nueva-factura-modal'
 import type { CollectionStatus } from '@/types/database'
 
 // ---------- Types ----------
@@ -21,7 +21,7 @@ interface PendingAppointment {
   amount: number
 }
 
-interface InvoicedAppointment {
+export interface InvoicedItem {
   id: string
   starts_at: string
   patient_name: string
@@ -30,11 +30,12 @@ interface InvoicedAppointment {
   payment_type: string
   invoice_amount: number
   collection_status: CollectionStatus
+  source: 'appointment' | 'standalone'
 }
 
 interface Props {
   pending: PendingAppointment[]
-  invoiced: InvoicedAppointment[]
+  invoiced: InvoicedItem[]
   defaultAmount: number
 }
 
@@ -64,6 +65,7 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
   const [pending, setPending] = useState(initialPending)
   const [invoiced, setInvoiced] = useState(initialInvoiced)
   const [openFormId, setOpenFormId] = useState<string | null>(null)
+  const [showNuevaFactura, setShowNuevaFactura] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
   function showToast(msg: string) {
@@ -71,7 +73,7 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
     setTimeout(() => setToast(null), 3000)
   }
 
-  function handleSaved(aptId: string, invoiceNumber: string, invoiceDate: string, invoiceAmount: number) {
+  function handleInlineSaved(aptId: string, invoiceNumber: string, invoiceDate: string, invoiceAmount: number) {
     const apt = pending.find((p) => p.id === aptId)
     setPending((prev) => prev.filter((p) => p.id !== aptId))
     if (apt) {
@@ -84,15 +86,26 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
         payment_type: apt.payment_type,
         invoice_amount: invoiceAmount,
         collection_status: 'en_tramite' as CollectionStatus,
+        source: 'appointment' as const,
       }, ...prev])
     }
     setOpenFormId(null)
     showToast(`Factura ${invoiceNumber} registrada`)
   }
 
-  function handleStatusChange(aptId: string, newStatus: CollectionStatus) {
-    setInvoiced((prev) => prev.map((inv) => inv.id === aptId ? { ...inv, collection_status: newStatus } : inv))
-    actualizarEstadoCobro(aptId, newStatus)
+  function handleManualSaved() {
+    showToast('Factura manual registrada')
+    // revalidatePath en el server action recarga los datos
+    window.location.reload()
+  }
+
+  function handleStatusChange(item: InvoicedItem, newStatus: CollectionStatus) {
+    setInvoiced((prev) => prev.map((inv) => inv.id === item.id ? { ...inv, collection_status: newStatus } : inv))
+    if (item.source === 'standalone') {
+      actualizarEstadoCobroFactura(item.id, newStatus)
+    } else {
+      actualizarEstadoCobro(item.id, newStatus)
+    }
   }
 
   // Resumen
@@ -108,6 +121,25 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
           {toast}
         </div>
       )}
+
+      {/* Modal nueva factura */}
+      <NuevaFacturaModal
+        isOpen={showNuevaFactura}
+        onClose={() => setShowNuevaFactura(false)}
+        defaultAmount={defaultAmount}
+        onSaved={handleManualSaved}
+      />
+
+      {/* Botón nueva factura */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setShowNuevaFactura(true)}
+          className="btn-primary text-sm"
+        >
+          + Nueva factura
+        </button>
+      </div>
 
       {/* Pendientes de facturar */}
       <div className="card overflow-hidden">
@@ -132,7 +164,6 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
           <div>
             {pending.map((apt) => (
               <div key={apt.id} className="border-b border-slate-50 last:border-b-0">
-                {/* Fila de la cita */}
                 <div className="px-5 py-3 flex items-center gap-4 hover:bg-slate-50/50 transition-colors">
                   <span className="text-sm text-slate-600 w-20 shrink-0">{formatTime(apt.starts_at)}</span>
                   <span className="text-sm font-medium text-slate-900 flex-1 truncate">{apt.patient_name}</span>
@@ -141,31 +172,21 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
                   <span className="text-sm font-semibold text-slate-900 w-24 text-right">{formatCOP(apt.amount)}</span>
                   <div className="w-36 text-right">
                     {openFormId === apt.id ? (
-                      <button
-                        type="button"
-                        onClick={() => setOpenFormId(null)}
-                        className="text-xs text-slate-500 hover:text-slate-700"
-                      >
+                      <button type="button" onClick={() => setOpenFormId(null)} className="text-xs text-slate-500 hover:text-slate-700">
                         Cancelar
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => setOpenFormId(apt.id)}
-                        className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium py-1.5 px-3 rounded-lg transition-colors"
-                      >
+                      <button type="button" onClick={() => setOpenFormId(apt.id)} className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium py-1.5 px-3 rounded-lg transition-colors">
                         Registrar factura
                       </button>
                     )}
                   </div>
                 </div>
-
-                {/* Formulario inline */}
                 {openFormId === apt.id && (
                   <InlineInvoiceForm
                     appointmentId={apt.id}
                     defaultAmount={apt.amount || defaultAmount}
-                    onSaved={(num, date, amount) => handleSaved(apt.id, num, date, amount)}
+                    onSaved={(num, date, amount) => handleInlineSaved(apt.id, num, date, amount)}
                     onCancel={() => setOpenFormId(null)}
                   />
                 )}
@@ -217,7 +238,7 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
               </thead>
               <tbody>
                 {invoiced.map((inv) => (
-                  <tr key={inv.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
+                  <tr key={`${inv.source}-${inv.id}`} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
                     <td className="py-3 px-5 text-sm text-slate-900">{inv.patient_name}</td>
                     <td className="py-3 px-5 text-sm text-slate-600 font-mono">{inv.invoice_number}</td>
                     <td className="py-3 px-5">
@@ -227,7 +248,7 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
                     <td className="py-3 px-5">
                       <select
                         value={inv.collection_status}
-                        onChange={(e) => handleStatusChange(inv.id, e.target.value as CollectionStatus)}
+                        onChange={(e) => handleStatusChange(inv, e.target.value as CollectionStatus)}
                         className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white"
                       >
                         <option value="en_tramite">En trámite</option>
@@ -249,8 +270,7 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
 }
 
 // ============================================================
-// InlineInvoiceForm — Formulario inline, 100% nuevo
-// No reutiliza nada del código anterior
+// InlineInvoiceForm — Para citas pendientes (inline)
 // ============================================================
 
 function InlineInvoiceForm({
@@ -266,8 +286,6 @@ function InlineInvoiceForm({
 }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
-  // Campos controlados — sin FormData, sin refs, sin useTransition
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [invoiceDate, setInvoiceDate] = useState(todayStr())
   const [invoiceAmount, setInvoiceAmount] = useState(defaultAmount)
@@ -275,33 +293,17 @@ function InlineInvoiceForm({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-
-    if (!invoiceNumber.trim()) {
-      setError('El número de factura es obligatorio')
-      return
-    }
-
+    if (!invoiceNumber.trim()) { setError('N° factura obligatorio'); return }
     setSaving(true)
     setError('')
-
     try {
       const result = await registerInvoice(appointmentId, {
-        invoiceNumber: invoiceNumber.trim(),
-        invoiceDate,
-        invoiceAmount,
-        observations,
+        invoiceNumber: invoiceNumber.trim(), invoiceDate, invoiceAmount, observations,
       })
-
-      if (result.ok) {
-        onSaved(invoiceNumber.trim(), invoiceDate, invoiceAmount)
-      } else {
-        setError(result.error ?? 'Error desconocido')
-      }
-    } catch (err) {
-      setError('Error de conexión. Intenta de nuevo.')
-    } finally {
-      setSaving(false)
-    }
+      if (result.ok) { onSaved(invoiceNumber.trim(), invoiceDate, invoiceAmount) }
+      else { setError(result.error ?? 'Error') }
+    } catch { setError('Error de conexión') }
+    finally { setSaving(false) }
   }
 
   return (
@@ -309,63 +311,26 @@ function InlineInvoiceForm({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">N° Factura *</label>
-          <input
-            type="text"
-            value={invoiceNumber}
-            onChange={(e) => setInvoiceNumber(e.target.value)}
-            placeholder="FE-001234"
-            autoFocus
-            autoComplete="off"
-            className="input-field text-sm"
-          />
+          <input type="text" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)}
+            placeholder="FE-001234" autoFocus autoComplete="off" className="input-field text-sm" />
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Fecha</label>
-          <input
-            type="date"
-            value={invoiceDate}
-            onChange={(e) => setInvoiceDate(e.target.value)}
-            className="input-field text-sm"
-          />
+          <input type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} className="input-field text-sm" />
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Valor</label>
-          <input
-            type="number"
-            value={invoiceAmount}
-            onChange={(e) => setInvoiceAmount(parseInt(e.target.value) || 0)}
-            className="input-field text-sm"
-          />
+          <input type="number" value={invoiceAmount} onChange={(e) => setInvoiceAmount(parseInt(e.target.value) || 0)} className="input-field text-sm" />
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Observaciones</label>
-          <input
-            type="text"
-            value={observations}
-            onChange={(e) => setObservations(e.target.value)}
-            placeholder="Opcional"
-            className="input-field text-sm"
-          />
+          <input type="text" value={observations} onChange={(e) => setObservations(e.target.value)} placeholder="Opcional" className="input-field text-sm" />
         </div>
       </div>
-
       {error && <p className="text-red-600 text-xs mt-2">{error}</p>}
-
       <div className="flex items-center gap-2 mt-3">
-        <button
-          type="submit"
-          disabled={saving}
-          className="btn-primary text-sm"
-        >
-          {saving ? 'Guardando...' : 'Guardar'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="text-xs text-slate-500 hover:text-slate-700 px-3 py-2"
-        >
-          Cancelar
-        </button>
+        <button type="submit" disabled={saving} className="btn-primary text-sm">{saving ? 'Guardando...' : 'Guardar'}</button>
+        <button type="button" onClick={onCancel} className="text-xs text-slate-500 hover:text-slate-700 px-3 py-2">Cancelar</button>
       </div>
     </form>
   )

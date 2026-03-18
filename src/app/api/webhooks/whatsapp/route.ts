@@ -269,6 +269,20 @@ async function processWebhook(body: unknown): Promise<void> {
       // 18. Ejecutar el agente de IA
       console.log(`[Webhook] Ejecutando agente con mensaje: "${sanitizedText.slice(0, 50)}..."`)
 
+      // Construir datos de paciente recurrente (si tiene datos registrados)
+      const existingPatient = (patient.data_consent_at && (patient.document_number || patient.total_appointments > 0))
+        ? {
+            name: patient.name,
+            phone: patient.phone,
+            document_type: patient.document_type,
+            document_number: patient.document_number,
+            date_of_birth: patient.date_of_birth,
+            eps: patient.eps,
+            email: patient.email,
+            total_appointments: patient.total_appointments ?? 0,
+          }
+        : null
+
       const agentResponse = await runAppointmentAgent({
         patientMessage: sanitizedText,
         messageHistory,
@@ -278,6 +292,7 @@ async function processWebhook(body: unknown): Promise<void> {
         waConfig,
         patientPhone,
         patientName: patient.name,
+        existingPatient,
       })
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
       console.log(`[Webhook] Respuesta: "${agentResponse.text.slice(0, 100)}..."`)

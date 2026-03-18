@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useState, useTransition } from 'react'
-import { toggleUserActive, updateUserRole, resendInvite, removeUserFromClinic } from '@/app/actions/users'
+import { toggleUserActive, updateUserRole, updateUserDoctor, resendInvite, removeUserFromClinic } from '@/app/actions/users'
 import type { ClinicUserRow } from '@/app/actions/users'
 
 interface Role {
@@ -13,9 +13,15 @@ interface Role {
   name: string
 }
 
+interface DoctorOption {
+  id: string
+  name: string
+}
+
 interface Props {
   user: ClinicUserRow
   roles: Role[]
+  doctors: DoctorOption[]
   onToast: (msg: string) => void
 }
 
@@ -25,7 +31,7 @@ const STATUS_CONFIG = {
   pending: { label: 'Pendiente', class: 'badge-amber' },
 } as const
 
-export function UserRow({ user, roles, onToast }: Props) {
+export function UserRow({ user, roles, doctors, onToast }: Props) {
   const [isPending, startTransition] = useTransition()
   const [showConfirmRemove, setShowConfirmRemove] = useState(false)
 
@@ -45,6 +51,17 @@ export function UserRow({ user, roles, onToast }: Props) {
       const result = await updateUserRole(user.id, e.target.value)
       if (result.ok) {
         onToast('Rol actualizado')
+      } else {
+        onToast(result.error ?? 'Error')
+      }
+    })
+  }
+
+  function handleDoctorChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    startTransition(async () => {
+      const result = await updateUserDoctor(user.id, e.target.value || null)
+      if (result.ok) {
+        onToast('Médico vinculado actualizado')
       } else {
         onToast(result.error ?? 'Error')
       }
@@ -98,6 +115,19 @@ export function UserRow({ user, roles, onToast }: Props) {
           <option value="">Sin rol</option>
           {roles.map((r) => (
             <option key={r.id} value={r.id}>{r.name}</option>
+          ))}
+        </select>
+
+        {/* Médico vinculado */}
+        <select
+          value={user.doctor_id ?? ''}
+          onChange={handleDoctorChange}
+          disabled={isPending}
+          className="border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+        >
+          <option value="">Sin médico</option>
+          {doctors.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
           ))}
         </select>
 

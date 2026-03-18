@@ -9,6 +9,17 @@ import { formatCOP, nowColombia } from '@/lib/utils/dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
+interface ExistingPatientData {
+  name: string
+  phone: string
+  document_type: string | null
+  document_number: string | null
+  date_of_birth: string | null
+  eps: string | null
+  email: string | null
+  total_appointments: number
+}
+
 interface SystemPromptParams {
   clinic: Clinic
   doctor: Doctor              // Doctor principal (compatibilidad)
@@ -16,13 +27,14 @@ interface SystemPromptParams {
   waConfig?: WhatsAppConfig   // Configuración del agente
   patientPhone: string        // Teléfono WhatsApp del paciente (ya lo tenemos, no pedirlo)
   patientName: string         // Nombre del perfil WhatsApp (puede diferir del nombre real)
+  existingPatient?: ExistingPatientData | null  // Datos del paciente si ya existe en DB
 }
 
 /**
  * Genera el system prompt con datos reales de la clínica
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
-export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPhone, patientName }: SystemPromptParams): string {
+export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPhone, patientName, existingPatient }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
 
@@ -142,7 +154,7 @@ FECHA Y HORA ACTUAL: ${currentDateTime}
 DATOS DEL PACIENTE ACTUAL:
 - Teléfono WhatsApp: ${patientPhone} — usa ESTE valor en patient_phone al llamar create_appointment, NO le pidas el teléfono al paciente
 - Nombre de perfil: ${patientName} — úsalo como referencia, confirma el nombre completo real durante el agendamiento
-
+${buildExistingPatientSection(existingPatient)}
 DATOS REQUERIDOS PARA AGENDAR:
 Antes de crear la cita debes tener estos datos. Revisa lo que YA tienes en la conversación y pide SOLO lo que falta:
 1. Nombres y apellidos completos
@@ -290,4 +302,65 @@ function formatFaq(faq: FaqItem[]): string {
   return faq
     .map((item) => `P: ${item.pregunta}\nR: ${item.respuesta}`)
     .join('\n\n')
+}
+
+/**
+ * Construye la sección de PACIENTE RECURRENTE para el prompt
+ * Si el paciente ya tiene datos en la DB, Claude lo sabe y puede saludarlo por nombre
+ */
+function buildExistingPatientSection(patient?: ExistingPatientData | null): string {
+  if (!patient) return ''
+
+  // Solo mostrar sección si el paciente tiene al menos nombre y algún dato más
+  const hasData = patient.document_number || patient.date_of_birth || patient.eps
+  if (!hasData && patient.total_appointments === 0) return ''
+
+  const lines: string[] = []
+  lines.push('')
+  lines.push('PACIENTE RECURRENTE — DATOS YA REGISTRADOS:')
+  lines.push(`- Nombre: ${patient.name}`)
+  if (patient.document_type && patient.document_number) {
+    lines.push(`- Documento: ${patient.document_type} ${patient.document_number}`)
+  }
+  if (patient.date_of_birth) {
+    lines.push(`- Fecha de nacimiento: ${patient.date_of_birth}`)
+  }
+  if (patient.eps) {
+    lines.push(`- EPS: ${patient.eps}`)
+  }
+  if (patient.email) {
+    lines.push(`- Correo: ${patient.email}`)
+  }
+  lines.push(`- Citas anteriores: ${patient.total_appointments}`)
+
+  // Campos faltantes
+  const missing: string[] = []
+  if (!patient.document_number) missing.push('tipo y número de documento')
+  if (!patient.date_of_birth) missing.push('fecha de nacimiento')
+  if (!patient.eps) missing.push('EPS')
+  if (!patient.email) missing.push('correo electrónico')
+
+  lines.push('')
+  lines.push('INSTRUCCIONES PARA PACIENTE RECURRENTE:')
+  lines.push('1. En el PRIMER mensaje de la conversación, salúdalo por nombre y pide confirmación de identidad:')
+  lines.push(`   "¡Hola ${patient.name}! 👋 Veo que ya eres paciente nuestro.`)
+  if (patient.document_type && patient.document_number && patient.eps) {
+    lines.push(`   ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}, afiliado/a a ${patient.eps}?`)
+  } else if (patient.document_type && patient.document_number) {
+    lines.push(`   ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}?`)
+  } else {
+    lines.push(`   ¿Confirmas que eres ${patient.name}?`)
+  }
+  lines.push('   Responde Sí para continuar o No si algo cambió."')
+  lines.push('2. Si confirma (sí/si/correcto/exacto/dale): salta la recolección de datos, ve directo a agendar. NUNCA pidas datos que ya tienes arriba.')
+  lines.push('3. Si dice No o quiere actualizar: pregunta qué dato cambió (nombre/documento/EPS) y actualiza solo ese campo.')
+  if (missing.length > 0) {
+    lines.push(`4. Datos que AÚN FALTAN y debes pedir durante el agendamiento: ${missing.join(', ')}`)
+  } else {
+    lines.push('4. Todos los datos están completos — NO pidas ningún dato, ve directo al agendamiento.')
+  }
+  lines.push('5. IMPORTANTE: Solo haz la pregunta de confirmación en el PRIMER mensaje. Si ya se confirmó en el historial, no la repitas.')
+  lines.push('')
+
+  return lines.join('\n')
 }

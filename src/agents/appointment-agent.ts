@@ -20,6 +20,17 @@ import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } f
 
 const MAX_TOOL_ITERATIONS = 5 // Máximo de veces que Claude puede usar tools en una conversación
 
+interface ExistingPatientData {
+  name: string
+  phone: string
+  document_type: string | null
+  document_number: string | null
+  date_of_birth: string | null
+  eps: string | null
+  email: string | null
+  total_appointments: number
+}
+
 interface AgentParams {
   patientMessage: string      // Lo que el paciente escribió
   messageHistory: Message[]   // Últimos 20 mensajes de la conversación
@@ -29,6 +40,7 @@ interface AgentParams {
   waConfig?: WhatsAppConfig   // Configuración del agente
   patientPhone: string        // Para pasarle a las tools
   patientName: string         // Nombre del paciente
+  existingPatient?: ExistingPatientData | null  // Datos si es paciente recurrente
 }
 
 interface AgentResponse {
@@ -50,11 +62,11 @@ interface AgentResponse {
  * 4. Máximo 5 vueltas de tools para evitar que se quede en un ciclo infinito
  */
 export async function runAppointmentAgent(params: AgentParams): Promise<AgentResponse> {
-  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, patientPhone, patientName } = params
+  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, patientPhone, patientName, existingPatient } = params
 
   // 1. Generar el system prompt con datos reales de la clínica y del paciente actual
   const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, patientPhone, patientName })
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, patientPhone, patientName, existingPatient })
 
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens

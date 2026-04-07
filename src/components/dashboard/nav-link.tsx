@@ -17,6 +17,8 @@ import {
   Settings,
   Phone,
   Shield,
+  Lightbulb,
+  Lock,
 } from 'lucide-react'
 
 const ICON_MAP = {
@@ -33,6 +35,7 @@ const ICON_MAP = {
   Settings,
   Phone,
   Shield,
+  Lightbulb,
 } as const
 
 type IconName = keyof typeof ICON_MAP
@@ -41,9 +44,12 @@ interface NavLinkProps {
   href: string
   label: string
   iconName: IconName
+  badge?: number
+  badgeColor?: 'blue' | 'red'
+  locked?: boolean
 }
 
-export function NavLink({ href, label, iconName }: NavLinkProps) {
+export function NavLink({ href, label, iconName, badge, badgeColor = 'blue', locked = false }: NavLinkProps) {
   const pathname = usePathname()
   // Activo exacto para /dashboard, prefijo para el resto
   const isActive = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
@@ -54,13 +60,21 @@ export function NavLink({ href, label, iconName }: NavLinkProps) {
       href={href}
       className={cn(
         'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-        isActive
-          ? 'bg-white/15 text-white'
-          : 'text-white/60 hover:bg-white/10 hover:text-white'
+        locked
+          ? 'text-white/30 hover:bg-white/5 hover:text-white/40'
+          : isActive
+            ? 'bg-white/15 text-white'
+            : 'text-white/60 hover:bg-white/10 hover:text-white'
       )}
     >
-      <Icon size={18} />
-      {label}
+      <Icon size={18} className={cn(iconName === 'Lightbulb' && !locked ? 'text-amber-300' : '', locked ? 'opacity-40' : '')} />
+      <span className="flex-1">{label}</span>
+      {locked && <Lock size={12} className="text-white/30" />}
+      {!locked && badge != null && badge > 0 && (
+        <span className={`${badgeColor === 'red' ? 'bg-red-500' : 'bg-blue-500'} text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center`}>
+          {badge}
+        </span>
+      )}
     </Link>
   )
 }

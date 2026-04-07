@@ -5,14 +5,31 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
+import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
 import { EsperaPanel } from '@/components/dashboard/espera-panel'
+import { calculateWaitlistPriorities } from '@/app/actions/priority'
+import { getFeatureGate, isFeatureEnabled } from '@/lib/feature-gate'
+import { FeatureLocked } from '@/components/dashboard/feature-locked'
 
 export const dynamic = 'force-dynamic'
 
 export default async function EsperaPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
+  if (isDoctorRole(session)) redirect('/dashboard')
+
+  const gate = await getFeatureGate(session.clinicId)
+  if (!isFeatureEnabled(gate.config, 'waitlist')) {
+    return (
+      <FeatureLocked
+        featureName="Lista de espera activa"
+        featureDescription="Cuando cancela alguien, el siguiente en espera recibe aviso automático en segundos. Cupos siempre llenos."
+        whatsappMessage="quiero activar la Lista de espera activa"
+        clinicName={session.clinic?.name}
+      />
+    )
+  }
 
   const { data: clinic } = await supabaseAdmin
     .from('clinics')
@@ -32,7 +49,7 @@ export default async function EsperaPage() {
   }
 
   // Datos en paralelo
-  const [waitlistRes, doctorsRes] = await Promise.all([
+  const [waitlistRes, doctorsRes, priorityData] = await Promise.all([
     supabaseAdmin
       .from('waitlist')
       .select('*, patients(name, phone), doctors(name)')
@@ -45,12 +62,14 @@ export default async function EsperaPage() {
       .eq('clinic_id', clinic.id)
       .eq('is_active', true)
       .order('name'),
+    calculateWaitlistPriorities(clinic.id),
   ])
 
   const entries = (waitlistRes.data ?? []) as Array<{
-    id: string; preferred_dates: string[]; preferred_time: string
+    id: string; patient_id: string; preferred_dates: string[]; preferred_time: string
     reason: string | null; priority: 'normal' | 'urgente'; status: string
     notified_at: string | null; created_at: string
+    source: string; preferred_schedule_notes: string | null; consultation_type_name: string | null
     patients: { name: string; phone: string } | null
     doctors: { name: string } | null
   }>
@@ -59,8 +78,12 @@ export default async function EsperaPage() {
     id: string; name: string; specialty: string | null
   }>
 
-  const esperando = entries.filter((e) => e.status === 'waiting').length
-  const notificados = entries.filter((e) => e.status === 'notified').length
+  // Separar entradas normales de solicitudes manuales de WhatsApp
+  const regularEntries = entries.filter((e) => e.source !== 'whatsapp')
+  const manualEntries = entries.filter((e) => e.source === 'whatsapp')
+
+  const esperando = regularEntries.filter((e) => e.status === 'waiting').length
+  const notificados = regularEntries.filter((e) => e.status === 'notified').length
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
@@ -70,10 +93,14 @@ export default async function EsperaPage() {
       </div>
 
       <EsperaPanel
-        entries={entries}
+        entries={regularEntries}
+        manualEntries={manualEntries}
         doctors={doctors}
         esperando={esperando}
         notificados={notificados}
+        priorityScores={priorityData.scores}
+        availableSlotsThisWeek={priorityData.availableSlotsThisWeek}
+        waitlistCount={priorityData.waitlistCount}
       />
     </div>
   )

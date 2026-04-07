@@ -20,15 +20,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, markAsRead } from '@/lib/whatsapp/client'
-import { sanitizePatientMessage, isSupportedMessageType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
+import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
+import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
 import { verifyWebhookSignature } from '@/lib/whatsapp/verify-signature'
 import { runAppointmentAgent } from '@/agents/appointment-agent'
 import { trackTokenUsage, isClinicPaused } from '@/lib/api-usage'
 import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
+import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
-import type { Clinic, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
+import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 
 // Máximo tiempo de ejecución en Vercel (en segundos)
 // El plan gratuito de Vercel permite hasta 60s para serverless functions
@@ -45,10 +47,28 @@ export async function GET(request: NextRequest) {
   const token = searchParams.get('hub.verify_token')
   const challenge = searchParams.get('hub.challenge')
 
-  // Verificar que el token coincida con el nuestro
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  if (mode !== 'subscribe' || !token || !challenge) {
+    console.warn('[Webhook] Verificación fallida — parámetros incompletos')
+    return NextResponse.json({ error: 'Token no válido' }, { status: 403 })
+  }
+
+  // Verificar contra el token global (env) O contra tokens de clínicas individuales
+  const globalToken = process.env.WHATSAPP_VERIFY_TOKEN
+  let tokenValid = token === globalToken
+
+  if (!tokenValid) {
+    // Buscar si alguna clínica tiene este verify token
+    const { data: clinicMatch } = await supabaseAdmin
+      .from('clinics')
+      .select('id')
+      .eq('whatsapp_verify_token', token)
+      .limit(1)
+      .maybeSingle()
+    tokenValid = !!clinicMatch
+  }
+
+  if (tokenValid) {
     console.log('[Webhook] Verificación exitosa')
-    // Meta espera que devolvamos el challenge como texto plano
     return new NextResponse(challenge, { status: 200 })
   }
 
@@ -71,8 +91,23 @@ export async function POST(request: NextRequest) {
   }
 
   // 2. Verificar firma HMAC de Meta (X-Hub-Signature-256)
+  //    Intentar extraer phone_number_id del body para usar app_secret de la clínica
+  let clinicAppSecret: string | null = null
+  try {
+    const parsed = JSON.parse(rawBody)
+    const phoneNumberId = parsed?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id
+    if (phoneNumberId) {
+      const { data } = await supabaseAdmin
+        .from('clinics')
+        .select('whatsapp_app_secret')
+        .eq('whatsapp_phone_id', phoneNumberId)
+        .maybeSingle()
+      clinicAppSecret = data?.whatsapp_app_secret ?? null
+    }
+  } catch { /* no bloquear si falla */ }
+
   const signature = request.headers.get('x-hub-signature-256')
-  if (!verifyWebhookSignature(rawBody, signature)) {
+  if (!verifyWebhookSignature(rawBody, signature, clinicAppSecret)) {
     console.warn('[Webhook] Firma HMAC inválida — posible solicitud falsificada')
     return NextResponse.json({ error: 'Firma inválida' }, { status: 403 })
   }
@@ -157,6 +192,12 @@ async function processWebhook(body: unknown): Promise<void> {
       }
       console.log(`[Webhook] Clínica: ${clinic.name}`)
 
+      // 3.2. Construir credenciales WhatsApp de la clínica (si las tiene, sino usa env vars)
+      const clinicCreds: ClinicWhatsAppCredentials | null =
+        clinic.whatsapp_access_token && clinic.whatsapp_phone_id
+          ? { phoneNumberId: clinic.whatsapp_phone_id, accessToken: clinic.whatsapp_access_token }
+          : null
+
       // 3.5. Cargar configuración del agente
       const waConfig = getWhatsAppConfig(clinic)
 
@@ -169,19 +210,35 @@ async function processWebhook(body: unknown): Promise<void> {
       // Doctor principal = primero (para compatibilidad)
       const doctor = doctors[0]
 
+      // 4.5. Cargar tipos de consulta activos de la clínica
+      const consultationTypes = await findActiveConsultationTypes(clinic.id)
+
       // 5. Marcar mensaje como leído (checks azules ✓✓)
-      await markAsRead(message.id)
+      await markAsRead(message.id, clinicCreds)
 
       // 6. Normalizar teléfono del paciente
       const patientPhone = normalizePhone(message.from)
       const patientName = contact?.profile?.name ?? 'Paciente'
       console.log(`[Webhook] Paciente: ${patientName}, tel: ${patientPhone.slice(0, 6)}***`)
 
-      // 7. Verificar tipo de mensaje
-      if (!isSupportedMessageType(message.type)) {
+      // 7. Buscar o crear paciente (necesario antes de verificar docs pendientes)
+      const patient = await findOrCreatePatient(clinic.id, patientPhone, patientName)
+
+      // 7.1. Verificar si el paciente tiene documentos pendientes (para aceptar media)
+      const hasDocsPending = await patientHasPendingDocuments(patient.id, clinic.id)
+
+      // 7.2. Si es media (image/document) y hay docs pendientes → marcar como recibidos
+      if (isDocumentMediaType(message.type) && hasDocsPending) {
+        const conversation = await findOrCreateConversation(clinic.id, patient.id, patientPhone)
+        await handleDocumentReceived(patient.id, clinic.id, message.from, conversation.id, patient.name, clinicCreds)
+        return
+      }
+
+      // 7.3. Verificar tipo de mensaje
+      if (!isSupportedMessageType(message.type, hasDocsPending)) {
         // Si es audio, imagen, etc. → responder que solo maneja texto
         const unsupportedMsg = getUnsupportedTypeMessage(message.type)
-        await sendWhatsAppMessage(message.from, unsupportedMsg)
+        await sendWhatsAppMessage(message.from, unsupportedMsg, clinicCreds)
         return
       }
 
@@ -192,10 +249,7 @@ async function processWebhook(body: unknown): Promise<void> {
       // 9. Sanitizar el mensaje (anti-inyección, límite de caracteres)
       const sanitizedText = sanitizePatientMessage(rawText)
 
-      // 10. Buscar o crear paciente
-      const patient = await findOrCreatePatient(clinic.id, patientPhone, patientName)
-
-      // 11. Buscar o crear conversación
+      // 10. Buscar o crear conversación
       const conversation = await findOrCreateConversation(clinic.id, patient.id, patientPhone)
 
       // 12. Cargar historial ANTES de guardar el mensaje actual
@@ -221,7 +275,7 @@ async function processWebhook(body: unknown): Promise<void> {
 
       // 15.5. Detectar respuesta a recordatorio ("sí"/"no" a confirmación de cita)
       const reminderHandled = await handleReminderResponse(
-        sanitizedText, patient.id, clinic.id, message.from, conversation.id
+        sanitizedText, patient.id, clinic.id, message.from, conversation.id, clinicCreds
       )
       if (reminderHandled) {
         // Sync Google Sheets tras respuesta a recordatorio
@@ -229,9 +283,15 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
+      // 15.7. Detectar respuesta NPS (número 1-10 tras followup post-consulta)
+      const npsHandled = await handleNpsResponse(
+        sanitizedText, patient.id, clinic.id, message.from, conversation.id, patient.name, clinicCreds
+      )
+      if (npsHandled) return
+
       // 16. Si es paciente nuevo (sin consentimiento) → enviar aviso de privacidad
       if (!patient.data_consent_at) {
-        await handleNewPatient(clinic, patient, message.from, conversation.id)
+        await handleNewPatient(clinic, patient, message.from, conversation.id, clinicCreds)
         return
       }
 
@@ -240,7 +300,7 @@ async function processWebhook(body: unknown): Promise<void> {
       if (escalationMatch) {
         const escalationMsg = `Entiendo que necesitas ayuda urgente. Voy a pasar tu mensaje a alguien del consultorio para que te atienda lo antes posible. 🙏`
         await saveMessage(conversation.id, 'agent', escalationMsg)
-        await sendWhatsAppMessage(message.from, escalationMsg)
+        await sendWhatsAppMessage(message.from, escalationMsg, clinicCreds)
         await supabaseAdmin
           .from('conversations')
           .update({ status: 'escalated', escalated_at: new Date().toISOString() })
@@ -253,6 +313,16 @@ async function processWebhook(body: unknown): Promise<void> {
             details: { reason: `Palabra clave: "${escalationMatch}"`, urgency: 'high' },
           })
         } catch { /* no crítico */ }
+
+        // Notificar al contacto de escalamiento
+        notifyEscalationContact({
+          clinicId: clinic.id,
+          patientName: patient.name,
+          patientPhone: message.from,
+          lastPatientMessage: sanitizedText,
+          clinicCreds,
+        })
+
         console.log(`[Webhook] Escalado por keyword: "${escalationMatch}"`)
         return
       }
@@ -261,7 +331,7 @@ async function processWebhook(body: unknown): Promise<void> {
       if (await isClinicPaused(clinic.id)) {
         const pausedMsg = 'Nuestro asistente virtual está temporalmente fuera de servicio. Por favor comunícate directamente con el consultorio.'
         await saveMessage(conversation.id, 'agent', pausedMsg)
-        await sendWhatsAppMessage(message.from, pausedMsg)
+        await sendWhatsAppMessage(message.from, pausedMsg, clinicCreds)
         console.warn(`[Webhook] Clínica ${clinic.id} pausada — token limit excedido`)
         return
       }
@@ -290,6 +360,7 @@ async function processWebhook(body: unknown): Promise<void> {
         doctor,
         doctors,
         waConfig,
+        consultationTypes,
         patientPhone,
         patientName: patient.name,
         existingPatient,
@@ -306,12 +377,12 @@ async function processWebhook(body: unknown): Promise<void> {
       await saveMessage(conversation.id, 'agent', agentResponse.text)
 
       // 19. Enviar respuesta por WhatsApp
-      const sendResult = await sendWhatsAppMessage(message.from, agentResponse.text)
+      const sendResult = await sendWhatsAppMessage(message.from, agentResponse.text, clinicCreds)
       if (!sendResult) {
         console.error('[Webhook] FALLÓ el envío por WhatsApp — la respuesta se guardó en DB pero el paciente no la recibió')
       }
 
-      // 20. Si se escaló, marcar la conversación
+      // 20. Si se escaló, marcar la conversación y notificar al equipo
       if (agentResponse.toolsUsed.includes('escalate_to_human')) {
         await supabaseAdmin
           .from('conversations')
@@ -320,6 +391,15 @@ async function processWebhook(body: unknown): Promise<void> {
             escalated_at: new Date().toISOString(),
           })
           .eq('id', conversation.id)
+
+        // Notificar al contacto de escalamiento (fire-and-forget)
+        notifyEscalationContact({
+          clinicId: clinic.id,
+          patientName: patient.name,
+          patientPhone: message.from,
+          lastPatientMessage: sanitizedText,
+          clinicCreds,
+        })
       }
 
       // 21. Registrar en auditoría
@@ -353,7 +433,7 @@ async function findClinicByPhoneId(phoneNumberId: string): Promise<Clinic | null
     .from('clinics')
     .select('*')
     .eq('whatsapp_phone_id', phoneNumberId)
-    .single()
+    .maybeSingle()
 
   return data as Clinic | null
 }
@@ -372,8 +452,14 @@ function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
     appointment: { default_duration: 30, max_duration: 60 },
     escalation_keywords: ['urgencia', 'dolor', 'emergencia', 'hablar con alguien', 'médico', 'sangrado'],
     doctors: {},
+    automations: {
+      post_consulta: { enabled: false },
+      reactivacion: { enabled: false, days_inactive: 90 },
+    },
   }
-  return (clinic.whatsapp_config as WhatsAppConfig | null) ?? DEFAULT
+  const raw = (clinic.whatsapp_config as WhatsAppConfig | null)
+  if (!raw) return DEFAULT
+  return { ...DEFAULT, ...raw, automations: { ...DEFAULT.automations, ...(raw.automations ?? {}) } }
 }
 
 /**
@@ -412,6 +498,21 @@ async function findActiveDoctors(clinicId: string, config: WhatsAppConfig): Prom
 }
 
 /**
+ * Carga los tipos de consulta activos de la clínica
+ * Se pasan al agente para que conozca las opciones disponibles por doctor
+ */
+async function findActiveConsultationTypes(clinicId: string): Promise<ConsultationType[]> {
+  const { data } = await supabaseAdmin
+    .from('consultation_types')
+    .select('*')
+    .eq('clinic_id', clinicId)
+    .eq('is_active', true)
+    .order('doctor_id, created_at')
+
+  return (data ?? []) as ConsultationType[]
+}
+
+/**
  * Busca un paciente por teléfono. Si no existe, lo crea.
  * Los pacientes se crean automáticamente cuando escriben por primera vez.
  */
@@ -426,7 +527,7 @@ async function findOrCreatePatient(
     .select('*')
     .eq('clinic_id', clinicId)
     .eq('phone', phone)
-    .single()
+    .maybeSingle()
 
   if (existing) return existing as Patient
 
@@ -481,7 +582,7 @@ async function findOrCreateConversation(
     .in('status', ['active', 'escalated'])
     .order('created_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (existing) return existing as Conversation
 
@@ -564,7 +665,8 @@ async function handleNewPatient(
   clinic: Clinic,
   patient: Patient,
   whatsappFrom: string,
-  conversationId: string
+  conversationId: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null
 ): Promise<void> {
   // Aviso de privacidad (obligatorio por Ley 1581)
   const privacyNotice =
@@ -573,7 +675,7 @@ async function handleNewPatient(
     `de tus datos para agendar y gestionar tus citas. Si deseas conocer nuestra política ` +
     `completa o ejercer tus derechos, escribe "privacidad".`
 
-  await sendWhatsAppMessage(whatsappFrom, privacyNotice)
+  await sendWhatsAppMessage(whatsappFrom, privacyNotice, clinicCreds)
   await saveMessage(conversationId, 'agent', privacyNotice)
 
   // Marcar consentimiento (al continuar = acepta)
@@ -586,7 +688,7 @@ async function handleNewPatient(
   const welcome = clinic.welcome_message
     ?? `¡Hola! 👋 Soy ${clinic.agent_name}, asistente virtual de ${clinic.name}. ¿En qué te puedo ayudar?`
 
-  await sendWhatsAppMessage(whatsappFrom, welcome)
+  await sendWhatsAppMessage(whatsappFrom, welcome, clinicCreds)
   await saveMessage(conversationId, 'agent', welcome)
 }
 
@@ -601,7 +703,8 @@ async function handleReminderResponse(
   patientId: string,
   clinicId: string,
   whatsappFrom: string,
-  conversationId: string
+  conversationId: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null
 ): Promise<boolean> {
   // Normalizar respuesta
   const normalized = messageText.toLowerCase().trim()
@@ -643,7 +746,7 @@ async function handleReminderResponse(
 
     const response = '✅ ¡Perfecto, tu cita está confirmada! Te esperamos. Si necesitas algo más, escríbeme.'
     await saveMessage(conversationId, 'agent', response)
-    await sendWhatsAppMessage(whatsappFrom, response)
+    await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
 
     console.log(`[Webhook] Recordatorio CONFIRMADO para cita ${pendingAppointment.id}`)
   } else {
@@ -661,7 +764,7 @@ async function handleReminderResponse(
 
     const response = '😔 Entendido. ¿Te gustaría reagendar tu cita para otro día? Escríbeme la fecha que prefieras.'
     await saveMessage(conversationId, 'agent', response)
-    await sendWhatsAppMessage(whatsappFrom, response)
+    await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
 
     console.log(`[Webhook] Recordatorio RECHAZADO para cita ${pendingAppointment.id}`)
   }
@@ -671,4 +774,139 @@ async function handleReminderResponse(
   await calculateNoShowProbability(patientId, clinicId)
 
   return true
+}
+
+// ============================================================
+// NPS RESPONSE — Detecta calificación 1-10 post-consulta
+// ============================================================
+
+async function handleNpsResponse(
+  messageText: string,
+  patientId: string,
+  clinicId: string,
+  whatsappFrom: string,
+  conversationId: string,
+  patientName: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null
+): Promise<boolean> {
+  // Solo procesar si el mensaje es un número del 1 al 10
+  const trimmed = messageText.trim()
+  const score = parseInt(trimmed, 10)
+  if (isNaN(score) || score < 1 || score > 10 || trimmed !== String(score)) return false
+
+  // Buscar cita completada reciente con followup enviado pero sin NPS
+  // Ventana: citas de las últimas 48h (para dar margen de respuesta)
+  const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+
+  const { data: appointment } = await supabaseAdmin
+    .from('appointments')
+    .select('id')
+    .eq('clinic_id', clinicId)
+    .eq('patient_id', patientId)
+    .eq('status', 'completed')
+    .eq('followup_sent', true)
+    .is('nps_score', null)
+    .gte('starts_at', twoDaysAgo)
+    .order('starts_at', { ascending: false })
+    .limit(1)
+    .single()
+
+  if (!appointment) return false
+
+  // Guardar el NPS score
+  await supabaseAdmin
+    .from('appointments')
+    .update({ nps_score: score })
+    .eq('id', appointment.id)
+
+  const response =
+    `¡Gracias ${patientName}! Tu opinión nos ayuda a mejorar. ` +
+    `Si tienes algún comentario adicional, con gusto lo escuchamos. ¡Hasta pronto! 🙏`
+
+  await saveMessage(conversationId, 'agent', response)
+  await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
+
+  console.log(`[Webhook] NPS score ${score} registrado para cita ${appointment.id}`)
+  return true
+}
+
+// ============================================================
+// DOCUMENT FLOW — Detectar y procesar documentos recibidos
+// ============================================================
+
+/**
+ * Verifica si el paciente tiene alguna cita futura con documentos pendientes
+ */
+async function patientHasPendingDocuments(patientId: string, clinicId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from('appointments')
+    .select('id')
+    .eq('clinic_id', clinicId)
+    .eq('patient_id', patientId)
+    .eq('documents_requested', true)
+    .eq('documents_received', false)
+    .in('status', ['confirmed', 'rescheduled'])
+    .gte('starts_at', new Date().toISOString())
+    .limit(1)
+
+  return (data?.length ?? 0) > 0
+}
+
+/**
+ * Marca los documentos como recibidos para la cita pendiente más próxima
+ * y envía confirmación al paciente
+ */
+async function handleDocumentReceived(
+  patientId: string,
+  clinicId: string,
+  whatsappFrom: string,
+  conversationId: string,
+  patientName: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null
+): Promise<void> {
+  // Buscar la cita más próxima con documentos pendientes
+  const { data: appointment } = await supabaseAdmin
+    .from('appointments')
+    .select('id, starts_at')
+    .eq('clinic_id', clinicId)
+    .eq('patient_id', patientId)
+    .eq('documents_requested', true)
+    .eq('documents_received', false)
+    .in('status', ['confirmed', 'rescheduled'])
+    .gte('starts_at', new Date().toISOString())
+    .order('starts_at', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (!appointment) return
+
+  // Marcar documentos como recibidos
+  await supabaseAdmin
+    .from('appointments')
+    .update({
+      documents_received: true,
+      documents_received_at: new Date().toISOString(),
+    })
+    .eq('id', appointment.id)
+
+  const response =
+    `✅ ¡Recibimos tu documento, ${patientName}! Ya lo tenemos en tu expediente para tu próxima cita. ` +
+    `Si necesitas enviar algo más, hazlo por este mismo chat.`
+
+  await saveMessage(conversationId, 'agent', response)
+  await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
+
+  // Audit log
+  try {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'documents_received',
+      actor_type: 'patient',
+      target_type: 'appointment',
+      target_id: appointment.id,
+      details: { patient_id: patientId },
+    })
+  } catch { /* no crítico */ }
+
+  console.log(`[Webhook] Documentos recibidos para cita ${appointment.id}`)
 }

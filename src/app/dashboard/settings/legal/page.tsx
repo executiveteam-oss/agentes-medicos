@@ -4,9 +4,16 @@
 
 export const dynamic = 'force-dynamic'
 
+import { getUserSession } from '@/lib/session'
+import { isDoctorRole } from '@/lib/doctor-filter'
+import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
-export default function LegalSettingsPage() {
+export default async function LegalSettingsPage() {
+  const session = await getUserSession()
+  if (!session) redirect('/login')
+  if (isDoctorRole(session)) redirect('/dashboard/settings/clinic')
+
   return (
     <div className="space-y-6">
       {/* Estado del contrato */}

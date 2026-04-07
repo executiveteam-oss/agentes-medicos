@@ -39,6 +39,10 @@ body {
   @apply bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors;
 }
 
+.btn-navy {
+  @apply bg-[#0f2a6e] hover:bg-[#1a3a8a] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors;
+}
+
 /* Cards */
 .card {
   @apply bg-white rounded-xl shadow-sm border border-slate-200;
@@ -53,6 +57,12 @@ body {
 .badge {
   @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
 }
+/* Insight card glow animation */
+@keyframes insightGlow {
+  0%, 100% { box-shadow: 0 0 15px -5px rgba(16, 185, 129, 0.25); }
+  50% { box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.45); }
+}
+
 .badge-green { @apply bg-emerald-50 text-emerald-700; }
 .badge-amber { @apply bg-amber-50 text-amber-700; }
 .badge-red { @apply bg-red-50 text-red-700; }

@@ -6,10 +6,13 @@
 // Puro Tailwind, sin librerías externas de calendario
 // ============================================================
 
-import { useState } from 'react'
-import { formatTimeForPatient, formatPhone } from '@/lib/utils/dates'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { formatTimeForPatient, formatDateForPatient, formatPhone } from '@/lib/utils/dates'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { CancelAppointmentButton } from '@/components/dashboard/dashboard-actions'
+import { PriorityBadge } from '@/components/dashboard/priority-badge'
+import type { PriorityTier } from '@/components/dashboard/priority-badge'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import type { AppointmentStatus } from '@/types/database'
 
 // ---------- Types ----------
@@ -25,6 +28,10 @@ export interface CalendarAppointment {
   payment_type: string
   invoice_status: string
   outstanding_balance: number | null
+  modality: string
+  virtual_link: string | null
+  documents_requested: boolean
+  documents_received: boolean
   doctor_id: string | null
   patient: {
     id: string
@@ -48,6 +55,7 @@ export interface CalendarAppointment {
 export interface CalendarDoctor {
   id: string
   name: string
+  agenda_closed?: boolean
 }
 
 type ViewMode = 'day' | 'week' | 'month'
@@ -61,6 +69,8 @@ interface Props {
   restrictDoctorId?: string | null
   /** Rol del usuario (para mostrar/ocultar tab "Todos") */
   userRole: string
+  /** clinic_id para suscripción Realtime */
+  clinicId: string
 }
 
 // ---------- Constants ----------
@@ -154,10 +164,119 @@ function getWeekDates(monday: Date): Date[] {
 
 // ---------- Main Component ----------
 
-export function CalendarView({ appointments, initialDate, clinicName, doctors, restrictDoctorId, userRole }: Props) {
+export function CalendarView({ appointments: initialAppointments, initialDate, clinicName, doctors, restrictDoctorId, userRole, clinicId }: Props) {
   const [view, setView] = useState<ViewMode>('week')
   const [selectedDate, setSelectedDate] = useState(parseLocalDate(initialDate))
   const [expandedApt, setExpandedApt] = useState<string | null>(null)
+
+  // Estado local de citas — se actualiza en tiempo real via Supabase Realtime
+  const [appointments, setAppointments] = useState<CalendarAppointment[]>(initialAppointments)
+
+  // Sincronizar si el server recarga (navegación)
+  const prevInitial = useRef(initialAppointments)
+  useEffect(() => {
+    if (prevInitial.current !== initialAppointments) {
+      setAppointments(initialAppointments)
+      prevInitial.current = initialAppointments
+    }
+  }, [initialAppointments])
+
+  // ----- Supabase Realtime -----
+  const handleRealtimeChange = useCallback((payload: {
+    eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+    new: Record<string, unknown>
+    old: Record<string, unknown>
+  }) => {
+    const { eventType } = payload
+
+    if (eventType === 'DELETE') {
+      const oldId = payload.old.id as string
+      setAppointments((prev) => prev.filter((a) => a.id !== oldId))
+      return
+    }
+
+    if (eventType === 'UPDATE') {
+      const updated = payload.new
+      setAppointments((prev) =>
+        prev.map((a) => {
+          if (a.id !== updated.id) return a
+          // Actualizar campos que pueden cambiar via WhatsApp/dashboard
+          return {
+            ...a,
+            status: (updated.status as string) ?? a.status,
+            starts_at: (updated.starts_at as string) ?? a.starts_at,
+            ends_at: (updated.ends_at as string) ?? a.ends_at,
+            reason: (updated.reason as string | null) ?? a.reason,
+            reminder_24h_sent: (updated.reminder_24h_sent as boolean) ?? a.reminder_24h_sent,
+            reminder_confirmed: (updated.reminder_confirmed as boolean | null) ?? a.reminder_confirmed,
+            payment_type: (updated.payment_type as string) ?? a.payment_type,
+            invoice_status: (updated.invoice_status as string) ?? a.invoice_status,
+            outstanding_balance: (updated.outstanding_balance as number | null) ?? a.outstanding_balance,
+            doctor_id: (updated.doctor_id as string | null) ?? a.doctor_id,
+            modality: (updated.modality as string) ?? a.modality,
+            virtual_link: (updated.virtual_link as string | null) ?? a.virtual_link,
+            documents_requested: (updated.documents_requested as boolean) ?? a.documents_requested,
+            documents_received: (updated.documents_received as boolean) ?? a.documents_received,
+          }
+        })
+      )
+      return
+    }
+
+    if (eventType === 'INSERT') {
+      const newApt = payload.new
+      // Evitar duplicados
+      setAppointments((prev) => {
+        if (prev.some((a) => a.id === newApt.id)) return prev
+        // Insertar con datos mínimos (sin relaciones patient/doctor)
+        // La información completa se cargará al refrescar la página
+        const apt: CalendarAppointment = {
+          id: newApt.id as string,
+          starts_at: newApt.starts_at as string,
+          ends_at: newApt.ends_at as string,
+          status: newApt.status as string,
+          reason: (newApt.reason as string | null) ?? null,
+          reminder_24h_sent: (newApt.reminder_24h_sent as boolean) ?? false,
+          reminder_confirmed: (newApt.reminder_confirmed as boolean | null) ?? null,
+          payment_type: (newApt.payment_type as string) ?? 'Particular',
+          invoice_status: (newApt.invoice_status as string) ?? 'pendiente',
+          outstanding_balance: (newApt.outstanding_balance as number | null) ?? null,
+          doctor_id: (newApt.doctor_id as string | null) ?? null,
+          modality: (newApt.modality as string) ?? 'presencial',
+          virtual_link: (newApt.virtual_link as string | null) ?? null,
+          documents_requested: (newApt.documents_requested as boolean) ?? false,
+          documents_received: (newApt.documents_received as boolean) ?? false,
+          patient: null, // Se llenará al refrescar
+          doctor: doctors.find((d) => d.id === newApt.doctor_id)
+            ? { name: doctors.find((d) => d.id === newApt.doctor_id)!.name, specialty: null }
+            : null,
+        }
+        return [...prev, apt].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+      })
+    }
+  }, [doctors])
+
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient()
+
+    const channel = supabase
+      .channel('appointments-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'appointments',
+          filter: `clinic_id=eq.${clinicId}`,
+        },
+        handleRealtimeChange
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [clinicId, handleRealtimeChange])
 
   // Doctor filter: 'all' or a specific doctor_id
   const isDoctor = userRole.toLowerCase() === 'doctor' || userRole.toLowerCase() === 'médico'
@@ -246,11 +365,15 @@ export function CalendarView({ appointments, initialDate, clinicName, doctors, r
                 key={doc.id}
                 onClick={() => setDoctorFilter(doc.id)}
                 className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-                  isActive ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  isActive ? 'bg-slate-900 text-white' : doc.agenda_closed ? 'bg-slate-100 text-slate-400' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                <span className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-white' : color.dot}`} />
-                {doc.name}
+                {doc.agenda_closed ? (
+                  <span className="text-xs">🔒</span>
+                ) : (
+                  <span className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-white' : color.dot}`} />
+                )}
+                <span className={doc.agenda_closed ? 'line-through' : ''}>{doc.name}</span>
               </button>
             )
           })}
@@ -409,14 +532,12 @@ function WeekView({
                           onClick={() => setExpandedApt(expandedApt === apt.id ? null : apt.id)}
                           className={`absolute left-0.5 right-0.5 ${colors.bg} ${colors.border} border rounded-md px-1 py-0.5 text-left overflow-hidden cursor-pointer hover:shadow-sm transition-shadow z-10`}
                           style={{ top: `${topOffset}%`, minHeight: '20px', maxHeight: '95%' }}
-                          title={`${apt.patient?.name ?? 'Paciente'} — ${formatTimeForPatient(apt.starts_at)}`}>
-                          <p className={`text-[10px] font-semibold ${colors.text} truncate leading-tight`}>
-                            {apt.patient?.name ?? 'Paciente'}
+                          title={`${formatTimeForPatient(apt.starts_at)} — ${apt.patient?.name ?? 'Paciente'}`}>
+                          <p className={`text-[10px] font-bold ${colors.text} truncate leading-tight`}>
+                            {formatTimeForPatient(apt.starts_at)} — {apt.patient?.name ?? 'Paciente'}
                           </p>
-                          {showDoctorName && apt.doctor ? (
+                          {showDoctorName && apt.doctor && (
                             <p className={`text-[9px] ${colors.text} opacity-70 truncate leading-tight`}>{apt.doctor.name}</p>
-                          ) : (
-                            <p className={`text-[9px] ${colors.text} opacity-70 truncate leading-tight`}>{formatTimeForPatient(apt.starts_at)}</p>
                           )}
                         </button>
                       )
@@ -624,6 +745,14 @@ function DayView({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {apt.modality === 'virtual' && (
+                      <span className="badge bg-violet-50 text-violet-700 border-violet-200 border">Virtual</span>
+                    )}
+                    {apt.documents_requested && (
+                      apt.documents_received
+                        ? <span className="badge bg-green-50 text-green-700 border-green-200 border">Docs ok</span>
+                        : <span className="badge bg-amber-50 text-amber-700 border-amber-200 border">Docs pendientes</span>
+                    )}
                     <span className={`badge ${PAYMENT_COLORS[apt.payment_type] ?? 'badge-slate'}`}>{apt.payment_type}</span>
                     <span className={`badge ${colors.bg} ${colors.text} ${colors.border} border`}>{STATUS_LABELS[apt.status] ?? apt.status}</span>
                     {probability > 0 && apt.status !== 'completed' && apt.status !== 'no_show' && (
@@ -637,6 +766,16 @@ function DayView({
 
                 {isExpanded && patient && (
                   <div className="px-5 pb-5 pt-2 bg-slate-50/50">
+                    {/* Prominent time header */}
+                    <div className="mb-4 pb-3 border-b border-slate-200">
+                      <p className="text-base font-bold text-slate-900 capitalize">
+                        {formatDateForPatient(apt.starts_at)} · {formatTimeForPatient(apt.starts_at)} — {formatTimeForPatient(apt.ends_at)}
+                      </p>
+                      <div className="flex items-center gap-3 mt-1">
+                        {doctor && <span className="text-sm text-slate-600 font-medium">{doctor.name}{doctor.specialty ? ` · ${doctor.specialty}` : ''}</span>}
+                        {apt.reason && <span className="text-sm text-slate-400">· {apt.reason}</span>}
+                      </div>
+                    </div>
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                       <DetailItem label="Teléfono" value={formatPhone(patient.phone)} />
                       <DetailItem label="Documento" value={`${patient.document_type} ${patient.document_number ?? 'No registrado'}`} />
@@ -677,21 +816,45 @@ function DayView({
 // AppointmentDetail — Panel from week view click
 // ============================================================
 
+function getPatientPriorityTier(patient: CalendarAppointment['patient']): PriorityTier | null {
+  if (!patient) return null
+  let score = 0
+  if (patient.total_appointments >= 5) score += 25
+  else if (patient.total_appointments >= 2) score += 15
+  if (patient.no_show_count === 0) score += 20
+  else if (patient.no_show_count === 1) score += 5
+  else score -= 10
+  // Approximate: assume mid-range for payment (+20) since we don't have payment_type here
+  score += 20
+  if (score >= 80) return 'high'
+  if (score >= 50) return 'mid'
+  return null
+}
+
 function AppointmentDetail({ appointment, onClose }: { appointment: CalendarAppointment | null; onClose: () => void }) {
   if (!appointment) return null
   const apt = appointment
   const patient = apt.patient
   const doctor = apt.doctor
   const statusColors = STATUS_COLORS[apt.status] ?? STATUS_COLORS.confirmed
+  const priorityTier = getPatientPriorityTier(patient)
 
   return (
     <div className="border-t border-slate-100 px-5 py-4 bg-slate-50">
-      <div className="flex items-start justify-between mb-3">
+      {/* Prominent time header */}
+      <div className="flex items-start justify-between mb-4">
         <div>
-          <p className="text-sm font-semibold text-slate-900">{patient?.name ?? 'Paciente'}</p>
-          <p className="text-xs text-slate-500">{formatTimeForPatient(apt.starts_at)} — {doctor?.name ?? 'Sin doctor'}</p>
+          <p className="text-base font-bold text-slate-900 capitalize">
+            {formatDateForPatient(apt.starts_at)} · {formatTimeForPatient(apt.starts_at)} — {formatTimeForPatient(apt.ends_at)}
+          </p>
+          <div className="flex items-center gap-3 mt-1.5">
+            {doctor && <span className="text-sm text-slate-600 font-medium">{doctor.name}{doctor.specialty ? ` · ${doctor.specialty}` : ''}</span>}
+            <span className="text-sm text-slate-400">|</span>
+            <span className="text-sm text-slate-700 font-medium">{patient?.name ?? 'Paciente'}</span>
+            {priorityTier && <PriorityBadge tier={priorityTier} size="xs" />}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <span className={`badge ${statusColors.bg} ${statusColors.text} ${statusColors.border} border`}>{STATUS_LABELS[apt.status] ?? apt.status}</span>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -704,6 +867,30 @@ function AppointmentDetail({ appointment, onClose }: { appointment: CalendarAppo
           <DetailItem label="Motivo" value={apt.reason ?? 'No especificado'} />
           <DetailItem label="Tipo pago" value={apt.payment_type} />
           <DetailItem label="Historial" value={`${patient.total_appointments} citas, ${patient.no_show_count} no-shows`} />
+          {apt.modality === 'virtual' && (
+            <DetailItem label="Modalidad" value="Virtual" valueClass="text-violet-700 font-medium" />
+          )}
+          {apt.documents_requested && (
+            <DetailItem
+              label="Documentos"
+              value={apt.documents_received ? 'Recibidos' : 'Pendientes'}
+              valueClass={apt.documents_received ? 'text-green-700 font-medium' : 'text-amber-700 font-medium'}
+            />
+          )}
+        </div>
+      )}
+      {apt.modality === 'virtual' && apt.virtual_link && (
+        <div className="mt-2 flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+          <span className="text-xs text-violet-700 font-medium shrink-0">Link:</span>
+          <a href={apt.virtual_link} target="_blank" rel="noopener noreferrer" className="text-xs text-violet-700 underline truncate">{apt.virtual_link}</a>
+          <button
+            type="button"
+            onClick={() => { navigator.clipboard.writeText(apt.virtual_link!) }}
+            className="text-xs text-violet-500 hover:text-violet-700 shrink-0 ml-auto"
+            title="Copiar link"
+          >
+            Copiar
+          </button>
         </div>
       )}
       <div className="mt-3">

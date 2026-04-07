@@ -9,6 +9,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { seedDefaultRoles } from '@/lib/seed-roles'
 import { redirect } from 'next/navigation'
+import { checkRateLimit } from '@/lib/rate-limit'
+import type { FeatureConfig } from '@/types/database'
 
 /** Iniciar sesión con email y contraseña */
 export async function loginAction(formData: FormData): Promise<{ error?: string }> {
@@ -19,23 +21,23 @@ export async function loginAction(formData: FormData): Promise<{ error?: string 
     return { error: 'Email y contraseña son requeridos' }
   }
 
+  // Rate limit: 5 intentos por email cada 15 minutos
+  const rateLimit = checkRateLimit(`login:${email.toLowerCase()}`, { maxRequests: 5, windowSeconds: 900 })
+  if (!rateLimit.allowed) {
+    return { error: 'Demasiados intentos. Espera unos minutos antes de intentar de nuevo.' }
+  }
+
   const supabase = await createSupabaseServerClient()
   const { error } = await supabase.auth.signInWithPassword({ email, password })
 
   if (error) {
-    console.error('[loginAction] Supabase error:', error.message, error.status, error.name)
-
-    // Mensajes específicos según el error real de Supabase
-    if (error.message === 'Invalid login credentials') {
-      return { error: 'Email o contraseña incorrectos' }
-    }
+    console.error('[loginAction] Auth error code:', error.status, error.name)
+    // Caso especial: email no confirmado — el usuario necesita saber para poder actuar
     if (error.message === 'Email not confirmed') {
-      return { error: 'Tu email no ha sido confirmado. Revisa tu bandeja de entrada.' }
+      return { error: 'EMAIL_NOT_CONFIRMED' }
     }
-    if (error.message?.includes('rate limit')) {
-      return { error: 'Demasiados intentos. Espera un momento antes de intentar de nuevo.' }
-    }
-    return { error: `Error al iniciar sesión: ${error.message}` }
+    // SECURITY: mensaje genérico para todo lo demás — no revelar si el email existe
+    return { error: 'Credenciales inválidas' }
   }
 
   redirect('/dashboard')
@@ -58,34 +60,35 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
   const specialtyRaw = formData.getAll('specialty') as string[]
   const specialty = specialtyRaw.filter(Boolean)
 
+  // Configurator selections (optional, from pricing wizard)
+  const cfgPlan = (formData.get('cfg_plan') as string) || null
+  const cfgMedicos = parseInt((formData.get('cfg_medicos') as string) || '', 10) || null
+  const cfgCitas = parseInt((formData.get('cfg_citas') as string) || '', 10) || null
+  const cfgFeaturesRaw = (formData.get('cfg_features') as string) || ''
+  const cfgFeaturesList = cfgFeaturesRaw.split(',').filter(Boolean)
+
   if (!email || !password || !fullName || !clinicName) {
     return { error: 'Todos los campos son requeridos' }
   }
 
-  if (password.length < 6) {
-    return { error: 'La contraseña debe tener al menos 6 caracteres' }
+  if (password.length < 10) {
+    return { error: 'La contraseña debe tener al menos 10 caracteres' }
   }
 
-  // 1. Crear usuario en Supabase Auth
+  // 1. Crear usuario en Supabase Auth (requiere confirmación de email)
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
-    email_confirm: true, // Auto-confirmar en MVP (sin email verification)
+    // TODO: verificar que Supabase SMTP esté configurado con dominio propio para mejor entregabilidad
+    // Por ahora usa el SMTP built-in de Supabase (noreply@mail.app.supabase.io)
+    email_confirm: false, // Requiere verificación de email vía link
     user_metadata: { full_name: fullName },
   })
 
   if (authError || !authData.user) {
-    console.error('[registerAction] Auth error:', authError?.message, authError?.status)
-    if (authError?.message?.includes('already registered')) {
-      return { error: 'Este email ya está registrado' }
-    }
-    if (authError?.message?.includes('password')) {
-      return { error: `Error con la contraseña: ${authError.message}` }
-    }
-    if (authError?.message?.includes('email')) {
-      return { error: `Error con el email: ${authError.message}` }
-    }
-    return { error: `Error creando el usuario: ${authError?.message ?? 'Respuesta vacía de Auth'}` }
+    console.error('[registerAction] Auth error code:', authError?.status)
+    // SECURITY: mensaje genérico — no revelar si el email ya existe
+    return { error: 'No se pudo crear la cuenta. Verifica los datos e intenta de nuevo.' }
   }
 
   const authUserId = authData.user.id
@@ -103,6 +106,23 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
     const trialEndsAt = new Date()
     trialEndsAt.setDate(trialEndsAt.getDate() + 14)
 
+    // Build feature_config from configurator selections
+    const featureConfig: FeatureConfig = {
+      agent: true,           // siempre activo
+      reminders_24h: true,   // siempre activo
+      reminders_72h: cfgFeaturesList.includes('reminders'),
+      docs_required: cfgFeaturesList.includes('docs'),
+      waitlist: cfgFeaturesList.includes('waitlist'),
+      reactivation: cfgFeaturesList.includes('reactivation'),
+      dashboard: true,       // siempre activo
+      insights: cfgFeaturesList.includes('insights'),
+      virtual: cfgFeaturesList.includes('virtual'),
+    }
+
+    // Map plan name → subscription_plan (Core + Plus model)
+    const planMap: Record<string, string> = { core: 'core', basico: 'core', pro: 'core', clinica: 'core' }
+    const subscriptionPlan = (cfgPlan && planMap[cfgPlan]) || 'core'
+
     const { data: clinic, error: clinicError } = await supabaseAdmin
       .from('clinics')
       .insert({
@@ -111,9 +131,13 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
         phone: '',
         specialty: specialty.length > 0 ? specialty : [],
         subscription_status: 'trial',
-        subscription_plan: 'basic',
+        subscription_plan: subscriptionPlan,
         trial_ends_at: trialEndsAt.toISOString(),
-        daily_goal_appointments: 8,
+        daily_goal_appointments: cfgCitas ? Math.round(cfgCitas / 22) : 8,
+        feature_config: featureConfig as unknown as Record<string, unknown>,
+        preferred_plan: cfgPlan,
+        expected_doctors: cfgMedicos,
+        expected_monthly_appointments: cfgCitas,
       })
       .select('id')
       .single()
@@ -142,10 +166,6 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
       throw new Error(`Error vinculando usuario a la clínica: ${userError.message}`)
     }
 
-    // 5. Crear sesión para el usuario recién creado
-    const supabase = await createSupabaseServerClient()
-    await supabase.auth.signInWithPassword({ email, password })
-
   } catch (err) {
     // Si algo falló, eliminar el usuario de Auth para no dejar huérfanos
     await supabaseAdmin.auth.admin.deleteUser(authUserId)
@@ -154,7 +174,48 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
     return { error: message }
   }
 
-  redirect('/onboarding')
+  // Email de verificación enviado por Supabase automáticamente
+  redirect('/login?registered=true')
+}
+
+/** Reenviar email de confirmación */
+export async function resendConfirmationAction(email: string): Promise<{ error?: string }> {
+  if (!email) return { error: 'Email requerido' }
+
+  const rateLimit = checkRateLimit(`resend:${email.toLowerCase()}`, { maxRequests: 3, windowSeconds: 300 })
+  if (!rateLimit.allowed) {
+    return { error: 'Espera unos minutos antes de solicitar otro correo.' }
+  }
+
+  const supabase = await createSupabaseServerClient()
+  const { error } = await supabase.auth.resend({ type: 'signup', email })
+
+  if (error) {
+    console.error('[resendConfirmation] Error:', error.status)
+  }
+  // Siempre retornar éxito — no revelar si el email existe
+  return {}
+}
+
+/** Solicitar restablecimiento de contraseña */
+export async function forgotPasswordAction(email: string): Promise<{ error?: string }> {
+  if (!email) return { error: 'Email requerido' }
+
+  const rateLimit = checkRateLimit(`forgot:${email.toLowerCase()}`, { maxRequests: 3, windowSeconds: 300 })
+  if (!rateLimit.allowed) {
+    return { error: 'Espera unos minutos antes de solicitar otro correo.' }
+  }
+
+  const supabase = await createSupabaseServerClient()
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/reset-password`,
+  })
+
+  if (error) {
+    console.error('[forgotPassword] Error:', error.status)
+  }
+  // Siempre retornar éxito — no revelar si el email existe
+  return {}
 }
 
 /** Cerrar sesión */

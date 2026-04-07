@@ -237,6 +237,211 @@ export function ClinicSettingsForm({ initialData }: Props) {
         </div>
       </div>
 
+      {/* --- Reglas de agendamiento --- */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Reglas de agendamiento</h3>
+        <p className="text-xs text-slate-400 mb-5">
+          Controla con cuánta anticipación los pacientes pueden agendar citas por WhatsApp.
+        </p>
+
+        <div className="grid grid-cols-2 gap-4">
+          {/* Anticipación mínima */}
+          <div>
+            <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
+              Anticipación mínima para agendar
+            </label>
+            <select
+              value={
+                [0, 24, 48, 72, 120, 168].includes(data.min_booking_advance_hours)
+                  ? String(data.min_booking_advance_hours)
+                  : 'custom'
+              }
+              onChange={(e) => {
+                const val = e.target.value
+                if (val !== 'custom') {
+                  update('min_booking_advance_hours', Number(val))
+                }
+              }}
+              className="input-field w-full"
+            >
+              <option value="0">Mismo día (0h)</option>
+              <option value="24">24 horas (1 día)</option>
+              <option value="48">48 horas (2 días)</option>
+              <option value="72">72 horas (3 días)</option>
+              <option value="120">5 días</option>
+              <option value="168">7 días</option>
+              <option value="custom">Personalizado</option>
+            </select>
+            {![0, 24, 48, 72, 120, 168].includes(data.min_booking_advance_hours) && (
+              <div className="mt-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={720}
+                  value={data.min_booking_advance_hours}
+                  onChange={(e) => update('min_booking_advance_hours', Math.max(0, Number(e.target.value) || 0))}
+                  className="input-field w-full"
+                  placeholder="Horas de anticipación"
+                />
+                <p className="text-xs text-slate-400 mt-1">Horas de anticipación mínima</p>
+              </div>
+            )}
+          </div>
+
+          {/* Máximo de anticipación */}
+          <div>
+            <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
+              Máximo de anticipación
+            </label>
+            <select
+              value={data.max_booking_advance_days}
+              onChange={(e) => update('max_booking_advance_days', Number(e.target.value))}
+              className="input-field w-full"
+            >
+              <option value={15}>15 días</option>
+              <option value={30}>30 días</option>
+              <option value={60}>60 días</option>
+              <option value={90}>90 días</option>
+            </select>
+            <p className="text-xs text-slate-400 mt-1">
+              Los pacientes pueden agendar hasta {data.max_booking_advance_days} días en el futuro
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* --- Consultas virtuales --- */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Consultas virtuales</h3>
+        <p className="text-xs text-slate-400 mb-5">
+          Configura la plataforma para tus consultas por videollamada. El agente enviará el enlace al paciente.
+        </p>
+
+        <div className="space-y-4">
+          {/* Toggle habilitar */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-700">Habilitar consultas virtuales</p>
+              <p className="text-xs text-slate-400">Permite agendar citas virtuales por WhatsApp</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => update('virtual_config', { ...data.virtual_config, enabled: !data.virtual_config.enabled })}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                data.virtual_config.enabled ? 'bg-blue-700' : 'bg-slate-200'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                data.virtual_config.enabled ? 'translate-x-5' : 'translate-x-0'
+              }`} />
+            </button>
+          </div>
+
+          {data.virtual_config.enabled && (
+            <>
+              {/* Plataforma */}
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
+                  Plataforma de videollamada
+                </label>
+                <select
+                  value={data.virtual_config.platform}
+                  onChange={(e) => update('virtual_config', { ...data.virtual_config, platform: e.target.value as 'google_meet' | 'zoom' | 'teams' | 'custom' | 'isalud' })}
+                  className="input-field w-full"
+                >
+                  <option value="google_meet">Google Meet</option>
+                  <option value="zoom">Zoom</option>
+                  <option value="teams">Microsoft Teams</option>
+                  <option value="custom">Link propio</option>
+                  <option value="isalud">iSalud (envío manual)</option>
+                </select>
+              </div>
+
+              {/* URL base (para zoom, teams, custom) */}
+              {['zoom', 'teams', 'custom'].includes(data.virtual_config.platform) && (
+                <div>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
+                    {data.virtual_config.platform === 'custom' ? 'Link fijo de videollamada' : `URL base de ${data.virtual_config.platform === 'zoom' ? 'Zoom' : 'Teams'}`}
+                  </label>
+                  <input
+                    type="url"
+                    value={data.virtual_config.base_url ?? ''}
+                    onChange={(e) => update('virtual_config', { ...data.virtual_config, base_url: e.target.value || null })}
+                    placeholder={
+                      data.virtual_config.platform === 'zoom' ? 'https://zoom.us/j/1234567890'
+                      : data.virtual_config.platform === 'teams' ? 'https://teams.microsoft.com/l/meetup-join/...'
+                      : 'https://...'
+                    }
+                    className="input-field w-full"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">
+                    {data.virtual_config.platform === 'custom'
+                      ? 'Este link se enviará a todos los pacientes con cita virtual.'
+                      : 'Se enviará este link a los pacientes antes de su cita.'}
+                  </p>
+                </div>
+              )}
+
+              {data.virtual_config.platform === 'google_meet' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                  <p className="text-xs text-blue-700">
+                    Se generará un enlace de Google Meet por cada cita virtual. El paciente recibirá el link 30 minutos antes.
+                  </p>
+                </div>
+              )}
+
+              {data.virtual_config.platform === 'isalud' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                  <p className="text-xs text-amber-700">
+                    El link de iSalud debe enviarse manualmente desde la plataforma. El agente le informará al paciente que recibirá el enlace.
+                  </p>
+                </div>
+              )}
+
+              {/* Instrucciones */}
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
+                  Instrucciones para el paciente
+                  <span className="text-slate-400 normal-case tracking-normal ml-1">(opcional)</span>
+                </label>
+                <textarea
+                  value={data.virtual_config.instructions ?? ''}
+                  onChange={(e) => update('virtual_config', { ...data.virtual_config, instructions: e.target.value || null })}
+                  rows={2}
+                  placeholder="Ingresa al enlace 5 minutos antes de tu cita. Asegúrate de tener buena conexión a internet."
+                  className="input-field w-full resize-none"
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* --- Alertas de escalamiento --- */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Alertas de escalamiento</h3>
+        <p className="text-xs text-slate-400 mb-5">
+          Cuando un paciente necesite atención urgente, enviaremos un WhatsApp a este número.
+        </p>
+
+        <div>
+          <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
+            Número para alertas de escalamiento
+            <span className="text-slate-400 normal-case tracking-normal ml-1">(opcional)</span>
+          </label>
+          <input
+            type="tel"
+            value={data.escalation_contact_phone}
+            onChange={(e) => update('escalation_contact_phone', e.target.value)}
+            placeholder="+57 3XX XXX XXXX"
+            className="input-field w-full"
+          />
+          <p className="text-xs text-slate-400 mt-1">
+            Este número recibirá un WhatsApp cuando un paciente necesite atención urgente
+          </p>
+        </div>
+      </div>
+
       {/* --- Ubicación --- */}
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Ubicación</h3>

@@ -3,20 +3,27 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const TABS = [
-  { href: '/dashboard/settings/clinic', label: 'Consultorio' },
-  { href: '/dashboard/settings/users', label: 'Usuarios' },
-  { href: '/dashboard/settings/roles', label: 'Roles y permisos' },
-  { href: '/dashboard/settings/notifications', label: 'Notificaciones' },
-  { href: '/dashboard/settings/legal', label: 'Contrato y Legal' },
+const ALL_TABS = [
+  { href: '/dashboard/settings/clinic', label: 'Consultorio', doctorVisible: true, superAdminOnly: false },
+  { href: '/dashboard/settings/plan', label: 'Mi plan', doctorVisible: false, superAdminOnly: false },
+  { href: '/dashboard/settings/whatsapp', label: 'WhatsApp', doctorVisible: false, superAdminOnly: false },
+  { href: '/dashboard/settings/integrations', label: 'Integraciones', doctorVisible: false, superAdminOnly: false },
+  { href: '/dashboard/settings/users', label: 'Usuarios', doctorVisible: false, superAdminOnly: false },
+  { href: '/dashboard/settings/roles', label: 'Roles y permisos', doctorVisible: false, superAdminOnly: false },
+  { href: '/dashboard/settings/notifications', label: 'Notificaciones', doctorVisible: false, superAdminOnly: false },
+  { href: '/dashboard/settings/legal', label: 'Contrato y Legal', doctorVisible: false, superAdminOnly: false },
+  { href: '/dashboard/settings/system-status', label: 'Sistema', doctorVisible: false, superAdminOnly: true },
 ]
 
-export function SettingsTabs() {
+export function SettingsTabs({ isDoctor = false, isSuperAdmin = false }: { isDoctor?: boolean; isSuperAdmin?: boolean }) {
   const pathname = usePathname()
+  const tabs = ALL_TABS
+    .filter((t) => !isDoctor || t.doctorVisible)
+    .filter((t) => !t.superAdminOnly || isSuperAdmin)
 
   return (
     <div className="flex border-b border-slate-200 overflow-x-auto">
-      {TABS.map((tab) => {
+      {tabs.map((tab) => {
         const isActive = pathname === tab.href || pathname.startsWith(tab.href + '/')
         return (
           <Link

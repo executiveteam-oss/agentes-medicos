@@ -139,6 +139,9 @@ export interface PatientDetail {
   notes: string | null
   no_show_count: number
   total_appointments: number
+  visit_frequency_days: number | null
+  last_visit_at: string | null          // ISO de última cita completada
+  days_since_last_visit: number | null
   created_at: string
 }
 
@@ -149,6 +152,8 @@ export interface PatientAppointment {
   reason: string | null
   payment_type: string
   invoice_status: string
+  documents_requested: boolean
+  documents_received: boolean
   doctor_name: string | null
 }
 
@@ -181,20 +186,20 @@ export interface PatientDetailResult {
 export async function getPatientDetail(patientId: string): Promise<PatientDetailResult | null> {
   const clinicId = await checkReadPermission('patients')
 
-  const { data: patient, error } = await supabaseAdmin
+  const { data: patientRaw, error } = await supabaseAdmin
     .from('patients')
-    .select('id, name, phone, email, document_type, document_number, date_of_birth, eps, notes, no_show_count, total_appointments, created_at')
+    .select('id, name, phone, email, document_type, document_number, date_of_birth, eps, notes, no_show_count, total_appointments, visit_frequency_days, created_at')
     .eq('id', patientId)
     .eq('clinic_id', clinicId)
     .single()
 
-  if (error || !patient) return null
+  if (error || !patientRaw) return null
 
   // Citas, conversaciones, cartera en paralelo
   const [apptRes, convRes, cartRes] = await Promise.all([
     supabaseAdmin
       .from('appointments')
-      .select('id, starts_at, status, reason, payment_type, invoice_status, doctors(name)')
+      .select('id, starts_at, status, reason, payment_type, invoice_status, documents_requested, documents_received, doctors(name)')
       .eq('clinic_id', clinicId)
       .eq('patient_id', patientId)
       .order('starts_at', { ascending: false })
@@ -227,6 +232,21 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
     }
   }
 
+  // Última visita completada
+  const completedAppts = (apptRes.data ?? []).filter((a) => a.status === 'completed')
+  const lastVisit = completedAppts.length > 0 ? completedAppts[0] : null // ya ordenadas desc
+  const lastVisitAt = lastVisit?.starts_at ?? null
+  const daysSinceLastVisit = lastVisitAt
+    ? Math.floor((Date.now() - new Date(lastVisitAt).getTime()) / (1000 * 60 * 60 * 24))
+    : null
+
+  const patient: PatientDetail = {
+    ...patientRaw,
+    visit_frequency_days: patientRaw.visit_frequency_days ?? null,
+    last_visit_at: lastVisitAt,
+    days_since_last_visit: daysSinceLastVisit,
+  }
+
   return {
     patient,
     appointments: (apptRes.data ?? []).map((a) => {
@@ -238,6 +258,8 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
         reason: a.reason,
         payment_type: a.payment_type,
         invoice_status: a.invoice_status,
+        documents_requested: (a.documents_requested as boolean) ?? false,
+        documents_received: (a.documents_received as boolean) ?? false,
         doctor_name: doc?.name ?? null,
       }
     }),

@@ -5,6 +5,8 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
+import { getRestrictedDoctorId, isDoctorUnlinked } from '@/lib/doctor-filter'
+import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-banner'
 import { formatTimeForPatient, formatCOP } from '@/lib/utils/dates'
 import { NoShowCharts } from '@/components/dashboard/noshow-charts'
 import { redirect } from 'next/navigation'
@@ -18,6 +20,9 @@ const NO_SHOW_THRESHOLD = 25 // % umbral de alerta
 export default async function NoShowPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
+  if (isDoctorUnlinked(session)) return <DoctorUnlinkedBanner />
+
+  const restrictDoctorId = getRestrictedDoctorId(session)
 
   const { data: clinic } = await supabaseAdmin
     .from('clinics')
@@ -40,13 +45,19 @@ export default async function NoShowPage() {
   const hace30 = new Date()
   hace30.setDate(hace30.getDate() - 30)
 
-  const { data: appointments } = await supabaseAdmin
+  let noshowQuery = supabaseAdmin
     .from('appointments')
     .select('id, starts_at, status, patients(name, phone, no_show_count, total_appointments)')
     .eq('clinic_id', clinic.id)
     .in('status', ['completed', 'no_show'])
     .gte('starts_at', hace30.toISOString())
     .order('starts_at', { ascending: false })
+
+  if (restrictDoctorId) {
+    noshowQuery = noshowQuery.eq('doctor_id', restrictDoctorId)
+  }
+
+  const { data: appointments } = await noshowQuery
 
   const total = appointments?.length ?? 0
   const noShows = (appointments ?? []).filter((a) => a.status === 'no_show').length

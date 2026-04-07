@@ -8,14 +8,21 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
+import { isDoctorUnlinked, getRestrictedDoctorId } from '@/lib/doctor-filter'
+import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-banner'
 import { nowColombia, formatCOP } from '@/lib/utils/dates'
 import { festivosProximos } from '@/lib/utils/festivos'
 import { NewAppointmentButton } from '@/components/dashboard/dashboard-actions'
 import { CalendarView } from '@/components/dashboard/calendar-view'
+import { DashboardStats } from '@/components/dashboard/dashboard-stats'
 import type { CalendarAppointment, CalendarDoctor } from '@/components/dashboard/calendar-view'
 import { redirect } from 'next/navigation'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { getTodayInsight } from '@/app/actions/insights'
+import { InsightWidget } from '@/components/dashboard/insight-widget'
+import { getSetupProgress } from '@/app/actions/setup-progress'
+import { SetupChecklist } from '@/components/dashboard/setup-checklist'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +33,9 @@ export default async function DashboardPage() {
 
   const session = await getUserSession()
   if (!session) redirect('/login')
+  if (isDoctorUnlinked(session)) return <DoctorUnlinkedBanner />
+
+  const restrictDoctorId = getRestrictedDoctorId(session)
 
   const { data: clinic } = await supabaseAdmin
     .from('clinics')
@@ -48,7 +58,7 @@ export default async function DashboardPage() {
   // Doctores activos (para el modal de nueva cita)
   const { data: activeDoctors } = await supabaseAdmin
     .from('doctors')
-    .select('id, name, specialty')
+    .select('id, name, specialty, agenda_closed')
     .eq('clinic_id', clinic.id)
     .eq('is_active', true)
     .order('name')
@@ -66,11 +76,12 @@ export default async function DashboardPage() {
   const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd')
 
   // Citas del rango con datos del paciente y doctor
-  const { data: rawAppointments } = await supabaseAdmin
+  let aptsQuery = supabaseAdmin
     .from('appointments')
     .select(`
       id, starts_at, ends_at, status, reason, reminder_24h_sent, reminder_confirmed,
-      payment_type, invoice_status, outstanding_balance, doctor_id,
+      payment_type, invoice_status, outstanding_balance, doctor_id, modality, virtual_link,
+      documents_requested, documents_received,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
       doctors(name, specialty)
     `)
@@ -79,6 +90,12 @@ export default async function DashboardPage() {
     .gte('starts_at', `${rangeStartStr}T00:00:00-05:00`)
     .lte('starts_at', `${rangeEndStr}T23:59:59-05:00`)
     .order('starts_at', { ascending: true })
+
+  if (restrictDoctorId) {
+    aptsQuery = aptsQuery.eq('doctor_id', restrictDoctorId)
+  }
+
+  const { data: rawAppointments } = await aptsQuery
 
   // Mapear a la interfaz del calendario
   const appointments: CalendarAppointment[] = (rawAppointments ?? []).map((apt) => {
@@ -96,6 +113,10 @@ export default async function DashboardPage() {
       payment_type: (apt.payment_type as string) ?? 'Particular',
       invoice_status: (raw.invoice_status as string) ?? 'pendiente',
       outstanding_balance: (raw.outstanding_balance as number) ?? null,
+      modality: (raw.modality as string) ?? 'presencial',
+      virtual_link: (raw.virtual_link as string) ?? null,
+      documents_requested: (raw.documents_requested as boolean) ?? false,
+      documents_received: (raw.documents_received as boolean) ?? false,
       doctor_id: (raw.doctor_id as string) ?? null,
       patient: patients ?? null,
       doctor: doctorsRel ?? null,
@@ -106,6 +127,7 @@ export default async function DashboardPage() {
   const calendarDoctors: CalendarDoctor[] = (activeDoctors ?? []).map((d) => ({
     id: d.id as string,
     name: d.name as string,
+    agenda_closed: (d.agenda_closed as boolean) ?? false,
   }))
 
   // Estadísticas rápidas
@@ -117,23 +139,32 @@ export default async function DashboardPage() {
   })
   const completedToday = todayAppts.filter((a) => a.status === 'completed').length
   const dailyGoal = clinic.daily_goal_appointments ?? 8
-  const goalPercent = Math.min(Math.round((completedToday / dailyGoal) * 100), 100)
 
-  const { count: totalAllTime } = await supabaseAdmin
+  let allTimeQuery = supabaseAdmin
     .from('appointments')
     .select('id', { count: 'exact', head: true })
     .eq('clinic_id', clinic.id)
     .in('status', ['completed', 'no_show'])
+  if (restrictDoctorId) allTimeQuery = allTimeQuery.eq('doctor_id', restrictDoctorId)
+  const { count: totalAllTime } = await allTimeQuery
 
-  const { count: totalNoShows } = await supabaseAdmin
+  let noShowQuery = supabaseAdmin
     .from('appointments')
     .select('id', { count: 'exact', head: true })
     .eq('clinic_id', clinic.id)
     .eq('status', 'no_show')
+  if (restrictDoctorId) noShowQuery = noShowQuery.eq('doctor_id', restrictDoctorId)
+  const { count: totalNoShows } = await noShowQuery
 
   const noShowRate = totalAllTime && totalAllTime > 0
     ? Math.round(((totalNoShows ?? 0) / totalAllTime) * 100)
     : 0
+
+  // Insight del día (solo para admins)
+  const todayInsight = !restrictDoctorId ? await getTodayInsight().catch(() => null) : null
+
+  // Checklist de activación (solo para admins)
+  const setupProgress = !restrictDoctorId ? await getSetupProgress().catch(() => null) : null
 
   // Festivos en los próximos 3 días
   const festivosAlert = festivosProximos(3)
@@ -153,7 +184,12 @@ export default async function DashboardPage() {
           )}
           <p className="text-slate-500 capitalize text-sm mt-1">{todayFormatted}</p>
         </div>
-        <NewAppointmentButton doctors={(activeDoctors ?? []) as { id: string; name: string; specialty: string | null }[]} />
+        {!restrictDoctorId && (
+          <NewAppointmentButton
+            doctors={(activeDoctors ?? []) as { id: string; name: string; specialty: string | null }[]}
+            minBookingAdvanceHours={clinic.min_booking_advance_hours ?? 24}
+          />
+        )}
       </div>
 
       {/* Alerta festivos */}
@@ -168,32 +204,33 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Banner punto de equilibrio + stats */}
-      <div className="grid grid-cols-4 gap-4">
-        <div className="card p-5 col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Punto de equilibrio</p>
-            <span className="text-slate-900 font-semibold text-sm">{completedToday} / {dailyGoal}</span>
-          </div>
-          <div className="w-full bg-slate-100 rounded-full h-3">
-            <div
-              className={`h-3 rounded-full transition-all duration-500 ${
-                goalPercent >= 100 ? 'bg-emerald-500' : goalPercent >= 60 ? 'bg-amber-500' : 'bg-red-500'
-              }`}
-              style={{ width: `${goalPercent}%` }}
-            />
-          </div>
-          <p className="text-slate-400 text-xs mt-2">{goalPercent}% de la meta diaria</p>
-        </div>
-        <div className="card p-5">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Citas hoy</p>
-          <p className="text-2xl font-semibold text-slate-900 mt-1">{todayAppts.length}</p>
-        </div>
-        <div className="card p-5">
-          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Tasa no-show</p>
-          <p className={`text-2xl font-semibold mt-1 ${noShowRate > 20 ? 'text-red-600' : 'text-emerald-600'}`}>{noShowRate}%</p>
-        </div>
-      </div>
+      {/* Checklist de activación */}
+      {setupProgress && !setupProgress.completed_at && (
+        <SetupChecklist progress={setupProgress} />
+      )}
+      {/* Show celebration for 3 days after completion */}
+      {setupProgress?.completed_at && (() => {
+        const completed = new Date(setupProgress.completed_at!)
+        const threeDays = new Date(completed.getTime() + 3 * 24 * 60 * 60 * 1000)
+        return new Date() < threeDays
+      })() && (
+        <SetupChecklist progress={setupProgress} />
+      )}
+
+      {/* Banner punto de equilibrio + stats (actualización en tiempo real) */}
+      <DashboardStats
+        initialTodayCount={todayAppts.length}
+        initialCompletedToday={completedToday}
+        dailyGoal={dailyGoal}
+        noShowRate={noShowRate}
+        clinicId={clinic.id}
+        todayDateStr={today}
+      />
+
+      {/* Insight del día */}
+      {todayInsight && todayInsight.recommendations.length > 0 && (
+        <InsightWidget recommendation={todayInsight.recommendations[0]} />
+      )}
 
       {/* Calendario */}
       <CalendarView
@@ -203,6 +240,7 @@ export default async function DashboardPage() {
         doctors={calendarDoctors}
         restrictDoctorId={session.doctorId}
         userRole={session.role.name}
+        clinicId={clinic.id}
       />
     </div>
   )

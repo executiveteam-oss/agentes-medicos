@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
+import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
 import { getClinicUsers } from '@/app/actions/users'
 import { getClinicRoles } from '@/app/actions/roles'
@@ -15,6 +16,7 @@ import { UsersPanel } from './users-panel'
 export default async function UsersPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
+  if (isDoctorRole(session)) redirect('/dashboard/settings/clinic')
 
   const [users, roles] = await Promise.all([
     getClinicUsers(),

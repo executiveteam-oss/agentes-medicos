@@ -75,6 +75,64 @@ export function diasHabilesDesde(desde: Date): number {
   return dias
 }
 
+/**
+ * Agrega N días hábiles a una fecha (excluye domingos y festivos).
+ * Retorna la fecha resultante como YYYY-MM-DD.
+ */
+export function agregarDiasHabiles(desde: Date, diasHabiles: number): string {
+  const d = new Date(desde)
+  let added = 0
+  while (added < diasHabiles) {
+    d.setDate(d.getDate() + 1)
+    const diaSemana = d.getDay()
+    const iso = d.toISOString().split('T')[0]
+    if (diaSemana !== 0 && !FESTIVOS_2026.includes(iso)) {
+      added++
+    }
+  }
+  return d.toISOString().split('T')[0]
+}
+
+/**
+ * Calcula días hábiles restantes entre hoy y una fecha futura.
+ * Retorna negativo si ya venció.
+ */
+export function diasHabilesHasta(hasta: Date): number {
+  const hoy = new Date()
+  const hoyCol = new Date(hoy.toLocaleString('en-US', { timeZone: 'America/Bogota' }))
+  hoyCol.setHours(0, 0, 0, 0)
+  const target = new Date(hasta)
+  target.setHours(0, 0, 0, 0)
+
+  if (target <= hoyCol) {
+    // Ya venció — contar negativos
+    let dias = 0
+    const d = new Date(target)
+    while (d < hoyCol) {
+      d.setDate(d.getDate() + 1)
+      const diaSemana = d.getDay()
+      const iso = d.toISOString().split('T')[0]
+      if (diaSemana !== 0 && !FESTIVOS_2026.includes(iso)) {
+        dias++
+      }
+    }
+    return -dias
+  }
+
+  // Días hábiles hacia adelante
+  let dias = 0
+  const d = new Date(hoyCol)
+  while (d < target) {
+    d.setDate(d.getDate() + 1)
+    const diaSemana = d.getDay()
+    const iso = d.toISOString().split('T')[0]
+    if (diaSemana !== 0 && !FESTIVOS_2026.includes(iso)) {
+      dias++
+    }
+  }
+  return dias
+}
+
 function getNombreFestivo(iso: string): string {
   const nombres: Record<string, string> = {
     '2026-01-01': 'Año Nuevo',

@@ -4,7 +4,7 @@
 // Esto es lo que Claude "lee" antes de responder al paciente
 // ============================================================
 
-import type { Clinic, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
+import type { Clinic, ConsultationType, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
 import { formatCOP, nowColombia } from '@/lib/utils/dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -25,6 +25,7 @@ interface SystemPromptParams {
   doctor: Doctor              // Doctor principal (compatibilidad)
   doctors?: Doctor[]          // Todos los doctores activos
   waConfig?: WhatsAppConfig   // Configuración del agente
+  consultationTypes?: ConsultationType[]  // Tipos de consulta por doctor
   patientPhone: string        // Teléfono WhatsApp del paciente (ya lo tenemos, no pedirlo)
   patientName: string         // Nombre del perfil WhatsApp (puede diferir del nombre real)
   existingPatient?: ExistingPatientData | null  // Datos del paciente si ya existe en DB
@@ -34,7 +35,7 @@ interface SystemPromptParams {
  * Genera el system prompt con datos reales de la clínica
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
-export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPhone, patientName, existingPatient }: SystemPromptParams): string {
+export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
 
@@ -57,6 +58,17 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPh
     const dcConfig = waConfig?.doctors[d.id]
     const duration = dcConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
     let line = `  - ${d.name} — ${spec} | ID: ${d.id} | Duración cita: ${duration} min`
+    // Disponibilidad manual
+    if (d.schedule_type === 'manual') {
+      const msg = d.manual_availability_message ?? 'Este médico no tiene horario fijo.'
+      line += ` | 📋 DISPONIBILIDAD MANUAL — "${msg}"`
+    }
+    // Agenda cerrada
+    if (d.agenda_closed) {
+      const untilText = d.agenda_closed_until ? ` (hasta ${d.agenda_closed_until})` : ' (indefinidamente)'
+      const reasonText = d.agenda_closed_reason ? ` — Motivo: ${d.agenda_closed_reason}` : ''
+      line += ` | ⛔ AGENDA CERRADA${untilText}${reasonText}`
+    }
     // Agregar horario específico del doctor si existe
     if (dcConfig?.days && dcConfig.days.length > 0) {
       const dayNames: Record<number, string> = {
@@ -67,15 +79,112 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, patientPh
       const end = formatHour(dcConfig.end)
       line += ` | Atiende: ${days} ${start}-${end}`
     }
+    // Agregar tipos de consulta si existen
+    const doctorTypes = (consultationTypes ?? []).filter((ct) => ct.doctor_id === d.id && ct.is_active)
+    const bookableTypes = doctorTypes.filter((ct) => ct.bookable_via_whatsapp)
+    const nonBookableTypes = doctorTypes.filter((ct) => !ct.bookable_via_whatsapp)
+    if (bookableTypes.length > 0) {
+      line += '\n    Tipos de consulta agendables por WhatsApp:'
+      for (const ct of bookableTypes) {
+        const priceStr = ct.price ? ` — ${formatCOP(ct.price)}` : ''
+        const prepStr = ct.requires_preparation ? ' ⚠️ requiere preparación' : ''
+        const docsStr = ct.requires_documents ? ' 📄 requiere documentos' : ''
+        const modalStr = ct.modality === 'virtual' ? ' [Virtual]' : ct.modality === 'ambas' ? ' [Presencial/Virtual]' : ''
+        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${modalStr}${prepStr}${docsStr} | tipo_id: ${ct.id}`
+        if (ct.requires_documents && ct.required_documents_description) {
+          line += `\n        Documentos: ${ct.required_documents_description}`
+        }
+      }
+    }
+    if (nonBookableTypes.length > 0) {
+      line += '\n    Servicios NO agendables por WhatsApp (derivar a contacto directo):'
+      for (const ct of nonBookableTypes) {
+        line += `\n      * ${ct.name} — debe agendarse directamente con el consultorio`
+      }
+    }
     return line
   }).join('\n')
 
+  // Doctors with closed agenda
+  const closedDoctors = allDoctors.filter((d) => d.agenda_closed)
+  const openDoctors = allDoctors.filter((d) => !d.agenda_closed)
+  const allClosed = openDoctors.length === 0
+
+  const agendaClosedRules = closedDoctors.length > 0
+    ? `\nREGLAS DE AGENDA CERRADA:
+- NUNCA ofrezcas citas con doctores marcados como ⛔ AGENDA CERRADA.
+- Si el paciente pide cita con un doctor de agenda cerrada, responde:
+  "En este momento ${closedDoctors.length === 1 ? `el/la ${closedDoctors[0].name} no tiene` : 'esos doctores no tienen'} agenda disponible${closedDoctors[0]?.agenda_closed_until ? ` hasta el ${closedDoctors[0].agenda_closed_until}` : ''}."${
+      allClosed
+        ? '\n- TODOS los doctores tienen la agenda cerrada. Responde: "En este momento no tenemos disponibilidad. Te contactaremos cuando se abra la agenda. ¿Quieres que te avisemos?" y usa add_to_waitlist si acepta.'
+        : `\n- Ofrece alternativa con los doctores que SÍ tienen agenda abierta: ${openDoctors.map((d) => d.name).join(', ')}.`
+    }\n`
+    : ''
+
   const multiDoctorRules = isMultiDoctor
     ? `\nREGLAS MULTI-DOCTOR:
-- La clínica tiene ${allDoctors.length} doctores activos. Cuando el paciente quiera agendar, pregunta con cuál doctor prefiere la cita.
-- Si el paciente no sabe o no tiene preferencia, lista los doctores disponibles con su nombre y especialidad para que elija.
+- La clínica tiene ${openDoctors.length} doctor${openDoctors.length !== 1 ? 'es' : ''} con agenda abierta${closedDoctors.length > 0 ? ` (${closedDoctors.length} con agenda cerrada)` : ''}. Cuando el paciente quiera agendar, pregunta con cuál doctor prefiere la cita.
+- Si el paciente no sabe o no tiene preferencia, lista SOLO los doctores con agenda ABIERTA con su nombre y especialidad para que elija.
 - NUNCA asumas un doctor — siempre confirma la elección del paciente antes de usar check_availability.
 - Usa el doctor_id correcto del doctor elegido en todas las tools.\n`
+    : ''
+
+  // Reglas de disponibilidad manual
+  const manualDoctors = allDoctors.filter((d) => d.schedule_type === 'manual' && !d.agenda_closed)
+  const manualScheduleRules = manualDoctors.length > 0
+    ? `\nREGLAS DE DISPONIBILIDAD MANUAL:
+- ${manualDoctors.length === 1 ? `${manualDoctors[0].name} tiene` : 'Los siguientes doctores tienen'} disponibilidad MANUAL (marcados con 📋 DISPONIBILIDAD MANUAL).
+- NUNCA uses check_availability para doctores con disponibilidad manual — no tienen horario fijo.
+- Cuando el paciente quiera cita con un doctor manual:
+  1. Muestra el mensaje configurado del doctor (está en la lista de doctores arriba).
+  2. Recoge estos datos: nombre completo, tipo de consulta, preferencia de horario (mañana/tarde, días de la semana).
+  3. Usa add_to_waitlist con el campo preferred_schedule_notes para guardar la preferencia de horario.
+  4. Confirma: "Listo [nombre]. Le informaremos al consultorio y te contactaremos a este número para confirmar tu cita."
+- Las solicitudes de cita manual aparecen como entradas en la lista de espera del dashboard.\n`
+    : ''
+
+  // Reglas de tipos de consulta (solo si hay al menos un tipo configurado)
+  const hasConsultationTypes = (consultationTypes ?? []).some((ct) => ct.is_active)
+  const consultationTypeRules = hasConsultationTypes
+    ? `\nREGLAS DE TIPOS DE CONSULTA:
+- Cuando el paciente quiera agendar, DESPUÉS de elegir doctor, pregunta qué tipo de consulta necesita.
+- Muestra SOLO las opciones marcadas como "agendables por WhatsApp" del doctor elegido.
+- Si el paciente pide un servicio que NO es agendable por WhatsApp, responde:
+  "Este servicio debe agendarse directamente con nosotros. Puedes llamarnos al ${clinic.phone || 'nuestro número'} o visitarnos."
+- Si el tipo de consulta requiere preparación (marcado con ⚠️), ANTES de mostrar disponibilidad:
+  1. Informa al paciente las instrucciones de preparación
+  2. Pregunta si puede cumplirlas
+  3. Solo entonces procede a mostrar disponibilidad
+- Si el tipo de consulta requiere documentos (marcado con 📄), ANTES de confirmar la cita:
+  1. Informa al paciente qué documentos necesita (ver "Documentos:" en la lista)
+  2. Pregunta: "¿Ya cuentas con este documento? Puedes enviárnoslo por este mismo chat."
+  3. Si dice SÍ: procede a confirmar la cita
+  4. Si dice NO: responde "No hay problema. Cuando lo tengas, escríbenos y con gusto te agendamos."
+     NO agendes la cita si el paciente no tiene los documentos.
+- Usa el consultation_type_id correcto en check_availability y create_appointment.
+- La duración de la cita se toma del tipo de consulta seleccionado, NO de la duración por defecto.
+- Si el doctor solo tiene UN tipo de consulta agendable por WhatsApp, puedes usarlo directamente sin preguntar.
+- En la confirmación de cita, incluye el tipo de consulta. Ejemplo:
+  ✅ Cita confirmada — Consulta general con la Dra. Carolina
+  📅 Martes 18 de marzo a las 10:00 AM
+- Si la cita requiere documentos (create_appointment devuelve documents_requested=true), DESPUÉS de confirmar la cita:
+  1. Recuerda qué documentos necesita: "Recuerda enviar [documentos] por este chat antes de tu cita."
+  2. Indica: "Puedes enviar una foto o el archivo por este mismo chat y lo tendremos en tu expediente."
+  3. NO bloquees la confirmación — la cita ya se creó, pero el recordatorio es importante.\n`
+    : ''
+
+  // Reglas de consultas virtuales
+  const hasVirtualTypes = (consultationTypes ?? []).some((ct) => ct.is_active && (ct.modality === 'virtual' || ct.modality === 'ambas'))
+  const virtualRules = hasVirtualTypes
+    ? `\nREGLAS DE CONSULTAS VIRTUALES:
+- Si el tipo de consulta es [Virtual], la cita es siempre virtual. Usa modality "virtual" en create_appointment.
+- Si el tipo es [Presencial/Virtual], pregunta al paciente: "¿Prefieres cita presencial o virtual (por videollamada)?"
+- Para citas VIRTUALES, en la confirmación NO incluyas la dirección. En su lugar:
+  ✅ Cita virtual confirmada con [doctor]
+  📅 [fecha] a las [hora]
+  📲 Recibirás el enlace de videollamada por este chat 30 minutos antes de tu cita.
+- Para citas PRESENCIALES, usa la confirmación normal con 📍 dirección.
+- NUNCA des un link de videollamada directamente — el sistema lo enviará automáticamente antes de la cita.\n`
     : ''
 
   // Formatear horario de citas del agente (waConfig)
@@ -104,9 +213,12 @@ IMPORTANTE: Puedes chatear y responder preguntas a CUALQUIER hora. Pero las cita
 Si un paciente pide cita fuera de este horario, responde naturalmente: "Las citas están disponibles de [días] [hora inicio] a [hora fin]. ¿Te agendo para [próximo día hábil]?"
 NUNCA dejes de responder por estar fuera de horario — siempre atiende al paciente.
 
+REGLAS DE ANTICIPACIÓN:
+${formatBookingAdvanceRules(clinic)}
+
 DOCTORES DISPONIBLES:
 ${doctorLines}
-${multiDoctorRules}
+${agendaClosedRules}${multiDoctorRules}${manualScheduleRules}${consultationTypeRules}${virtualRules}
 
 ${faqText ? `PREGUNTAS FRECUENTES:\n${faqText}\n` : ''}
 REGLAS INQUEBRANTABLES:
@@ -308,6 +420,28 @@ function formatFaq(faq: FaqItem[]): string {
  * Construye la sección de PACIENTE RECURRENTE para el prompt
  * Si el paciente ya tiene datos en la DB, Claude lo sabe y puede saludarlo por nombre
  */
+/**
+ * Formatea las reglas de anticipación para el prompt
+ */
+function formatBookingAdvanceRules(clinic: Clinic): string {
+  const minHours = clinic.min_booking_advance_hours ?? 24
+  const maxDays = clinic.max_booking_advance_days ?? 60
+
+  let minText: string
+  if (minHours === 0) {
+    minText = '- Las citas se pueden agendar el mismo día (sin anticipación mínima).'
+  } else if (minHours < 24) {
+    minText = `- Anticipación mínima: ${minHours} horas. No ofrezcas horarios que estén a menos de ${minHours} horas desde ahora.`
+  } else {
+    const days = Math.round(minHours / 24)
+    minText = `- Anticipación mínima: ${days} día(s) (${minHours}h). No ofrezcas horarios que estén a menos de ${days} día(s) desde ahora.`
+  }
+
+  const maxText = `- Anticipación máxima: ${maxDays} días. No ofrezcas fechas a más de ${maxDays} días en el futuro.`
+
+  return `${minText}\n${maxText}\n- Si el paciente pide una fecha demasiado próxima, dile con cuánta anticipación se agendan e indica la fecha más próxima disponible.\n- Si pide una fecha muy lejana, indícale hasta cuándo puede agendar.`
+}
+
 function buildExistingPatientSection(patient?: ExistingPatientData | null): string {
   if (!patient) return ''
 

@@ -6,8 +6,11 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
+import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
 import { FacturacionPanel } from '@/components/dashboard/facturacion-panel'
+import { GlosaPanel } from '@/components/dashboard/glosa-panel'
+import { getGlosaPageData } from '@/app/actions/glosas'
 import type { InvoicedItem } from '@/components/dashboard/facturacion-panel'
 import type { CollectionStatus } from '@/types/database'
 
@@ -16,6 +19,7 @@ export const dynamic = 'force-dynamic'
 export default async function FacturacionPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
+  if (isDoctorRole(session)) redirect('/dashboard')
 
   const clinicId = session.clinicId
 
@@ -27,6 +31,9 @@ export default async function FacturacionPage() {
     .single()
 
   const defaultPrice = clinic?.consultation_price ?? 0
+
+  // --- EPS Risk + Glosas ---
+  const glosaData = await getGlosaPageData()
 
   // --- Pendientes: citas completadas de hoy y ayer SIN invoice_number ---
   const now = new Date()
@@ -135,17 +142,31 @@ export default async function FacturacionPage() {
     .sort((a, b) => (b.invoice_date > a.invoice_date ? 1 : -1))
 
   return (
-    <div className="p-6 lg:p-8 space-y-6">
+    <div className="p-6 lg:p-8 space-y-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Facturación</h1>
-        <p className="text-slate-500 text-sm">Control diario de facturas y cobros</p>
+        <p className="text-slate-500 text-sm">Control diario de facturas, cobros y glosas EPS</p>
       </div>
 
-      <FacturacionPanel
-        pending={pending}
-        invoiced={allInvoiced}
-        defaultAmount={defaultPrice}
-      />
+      {/* EPS Dashboard + Glosas */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">EPS y Glosas</h2>
+        <GlosaPanel
+          epsRisk={glosaData.epsRisk}
+          activeGlosas={glosaData.activeGlosas}
+          urgentCount={glosaData.urgentCount}
+        />
+      </section>
+
+      {/* Facturación diaria */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Facturación diaria</h2>
+        <FacturacionPanel
+          pending={pending}
+          invoiced={allInvoiced}
+          defaultAmount={defaultPrice}
+        />
+      </section>
     </div>
   )
 }

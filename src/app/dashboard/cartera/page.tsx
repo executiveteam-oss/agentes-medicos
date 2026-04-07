@@ -5,6 +5,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
+import { isDoctorRole } from '@/lib/doctor-filter'
 import { CarteraPanel } from '@/components/dashboard/cartera-panel'
 import { redirect } from 'next/navigation'
 import type { CarteraEntryWithDetails } from '@/types/database'
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic'
 export default async function CarteraPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
+  if (isDoctorRole(session)) redirect('/dashboard')
 
   const { data: clinic } = await supabaseAdmin
     .from('clinics')
@@ -35,7 +37,7 @@ export default async function CarteraPage() {
   // Cartera pendiente con datos de paciente
   const { data: cartera } = await supabaseAdmin
     .from('cartera')
-    .select('*, patients(name, phone)')
+    .select('*, patients(name, phone, email, no_show_count, total_appointments)')
     .eq('clinic_id', clinic.id)
     .eq('status', 'pendiente')
     .order('days_overdue', { ascending: false })
@@ -44,7 +46,7 @@ export default async function CarteraPage() {
     const { patients: patientData, ...rest } = row as Record<string, unknown>
     return {
       ...rest,
-      patient: patientData ?? { name: 'Desconocido', phone: '' },
+      patient: patientData ?? { name: 'Desconocido', phone: '', email: null, no_show_count: 0, total_appointments: 0 },
     }
   }) as CarteraEntryWithDetails[]
 

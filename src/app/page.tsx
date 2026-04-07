@@ -1,6 +1,6 @@
 // ============================================================
 // Página raíz — redirige según sesión
-// Con sesión → /dashboard | Sin sesión → /login
+// Con sesión → /dashboard | Sin sesión → /landing/
 // ============================================================
 
 import { redirect } from 'next/navigation'
@@ -12,6 +12,6 @@ export default async function Home() {
   if (session) {
     redirect('/dashboard')
   } else {
-    redirect('/login')
+    redirect('/landing/')
   }
 }

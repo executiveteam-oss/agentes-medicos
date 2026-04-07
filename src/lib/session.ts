@@ -47,7 +47,7 @@ export async function getUserSession(): Promise<UserSession | null> {
       .eq('auth_user_id', user.id)
       .eq('is_active', true)
       .limit(1)
-      .single()
+      .maybeSingle()
 
     if (!clinicUser) return null
 

@@ -9,6 +9,8 @@ import Link from 'next/link'
 import { deletePatient, getPatientForEdit } from '@/app/actions/patients'
 import type { PatientFormData } from '@/app/actions/patients'
 import { PatientFormModal } from '@/components/dashboard/patient-form-modal'
+import { PriorityBadge } from '@/components/dashboard/priority-badge'
+import type { PriorityTier } from '@/components/dashboard/priority-badge'
 import { formatPhone } from '@/lib/utils/dates'
 
 interface Patient {
@@ -18,6 +20,25 @@ interface Patient {
   eps: string | null
   total_appointments: number
   no_show_count: number
+}
+
+/** Calcular tier de prioridad del paciente (client-side, sin cartera ni waitlist) */
+function getPatientTier(p: Patient): PriorityTier | null {
+  let score = 0
+  // Pago: particular (+30) si no tiene EPS, EPS (+10) si tiene
+  if (!p.eps || p.eps === 'Particular') score += 30
+  else score += 10
+  // Frecuencia
+  if (p.total_appointments >= 5) score += 25
+  else if (p.total_appointments >= 2) score += 15
+  // No-shows
+  if (p.no_show_count === 0) score += 20
+  else if (p.no_show_count === 1) score += 5
+  else score -= 10
+
+  if (score >= 80) return 'high'
+  if (score >= 50) return 'mid'
+  return null // Don't show badge for low-priority patients in patient list
 }
 
 const EPS_OPTIONS = ['todas', 'Sura', 'Compensar', 'Nueva EPS', 'Sanitas', 'Coosalud', 'Medimás', 'Particular']
@@ -151,12 +172,17 @@ export function PatientsTable({ initialPatients }: { initialPatients: Patient[] 
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => (
+                {filtered.map((p) => {
+                  const tier = getPatientTier(p)
+                  return (
                   <tr key={p.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
                     <td className="py-3.5 px-5">
-                      <Link href={`/dashboard/patients/${p.id}`} className="text-sm font-medium text-blue-700 hover:text-blue-800 hover:underline">
-                        {p.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/dashboard/patients/${p.id}`} className="text-sm font-medium text-blue-700 hover:text-blue-800 hover:underline">
+                          {p.name}
+                        </Link>
+                        {tier && <PriorityBadge tier={tier} size="xs" />}
+                      </div>
                     </td>
                     <td className="py-3.5 px-5 text-slate-500 text-sm">{formatPhone(p.phone)}</td>
                     <td className="py-3.5 px-5">
@@ -181,7 +207,8 @@ export function PatientsTable({ initialPatients }: { initialPatients: Patient[] 
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

@@ -4,10 +4,11 @@
 // FacturacionPanel — Pendientes + Nueva factura + Facturas del mes
 // ============================================================
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { registerInvoice } from '@/app/actions/register-invoice'
 import { actualizarEstadoCobro, actualizarEstadoCobroFactura } from '@/app/actions/facturacion'
 import { NuevaFacturaModal } from '@/components/dashboard/nueva-factura-modal'
+import { RegisterGlosaInline } from '@/components/dashboard/register-glosa-inline'
 import type { CollectionStatus } from '@/types/database'
 
 // ---------- Types ----------
@@ -66,6 +67,7 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
   const [invoiced, setInvoiced] = useState(initialInvoiced)
   const [openFormId, setOpenFormId] = useState<string | null>(null)
   const [showNuevaFactura, setShowNuevaFactura] = useState(false)
+  const [glosaFormId, setGlosaFormId] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   function showToast(msg: string) {
@@ -100,6 +102,11 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
   }
 
   function handleStatusChange(item: InvoicedItem, newStatus: CollectionStatus) {
+    // Si cambian a "glosada" y es appointment, abrir formulario de glosa
+    if (newStatus === 'glosada' && item.source === 'appointment') {
+      setGlosaFormId(item.id)
+      return
+    }
     setInvoiced((prev) => prev.map((inv) => inv.id === item.id ? { ...inv, collection_status: newStatus } : inv))
     if (item.source === 'standalone') {
       actualizarEstadoCobroFactura(item.id, newStatus)
@@ -238,27 +245,45 @@ export function FacturacionPanel({ pending: initialPending, invoiced: initialInv
               </thead>
               <tbody>
                 {invoiced.map((inv) => (
-                  <tr key={`${inv.source}-${inv.id}`} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
-                    <td className="py-3 px-5 text-sm text-slate-900">{inv.patient_name}</td>
-                    <td className="py-3 px-5 text-sm text-slate-600 font-mono">{inv.invoice_number}</td>
-                    <td className="py-3 px-5">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{inv.payment_type}</span>
-                    </td>
-                    <td className="py-3 px-5 text-sm font-semibold text-slate-900 text-right">{formatCOP(inv.invoice_amount)}</td>
-                    <td className="py-3 px-5">
-                      <select
-                        value={inv.collection_status}
-                        onChange={(e) => handleStatusChange(inv, e.target.value as CollectionStatus)}
-                        className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white"
-                      >
-                        <option value="en_tramite">En trámite</option>
-                        <option value="cobrada">Cobrada</option>
-                        <option value="glosada">Glosada</option>
-                        <option value="vencida">Vencida</option>
-                      </select>
-                    </td>
-                    <td className="py-3 px-5 text-sm text-slate-500 text-right">{daysSince(inv.invoice_date)}d</td>
-                  </tr>
+                  <React.Fragment key={`${inv.source}-${inv.id}`}>
+                    <tr className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-5 text-sm text-slate-900">{inv.patient_name}</td>
+                      <td className="py-3 px-5 text-sm text-slate-600 font-mono">{inv.invoice_number}</td>
+                      <td className="py-3 px-5">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{inv.payment_type}</span>
+                      </td>
+                      <td className="py-3 px-5 text-sm font-semibold text-slate-900 text-right">{formatCOP(inv.invoice_amount)}</td>
+                      <td className="py-3 px-5">
+                        <select
+                          value={inv.collection_status}
+                          onChange={(e) => handleStatusChange(inv, e.target.value as CollectionStatus)}
+                          className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white"
+                        >
+                          <option value="en_tramite">En trámite</option>
+                          <option value="cobrada">Cobrada</option>
+                          <option value="glosada">Glosada</option>
+                          <option value="vencida">Vencida</option>
+                        </select>
+                      </td>
+                      <td className="py-3 px-5 text-sm text-slate-500 text-right">{daysSince(inv.invoice_date)}d</td>
+                    </tr>
+                    {glosaFormId === inv.id && (
+                      <tr>
+                        <td colSpan={6} className="p-0">
+                          <RegisterGlosaInline
+                            appointmentId={inv.id}
+                            defaultAmount={inv.invoice_amount}
+                            onRegistered={() => {
+                              setGlosaFormId(null)
+                              setInvoiced((prev) => prev.map((i) => i.id === inv.id ? { ...i, collection_status: 'glosada' as CollectionStatus } : i))
+                              showToast('Glosa registrada')
+                            }}
+                            onCancel={() => setGlosaFormId(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

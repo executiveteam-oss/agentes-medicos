@@ -13,18 +13,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendEmail } from '@/lib/email/client'
 import { formatTimeForPatient, nowColombia } from '@/lib/utils/dates'
 import { calculateDailyNoShowRisk, calculateNoShowProbability } from '@/lib/utils/noshow'
-import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import { format } from 'date-fns'
 
 // Máximo tiempo de ejecución
 export const maxDuration = 30
 
 export async function GET(request: NextRequest) {
-  // Verificar autorización
-  const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Verificar autorización (timing-safe)
+  if (!verifyCronSecret(request.headers.get('authorization'))) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
@@ -62,7 +62,7 @@ async function generateAndSendReport(clinicId: string, clinicName: string): Prom
   // Obtener doctor principal
   const { data: doctor } = await supabaseAdmin
     .from('doctors')
-    .select('id, name, phone')
+    .select('id, name, phone, email')
     .eq('clinic_id', clinicId)
     .eq('is_active', true)
     .order('created_at', { ascending: true })
@@ -132,6 +132,33 @@ async function generateAndSendReport(clinicId: string, clinicName: string): Prom
     report += `\n⚠️ ${atRisk.length} paciente${atRisk.length > 1 ? 's' : ''} con riesgo alto de no-show\n`
   }
 
+  // Documentos pendientes
+  const { count: pendingDocs } = await supabaseAdmin
+    .from('appointments')
+    .select('id', { count: 'exact', head: true })
+    .eq('clinic_id', clinicId)
+    .eq('documents_requested', true)
+    .eq('documents_received', false)
+    .in('status', ['confirmed', 'rescheduled'])
+    .gte('starts_at', `${today}T00:00:00-05:00`)
+    .lte('starts_at', `${today}T23:59:59-05:00`)
+
+  if (pendingDocs && pendingDocs > 0) {
+    report += `\n📄 ${pendingDocs} cita${pendingDocs > 1 ? 's' : ''} con documentos pendientes\n`
+  }
+
+  // Solicitudes manuales pendientes
+  const { count: pendingManual } = await supabaseAdmin
+    .from('waitlist')
+    .select('id', { count: 'exact', head: true })
+    .eq('clinic_id', clinicId)
+    .eq('status', 'waiting')
+    .eq('source', 'whatsapp')
+
+  if (pendingManual && pendingManual > 0) {
+    report += `\n📋 ${pendingManual} solicitud${pendingManual > 1 ? 'es' : ''} de cita manual pendiente${pendingManual > 1 ? 's' : ''}\n`
+  }
+
   // Recomendación de overbooking
   if (dailyRisk.recommendOverbooking) {
     report += `\n📈 Basado en el historial, se esperan ~${dailyRisk.expectedNoShows} no-show${dailyRisk.expectedNoShows > 1 ? 's' : ''} hoy.`
@@ -142,9 +169,24 @@ async function generateAndSendReport(clinicId: string, clinicName: string): Prom
   // Leyenda
   report += `\n\n🟢 Confirmó  🟡 Pendiente  🔴 Alto riesgo`
 
-  // Enviar al doctor
+  // Enviar al doctor por WhatsApp
   const whatsappNumber = doctor.phone.replace('+', '')
   await sendWhatsAppMessage(whatsappNumber, report)
+
+  // También enviar por email si el doctor tiene email
+  if (doctor.email) {
+    const htmlReport = report
+      .replace(/\n/g, '<br>')
+      .replace(/🟢/g, '<span style="color:#16a34a">●</span>')
+      .replace(/🟡/g, '<span style="color:#eab308">●</span>')
+      .replace(/🔴/g, '<span style="color:#dc2626">●</span>')
+
+    await sendEmail({
+      to: doctor.email,
+      subject: `Reporte del día — ${clinicName}`,
+      html: `<div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; line-height: 1.6;">${htmlReport}</div>`,
+    })
+  }
 
   console.log(`[Cron:MorningReport] Reporte enviado a ${doctor.name}`)
 }

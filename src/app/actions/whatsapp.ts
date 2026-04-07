@@ -25,12 +25,19 @@ export interface DoctorForConfig {
   specialty: string | null
   phone: string | null
   is_active: boolean
+  agenda_closed: boolean
+  agenda_closed_reason: string | null
+  agenda_closed_until: string | null
+  schedule_type: 'fixed' | 'manual'
+  manual_availability_message: string | null
 }
 
 export interface WhatsAppPageData {
   activeConversations: ActiveConversation[]
   config: WhatsAppConfig
   doctors: DoctorForConfig[]
+  whatsappConnected: boolean
+  whatsappPhoneDisplay: string | null
 }
 
 const DEFAULT_CONFIG: WhatsAppConfig = {
@@ -46,6 +53,10 @@ const DEFAULT_CONFIG: WhatsAppConfig = {
   },
   escalation_keywords: ['urgencia', 'dolor', 'emergencia', 'hablar con alguien', 'médico', 'sangrado'],
   doctors: {},
+  automations: {
+    post_consulta: { enabled: false },
+    reactivacion: { enabled: false, days_inactive: 90 },
+  },
 }
 
 /**
@@ -74,14 +85,14 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
     // Config de la clínica
     supabaseAdmin
       .from('clinics')
-      .select('whatsapp_config')
+      .select('whatsapp_config, whatsapp_phone_id, whatsapp_connected, whatsapp_phone_display')
       .eq('id', clinicId)
       .single(),
 
     // Doctores de la clínica
     supabaseAdmin
       .from('doctors')
-      .select('id, name, specialty, phone, is_active')
+      .select('id, name, specialty, phone, is_active, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message')
       .eq('clinic_id', clinicId)
       .order('created_at', { ascending: true }),
   ])
@@ -118,12 +129,25 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
     }
   })
 
-  const config: WhatsAppConfig = (clinicRes.data?.whatsapp_config as WhatsAppConfig) ?? DEFAULT_CONFIG
+  const rawConfig = (clinicRes.data?.whatsapp_config as WhatsAppConfig) ?? DEFAULT_CONFIG
+  // Merge defaults para campos nuevos (automations) en clínicas existentes
+  const config: WhatsAppConfig = {
+    ...DEFAULT_CONFIG,
+    ...rawConfig,
+    automations: {
+      ...DEFAULT_CONFIG.automations,
+      ...(rawConfig.automations ?? {}),
+      post_consulta: { ...DEFAULT_CONFIG.automations.post_consulta, ...(rawConfig.automations?.post_consulta ?? {}) },
+      reactivacion: { ...DEFAULT_CONFIG.automations.reactivacion, ...(rawConfig.automations?.reactivacion ?? {}) },
+    },
+  }
 
   return {
     activeConversations,
     config,
     doctors: (doctorsRes.data ?? []) as DoctorForConfig[],
+    whatsappConnected: !!(clinicRes.data?.whatsapp_phone_id && clinicRes.data?.whatsapp_connected),
+    whatsappPhoneDisplay: (clinicRes.data as Record<string, unknown>)?.whatsapp_phone_display as string | null ?? null,
   }
 }
 

@@ -1,12 +1,14 @@
 'use client'
 
 // ============================================================
-// Página de registro — nueva clínica
+// Página de registro — Omuwan branded
 // Ruta: /register
 // Crea: clínica + 5 roles predefinidos + usuario Admin
+// Lee params del configurador: ?plan=core&medicos=1&citas=150&features=agent,reminders
 // ============================================================
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { registerAction } from '@/app/actions/auth'
 
@@ -38,14 +40,62 @@ const STEPS = [
   { label: 'Tu cuenta', num: 2 },
 ]
 
+const PLAN_LABELS: Record<string, string> = {
+  core: 'Core',
+  basico: 'Core',
+  pro: 'Core',
+  clinica: 'Core',
+}
+
+const FEATURE_LABELS: Record<string, string> = {
+  agent: 'Agente IA',
+  reminders: 'Recordatorios',
+  docs: 'Documentos',
+  waitlist: 'Lista de espera',
+  reactivation: 'Reactivación',
+  dashboard: 'Dashboard',
+  insights: 'Insights',
+  virtual: 'Virtual',
+}
+
 export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center text-slate-400">Cargando...</div>}>
+      <RegisterForm />
+    </Suspense>
+  )
+}
+
+function RegisterForm() {
+  const searchParams = useSearchParams()
   const [error, setError] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [step, setStep] = useState(1)
   const [selectedSpecs, setSelectedSpecs] = useState<string[]>([])
   const [customSpec, setCustomSpec] = useState('')
   const [showSpecs, setShowSpecs] = useState(false)
+  const [specError, setSpecError] = useState('')
   const specsRef = useRef<HTMLDivElement>(null)
+
+  // Configurator params from URL
+  const cfgPlan = searchParams.get('plan')
+  const cfgMedicos = searchParams.get('medicos')
+  const cfgCitas = searchParams.get('citas')
+  const cfgFeatures = searchParams.get('features')
+  const hasConfig = !!(cfgPlan || cfgMedicos || cfgCitas || cfgFeatures)
+
+  // Save config to sessionStorage so it survives form submission
+  useEffect(() => {
+    if (hasConfig) {
+      const config = {
+        plan: cfgPlan,
+        medicos: cfgMedicos,
+        citas: cfgCitas,
+        features: cfgFeatures,
+      }
+      sessionStorage.setItem('omuwan_config', JSON.stringify(config))
+    }
+  }, [hasConfig, cfgPlan, cfgMedicos, cfgCitas, cfgFeatures])
 
   // Cerrar dropdown al hacer clic fuera
   useEffect(() => {
@@ -85,6 +135,16 @@ export default function RegisterPage() {
     formData.delete('specialty')
     selectedSpecs.forEach((s) => formData.append('specialty', s))
 
+    // Pass configurator selections as hidden fields
+    const savedConfig = sessionStorage.getItem('omuwan_config')
+    if (savedConfig) {
+      const config = JSON.parse(savedConfig)
+      if (config.plan) formData.set('cfg_plan', config.plan)
+      if (config.medicos) formData.set('cfg_medicos', config.medicos)
+      if (config.citas) formData.set('cfg_citas', config.citas)
+      if (config.features) formData.set('cfg_features', config.features)
+    }
+
     const result = await registerAction(formData)
 
     if (result?.error) {
@@ -93,8 +153,40 @@ export default function RegisterPage() {
     }
   }
 
+  const featureList = cfgFeatures?.split(',').filter(Boolean) ?? []
+  const featureCount = featureList.length
+
   return (
-    <div className="card p-8">
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
+      {/* Configurator summary card */}
+      {hasConfig && (
+        <div className="mb-6 p-4 bg-[#028090]/5 border border-[#028090]/20 rounded-lg">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-[#028090]/10 flex items-center justify-center shrink-0 mt-0.5">
+              <span className="text-[#028090] text-sm">&#10003;</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Tu plan configurado</p>
+              <p className="text-sm text-slate-600 mt-0.5">
+                Plan {PLAN_LABELS[cfgPlan ?? ''] ?? cfgPlan}
+                {cfgMedicos && <> &middot; {cfgMedicos} médico{cfgMedicos !== '1' ? 's' : ''}</>}
+                {featureCount > 0 && <> &middot; {featureCount} features seleccionadas</>}
+              </p>
+              {featureCount > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {featureList.map((f) => (
+                    <span key={f} className="text-xs bg-[#028090]/10 text-[#028090] px-2 py-0.5 rounded-full">
+                      {FEATURE_LABELS[f] ?? f}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-[#028090] font-medium mt-2">Primer mes gratis</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Step indicator */}
       <div className="flex items-center justify-center gap-3 mb-8">
         {STEPS.map((s) => (
@@ -102,7 +194,7 @@ export default function RegisterPage() {
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
                 step >= s.num
-                  ? 'bg-blue-700 text-white'
+                  ? 'bg-[#0f2a6e] text-white'
                   : 'bg-slate-100 text-slate-400'
               }`}
             >
@@ -116,7 +208,7 @@ export default function RegisterPage() {
               {s.label}
             </span>
             {s.num < STEPS.length && (
-              <div className={`w-8 h-px ${step > s.num ? 'bg-blue-700' : 'bg-slate-200'}`} />
+              <div className={`w-8 h-px ${step > s.num ? 'bg-[#0f2a6e]' : 'bg-slate-200'}`} />
             )}
           </div>
         ))}
@@ -149,7 +241,7 @@ export default function RegisterPage() {
 
             {/* Chips de especialidades seleccionadas */}
             <div
-              className="w-full min-h-[42px] bg-white border border-slate-200 rounded-lg px-3 py-2 cursor-pointer flex flex-wrap gap-1.5 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all"
+              className="w-full min-h-[42px] bg-white border border-slate-200 rounded-lg px-3 py-2 cursor-pointer flex flex-wrap gap-1.5 focus-within:ring-2 focus-within:ring-[#29abe2] focus-within:border-transparent transition-all"
               onClick={() => setShowSpecs(!showSpecs)}
             >
               {selectedSpecs.length === 0 && (
@@ -158,13 +250,13 @@ export default function RegisterPage() {
               {selectedSpecs.map((spec) => (
                 <span
                   key={spec}
-                  className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full"
+                  className="inline-flex items-center gap-1 bg-[#0f2a6e]/10 text-[#0f2a6e] text-xs font-medium px-2.5 py-1 rounded-full"
                 >
                   {spec}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removeSpec(spec) }}
-                    className="hover:text-blue-900 transition-colors"
+                    className="hover:text-[#0f2a6e] transition-colors"
                   >
                     ×
                   </button>
@@ -183,14 +275,14 @@ export default function RegisterPage() {
                       value={customSpec}
                       onChange={(e) => setCustomSpec(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomSpec() } }}
-                      className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#29abe2]"
                       placeholder="Agregar otra..."
                       onClick={(e) => e.stopPropagation()}
                     />
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); addCustomSpec() }}
-                      className="bg-blue-700 hover:bg-blue-800 text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
+                      className="bg-[#0f2a6e] hover:bg-[#1a3a8a] text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
                     >
                       +
                     </button>
@@ -206,7 +298,7 @@ export default function RegisterPage() {
                       type="checkbox"
                       checked={selectedSpecs.includes(spec)}
                       onChange={() => toggleSpec(spec)}
-                      className="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+                      className="rounded border-slate-300 text-[#0f2a6e] focus:ring-[#29abe2]"
                     />
                     <span className="text-slate-700">{spec}</span>
                   </label>
@@ -215,10 +307,21 @@ export default function RegisterPage() {
             )}
           </div>
 
+          {specError && (
+            <p className="text-sm text-red-600">{specError}</p>
+          )}
+
           <button
             type="button"
-            onClick={() => setStep(2)}
-            className="btn-primary w-full"
+            onClick={() => {
+              if (selectedSpecs.length === 0) {
+                setSpecError('Selecciona al menos una especialidad')
+                return
+              }
+              setSpecError('')
+              setStep(2)
+            }}
+            className="w-full bg-[#0f2a6e] hover:bg-[#1a3a8a] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
           >
             Continuar
           </button>
@@ -264,10 +367,10 @@ export default function RegisterPage() {
               name="password"
               type="password"
               required
-              minLength={6}
+              minLength={10}
               autoComplete="new-password"
               className="input-field"
-              placeholder="Mínimo 6 caracteres"
+              placeholder="Mínimo 10 caracteres"
             />
           </div>
 
@@ -288,21 +391,25 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary flex-1"
+              className="flex-1 bg-[#5cb85c] hover:bg-[#4cae4c] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
             >
               {loading ? 'Creando...' : 'Crear cuenta'}
             </button>
           </div>
 
           <p className="text-xs text-slate-400 text-center">
-            Al crear tu cuenta aceptas nuestros términos de servicio y política de privacidad.
+            Al crear tu cuenta aceptas nuestros{' '}
+            <a href="/dashboard/legal" target="_blank" rel="noopener noreferrer" className="underline hover:text-slate-600">
+              términos de servicio
+            </a>{' '}
+            y política de privacidad.
           </p>
         </div>
       </form>
 
       <p className="mt-6 text-center text-sm text-slate-500">
         ¿Ya tienes cuenta?{' '}
-        <Link href="/login" className="text-blue-700 hover:text-blue-800 font-medium">
+        <Link href="/login" className="text-[#0f2a6e] hover:text-[#1a3a8a] font-medium">
           Iniciar sesión
         </Link>
       </p>

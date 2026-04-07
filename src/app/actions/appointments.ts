@@ -14,6 +14,14 @@ import { getSessionClinicId, checkWritePermission } from '@/lib/actions-helpers'
 export async function markAppointmentCompleted(appointmentId: string): Promise<void> {
   const clinicId = await getSessionClinicId()
 
+  // Obtener patient_id antes de actualizar
+  const { data: apt } = await supabaseAdmin
+    .from('appointments')
+    .select('patient_id')
+    .eq('id', appointmentId)
+    .eq('clinic_id', clinicId)
+    .single()
+
   const { error } = await supabaseAdmin
     .from('appointments')
     .update({ status: 'completed', updated_at: new Date().toISOString() })
@@ -30,6 +38,16 @@ export async function markAppointmentCompleted(appointmentId: string): Promise<v
     target_id: appointmentId,
     details: {},
   })
+
+  // Recalcular frecuencia de visita del paciente
+  if (apt?.patient_id) {
+    try {
+      const { calculateVisitFrequency } = await import('@/app/actions/reactivation')
+      await calculateVisitFrequency(apt.patient_id, clinicId)
+    } catch {
+      // No bloquear la operación principal
+    }
+  }
 
   revalidatePath('/dashboard')
 }
@@ -148,6 +166,8 @@ export interface AppointmentInput {
   reason: string
   payment_type: PaymentType
   eps_name: string
+  modality?: 'presencial' | 'virtual'
+  virtual_link?: string | null
 }
 
 /** Crear cita desde el dashboard */
@@ -192,6 +212,8 @@ export async function createAppointment(
         payment_type: input.payment_type || 'Particular',
         eps_name: input.payment_type === 'EPS' ? (input.eps_name || null) : null,
         source: 'dashboard',
+        modality: input.modality ?? 'presencial',
+        virtual_link: input.virtual_link ?? null,
       })
       .select('id')
       .single()
@@ -228,13 +250,21 @@ export async function createAppointment(
   }
 }
 
-/** Cancelar cita con motivo */
+/** Cancelar cita con motivo + notificar paciente prioritario en lista de espera */
 export async function cancelAppointment(
   appointmentId: string,
   reason: string
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; waitlistNotified?: string }> {
   try {
     const clinicId = await checkWritePermission('agenda')
+
+    // Obtener info de la cita antes de cancelar (para doctor_id)
+    const { data: apt } = await supabaseAdmin
+      .from('appointments')
+      .select('doctor_id')
+      .eq('id', appointmentId)
+      .eq('clinic_id', clinicId)
+      .single()
 
     const { error } = await supabaseAdmin
       .from('appointments')
@@ -258,8 +288,21 @@ export async function cancelAppointment(
       details: { reason: reason.trim() },
     })
 
+    // Notificar al paciente de mayor prioridad en lista de espera
+    let waitlistNotified: string | undefined
+    if (apt?.doctor_id) {
+      try {
+        const { notifyHighestPriorityWaitlistPatient } = await import('@/app/actions/priority')
+        const result = await notifyHighestPriorityWaitlistPatient(clinicId, apt.doctor_id)
+        if (result) waitlistNotified = result
+      } catch {
+        // No bloquear cancelación si falla la notificación
+      }
+    }
+
     revalidatePath('/dashboard')
-    return { ok: true }
+    revalidatePath('/dashboard/espera')
+    return { ok: true, waitlistNotified }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }
   }
@@ -302,6 +345,8 @@ export async function updateAppointmentFromDashboard(
         reason: input.reason.trim() || null,
         payment_type: input.payment_type || 'Particular',
         eps_name: input.payment_type === 'EPS' ? (input.eps_name || null) : null,
+        modality: input.modality ?? 'presencial',
+        virtual_link: input.virtual_link ?? null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', appointmentId)

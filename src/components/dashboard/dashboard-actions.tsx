@@ -17,9 +17,10 @@ interface Doctor {
 
 interface Props {
   doctors: Doctor[]
+  minBookingAdvanceHours?: number
 }
 
-export function NewAppointmentButton({ doctors }: Props) {
+export function NewAppointmentButton({ doctors, minBookingAdvanceHours }: Props) {
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -33,6 +34,7 @@ export function NewAppointmentButton({ doctors }: Props) {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         doctors={doctors}
+        minBookingAdvanceHours={minBookingAdvanceHours}
         onSaved={() => {
           setToast('Cita creada')
           setTimeout(() => setToast(null), 3000)

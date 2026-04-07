@@ -13,7 +13,7 @@ import {
   updateAppointmentFromDashboard,
 } from '@/app/actions/appointments'
 import type { AppointmentInput } from '@/app/actions/appointments'
-import type { PaymentType } from '@/types/database'
+import type { PaymentType, AppointmentModality } from '@/types/database'
 
 interface DoctorOption {
   id: string
@@ -39,6 +39,7 @@ interface AppointmentFormModalProps {
   onClose: () => void
   doctors: DoctorOption[]
   initialData?: InitialData
+  minBookingAdvanceHours?: number
   onSaved: () => void
 }
 
@@ -59,6 +60,7 @@ export function AppointmentFormModal({
   onClose,
   doctors,
   initialData,
+  minBookingAdvanceHours,
   onSaved,
 }: AppointmentFormModalProps) {
   const isEditing = !!initialData?.id
@@ -73,10 +75,27 @@ export function AppointmentFormModal({
   const [reason, setReason] = useState('')
   const [paymentType, setPaymentType] = useState<PaymentType>('Particular')
   const [epsName, setEpsName] = useState('')
+  const [modality, setModality] = useState<AppointmentModality>('presencial')
+  const [virtualLink, setVirtualLink] = useState('')
 
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [isPending, startTransition] = useTransition()
+
+  // Calcular si la fecha/hora está dentro de la ventana de anticipación mínima
+  const advanceWarning = (() => {
+    if (!date || !time || !minBookingAdvanceHours || minBookingAdvanceHours === 0) return null
+    const selectedDateTime = new Date(`${date}T${time}:00-05:00`)
+    const now = new Date()
+    const minAllowed = new Date(now.getTime() + minBookingAdvanceHours * 60 * 60 * 1000)
+    if (selectedDateTime < minAllowed) {
+      const label = minBookingAdvanceHours >= 24
+        ? `${Math.round(minBookingAdvanceHours / 24)} día(s)`
+        : `${minBookingAdvanceHours} horas`
+      return `La anticipación mínima para pacientes es ${label}. Esta cita es más próxima, pero como administrador puedes agendarla.`
+    }
+    return null
+  })()
 
   const overlayRef = useRef<HTMLDivElement>(null)
 
@@ -103,6 +122,8 @@ export function AppointmentFormModal({
       setReason('')
       setPaymentType('Particular')
       setEpsName('')
+      setModality('presencial')
+      setVirtualLink('')
     }
     setError('')
     setFieldErrors({})
@@ -161,6 +182,8 @@ export function AppointmentFormModal({
       reason,
       payment_type: paymentType,
       eps_name: paymentType === 'EPS' ? epsName : '',
+      modality,
+      virtual_link: modality === 'virtual' ? virtualLink.trim() || null : null,
     }
 
     startTransition(async () => {
@@ -283,6 +306,13 @@ export function AppointmentFormModal({
             </div>
           </div>
 
+          {/* Warning anticipación mínima */}
+          {advanceWarning && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+              {advanceWarning}
+            </div>
+          )}
+
           {/* Duración */}
           <div>
             <label className="label">Duración (minutos)</label>
@@ -310,6 +340,39 @@ export function AppointmentFormModal({
               className="input-field w-full"
             />
           </div>
+
+          {/* Modalidad */}
+          <div>
+            <label className="label">Modalidad</label>
+            <select
+              value={modality}
+              onChange={(e) => setModality(e.target.value as AppointmentModality)}
+              className="input-field w-full"
+            >
+              <option value="presencial">Presencial</option>
+              <option value="virtual">Virtual (videollamada)</option>
+            </select>
+          </div>
+
+          {/* Link virtual (condicional) */}
+          {modality === 'virtual' && (
+            <div>
+              <label className="label">
+                Link de videollamada
+                <span className="text-slate-400 font-normal ml-1">(opcional)</span>
+              </label>
+              <input
+                type="url"
+                value={virtualLink}
+                onChange={(e) => setVirtualLink(e.target.value)}
+                placeholder="https://meet.google.com/..."
+                className="input-field w-full"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Si no se proporciona, se generará automáticamente según la configuración del consultorio.
+              </p>
+            </div>
+          )}
 
           {/* Tipo de pago */}
           <div>

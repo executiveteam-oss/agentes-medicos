@@ -15,7 +15,7 @@ import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
-import type { Clinic, Doctor, Message, WhatsAppConfig } from '@/types/database'
+import type { Clinic, ConsultationType, Doctor, Message, WhatsAppConfig } from '@/types/database'
 import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 
 const MAX_TOOL_ITERATIONS = 5 // Máximo de veces que Claude puede usar tools en una conversación
@@ -38,6 +38,7 @@ interface AgentParams {
   doctor: Doctor              // Doctor principal (primer activo)
   doctors?: Doctor[]          // Todos los doctores activos (multi-doctor)
   waConfig?: WhatsAppConfig   // Configuración del agente
+  consultationTypes?: ConsultationType[]  // Tipos de consulta por doctor
   patientPhone: string        // Para pasarle a las tools
   patientName: string         // Nombre del paciente
   existingPatient?: ExistingPatientData | null  // Datos si es paciente recurrente
@@ -62,11 +63,11 @@ interface AgentResponse {
  * 4. Máximo 5 vueltas de tools para evitar que se quede en un ciclo infinito
  */
 export async function runAppointmentAgent(params: AgentParams): Promise<AgentResponse> {
-  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, patientPhone, patientName, existingPatient } = params
+  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient } = params
 
   // 1. Generar el system prompt con datos reales de la clínica y del paciente actual
   const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, patientPhone, patientName, existingPatient })
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient })
 
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens

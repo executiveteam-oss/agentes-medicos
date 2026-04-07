@@ -2,6 +2,8 @@
 
 // ============================================================
 // Formulario de configuración de notificaciones (Tab 4)
+// Incluye: recordatorios 72h, 24h (mejorado), 2h (alto riesgo),
+// reporte matutino y alertas
 // ============================================================
 
 import { useState, useTransition } from 'react'
@@ -14,12 +16,12 @@ interface Props {
 
 function Toggle({
   label,
-  description,
+  helper,
   checked,
   onChange,
 }: {
   label: string
-  description: string
+  helper?: string
   checked: boolean
   onChange: (v: boolean) => void
 }) {
@@ -46,7 +48,7 @@ function Toggle({
         <p className="text-sm font-medium text-slate-900 group-hover:text-blue-700 transition-colors">
           {label}
         </p>
-        <p className="text-xs text-slate-500">{description}</p>
+        {helper && <p className="text-xs text-slate-500 mt-0.5">{helper}</p>}
       </div>
     </label>
   )
@@ -77,42 +79,70 @@ export function NotificationSettingsForm({ initialData }: Props) {
     })
   }
 
+  const allRemindersOn = data.reminder_72h && data.reminder_24h && data.reminder_2h
+
   return (
     <div className="space-y-6">
-      {/* Recordatorios */}
+      {/* Recordatorios de citas */}
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Recordatorios de citas</h3>
         <p className="text-xs text-slate-400 mb-5">
           Mensajes automáticos por WhatsApp antes de cada cita.
         </p>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
+          <Toggle
+            label="Recordatorio 3 días antes"
+            helper="Recomendado para citas de larga anticipación o pacientes con historial de no-show"
+            checked={data.reminder_72h}
+            onChange={(v) => update('reminder_72h', v)}
+          />
+
           <Toggle
             label="Recordatorio 24 horas antes"
-            description="Envía un mensaje con opción de confirmar, cancelar o reagendar"
+            helper="Incluye automáticamente instrucciones de preparación y opción de cancelar/reagendar"
             checked={data.reminder_24h}
             onChange={(v) => update('reminder_24h', v)}
           />
+
           <Toggle
-            label="Recordatorio 2 horas antes"
-            description="Envía un mensaje corto con la dirección y hora"
+            label="Recordatorio 2h — solo pacientes de alto riesgo"
+            helper="Solo se envía a pacientes con historial de no-show o citas agendadas con más de 7 días de anticipación. No molesta a pacientes regulares."
             checked={data.reminder_2h}
             onChange={(v) => update('reminder_2h', v)}
           />
         </div>
+
+        {/* Info box */}
+        {allRemindersOn ? (
+          <div className="mt-5 rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+            <p className="text-xs text-emerald-800">
+              <span className="font-semibold">Excelente configuración.</span>{' '}
+              Con los 3 recordatorios activos, consultorios similares han reducido sus no-shows hasta un 45%.
+              El sistema nunca envía más de 3 mensajes por cita.
+            </p>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-lg bg-blue-50 border border-blue-200 p-3">
+            <p className="text-xs text-blue-800">
+              Con los 3 recordatorios activos, consultorios similares han reducido sus no-shows hasta un 45%.
+              El sistema nunca envía más de 3 mensajes por cita.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Reporte matutino */}
+      {/* Reportes */}
       <div className="card p-5">
-        <h3 className="text-sm font-semibold text-slate-900 mb-1">Reporte matutino</h3>
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Reportes</h3>
         <p className="text-xs text-slate-400 mb-5">
-          Resumen diario de las citas del día enviado al equipo.
+          Resúmenes automáticos enviados por WhatsApp.
         </p>
 
         <div className="space-y-4">
           <Toggle
             label="Enviar reporte matutino"
-            description="Recibe un resumen con las citas programadas para el día"
+            helper="Recibe un resumen con las citas programadas para el día"
             checked={data.morning_report}
             onChange={(v) => update('morning_report', v)}
           />
@@ -130,6 +160,13 @@ export function NotificationSettingsForm({ initialData }: Props) {
               />
             </div>
           )}
+
+          <Toggle
+            label="Reporte semanal los lunes"
+            helper="Resumen de la semana anterior por WhatsApp cada lunes a las 8am"
+            checked={data.weekly_report}
+            onChange={(v) => update('weekly_report', v)}
+          />
         </div>
       </div>
 
@@ -143,7 +180,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
         <div className="space-y-4">
           <Toggle
             label="Alerta de no-show"
-            description="Notifica cuando un paciente no se presenta a su cita"
+            helper="Notifica cuando un paciente no se presenta a su cita"
             checked={data.noshow_alert}
             onChange={(v) => update('noshow_alert', v)}
           />
@@ -169,7 +206,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
 
           <Toggle
             label="Alerta de facturación vencida"
-            description="Notifica cuando hay facturas pendientes de cobro por más tiempo del esperado"
+            helper="Notifica cuando hay facturas pendientes de cobro por más tiempo del esperado"
             checked={data.overdue_billing_alert}
             onChange={(v) => update('overdue_billing_alert', v)}
           />

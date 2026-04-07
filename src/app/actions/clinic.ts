@@ -7,9 +7,16 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkWritePermission, checkReadPermission } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
-import type { NotificationSettings } from '@/types/database'
+import type { NotificationSettings, VirtualConsultationConfig } from '@/types/database'
 
 // --- Tipos ---
+
+const DEFAULT_VIRTUAL_CONFIG: VirtualConsultationConfig = {
+  enabled: false,
+  platform: 'custom',
+  base_url: null,
+  instructions: null,
+}
 
 export interface ClinicSettingsData {
   name: string
@@ -19,6 +26,8 @@ export interface ClinicSettingsData {
   specialty: string[]
   consultation_price: number | null
   daily_goal_appointments: number
+  min_booking_advance_hours: number
+  max_booking_advance_days: number
   address: string
   city: string
   department: string
@@ -26,6 +35,8 @@ export interface ClinicSettingsData {
   floor: string
   office: string
   logo_url: string
+  virtual_config: VirtualConsultationConfig
+  escalation_contact_phone: string
 }
 
 // --- Acciones ---
@@ -40,7 +51,9 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
       .select(`
         name, phone, contact_email, website, specialty,
         consultation_price, daily_goal_appointments,
-        address, city, department, building, floor, office, logo_url
+        min_booking_advance_hours, max_booking_advance_days,
+        address, city, department, building, floor, office, logo_url,
+        virtual_config, escalation_contact_phone
       `)
       .eq('id', clinicId)
       .single()
@@ -55,6 +68,8 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
       specialty: data.specialty ?? [],
       consultation_price: data.consultation_price,
       daily_goal_appointments: data.daily_goal_appointments ?? 10,
+      min_booking_advance_hours: data.min_booking_advance_hours ?? 24,
+      max_booking_advance_days: data.max_booking_advance_days ?? 60,
       address: data.address ?? '',
       city: data.city ?? 'Pereira',
       department: data.department ?? 'Risaralda',
@@ -62,6 +77,8 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
       floor: data.floor ?? '',
       office: data.office ?? '',
       logo_url: data.logo_url ?? '',
+      virtual_config: { ...DEFAULT_VIRTUAL_CONFIG, ...((data.virtual_config as Partial<VirtualConsultationConfig>) ?? {}) },
+      escalation_contact_phone: (data as Record<string, unknown>).escalation_contact_phone as string ?? '',
     }
   } catch {
     return null
@@ -89,6 +106,8 @@ export async function saveClinicSettings(
         specialty: input.specialty,
         consultation_price: input.consultation_price,
         daily_goal_appointments: input.daily_goal_appointments,
+        min_booking_advance_hours: input.min_booking_advance_hours,
+        max_booking_advance_days: input.max_booking_advance_days,
         address: input.address.trim() || null,
         city: input.city.trim() || 'Pereira',
         department: input.department.trim() || 'Risaralda',
@@ -96,6 +115,8 @@ export async function saveClinicSettings(
         floor: input.floor.trim() || null,
         office: input.office.trim() || null,
         logo_url: input.logo_url.trim() || null,
+        virtual_config: input.virtual_config as unknown as Record<string, unknown>,
+        escalation_contact_phone: input.escalation_contact_phone.trim() || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', clinicId)
@@ -130,10 +151,12 @@ export async function getNotificationSettings(): Promise<NotificationSettings | 
     if (!data) return null
 
     const defaults: NotificationSettings = {
+      reminder_72h: false,
       reminder_24h: true,
       reminder_2h: false,
       morning_report: true,
       morning_report_hour: '06:00',
+      weekly_report: true,
       noshow_alert: false,
       noshow_alert_threshold: 30,
       overdue_billing_alert: false,

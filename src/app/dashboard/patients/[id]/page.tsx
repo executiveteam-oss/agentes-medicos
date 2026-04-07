@@ -8,6 +8,8 @@ export const dynamic = 'force-dynamic'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getPatientDetail } from '@/app/actions/patients'
+import { formatFrequency } from '@/app/actions/reactivation'
+import { ReactivationBanner } from '@/components/dashboard/reactivation-banner'
 import { formatCOP, formatPhone, formatTimeForPatient } from '@/lib/utils/dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -111,7 +113,19 @@ export default async function PatientDetailPage({
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
           <InfoItem label="Documento" value={`${patient.document_type} ${patient.document_number ?? 'No registrado'}`} />
           <InfoItem label="Fecha de nacimiento" value={patient.date_of_birth ? format(new Date(patient.date_of_birth + 'T12:00:00'), "d MMM yyyy", { locale: es }) : 'No registrada'} />
-          <InfoItem label="Email" value={patient.email ?? 'No registrado'} />
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-0.5">Email</p>
+            {patient.email ? (
+              <p className="text-sm font-medium text-slate-700">{patient.email}</p>
+            ) : (
+              <Link
+                href={`/dashboard/patients?edit=${patient.id}&focus=email`}
+                className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
+              >
+                Sin correo — Agregar
+              </Link>
+            )}
+          </div>
           <InfoItem label="EPS" value={patient.eps ?? 'Particular'} />
         </div>
         {patient.notes && (
@@ -121,6 +135,16 @@ export default async function PatientDetailPage({
           </div>
         )}
       </div>
+
+      {/* Frecuencia de visita + alerta de reactivación */}
+      {patient.total_appointments >= 1 && (
+        <ReactivationBanner
+          patientId={patient.id}
+          visitFrequencyDays={patient.visit_frequency_days}
+          daysSinceLastVisit={patient.days_since_last_visit}
+          frequencyLabel={patient.visit_frequency_days ? await formatFrequency(patient.visit_frequency_days) : null}
+        />
+      )}
 
       {/* Appointments */}
       <div className="card overflow-hidden">
@@ -145,6 +169,7 @@ export default async function PatientDetailPage({
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Estado</th>
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Pago</th>
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Factura</th>
+                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Docs</th>
                 </tr>
               </thead>
               <tbody>
@@ -167,6 +192,15 @@ export default async function PatientDetailPage({
                       </td>
                       <td className="py-3 px-5">
                         <span className={`badge ${invoiceInfo.class}`}>{invoiceInfo.label}</span>
+                      </td>
+                      <td className="py-3 px-5">
+                        {a.documents_requested ? (
+                          a.documents_received
+                            ? <span className="badge badge-green">Recibidos</span>
+                            : <span className="badge badge-amber">Pendientes</span>
+                        ) : (
+                          <span className="text-slate-300 text-xs">-</span>
+                        )}
                       </td>
                     </tr>
                   )

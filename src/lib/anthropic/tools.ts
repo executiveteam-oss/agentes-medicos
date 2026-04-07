@@ -35,6 +35,10 @@ export const agentTools: Tool[] = [
           type: 'string',
           description: 'Hora preferida en formato HH:MM (24h). Opcional.',
         },
+        consultation_type_id: {
+          type: 'string',
+          description: 'ID UUID del tipo de consulta. Si se proporciona, se usa la duración del tipo en vez de la duración por defecto. Opcional.',
+        },
       },
       required: ['doctor_id'],
     },
@@ -100,6 +104,15 @@ export const agentTools: Tool[] = [
         reason: {
           type: 'string',
           description: 'Motivo de la consulta (opcional)',
+        },
+        consultation_type_id: {
+          type: 'string',
+          description: 'ID UUID del tipo de consulta seleccionado. Determina la duración de la cita. Opcional.',
+        },
+        modality: {
+          type: 'string',
+          enum: ['presencial', 'virtual'],
+          description: 'Modalidad de la cita. Usar "virtual" si el paciente eligió consulta por videollamada. Default: presencial.',
         },
       },
       required: ['doctor_id', 'patient_name', 'patient_phone', 'starts_at', 'date_of_birth', 'document_type', 'document_number'],
@@ -188,9 +201,9 @@ export const agentTools: Tool[] = [
   {
     name: 'add_to_waitlist',
     description:
-      'Agrega al paciente a la lista de espera cuando NO hay disponibilidad. ' +
+      'Agrega al paciente a la lista de espera cuando NO hay disponibilidad, o cuando el doctor tiene disponibilidad manual. ' +
       'Si se cancela una cita, el sistema notifica automáticamente al siguiente en la lista. ' +
-      'Úsala después de verificar disponibilidad y no encontrar horarios.',
+      'Úsala después de verificar disponibilidad y no encontrar horarios, o para doctores con schedule_type "manual".',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -214,7 +227,15 @@ export const agentTools: Tool[] = [
         },
         reason: {
           type: 'string',
-          description: 'Motivo de consulta',
+          description: 'Motivo de consulta o tipo de consulta solicitado',
+        },
+        preferred_schedule_notes: {
+          type: 'string',
+          description: 'Notas de preferencia de horario del paciente (ej: "mañanas de lunes a miércoles", "tardes preferiblemente"). Usar para doctores con disponibilidad manual.',
+        },
+        consultation_type_name: {
+          type: 'string',
+          description: 'Nombre del tipo de consulta solicitado (ej: "Consulta general", "Ecografía")',
         },
       },
       required: ['doctor_id', 'patient_phone'],

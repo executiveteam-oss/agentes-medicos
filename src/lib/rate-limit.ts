@@ -1,12 +1,13 @@
 // ============================================================
 // Rate Limiter — Protección contra abuso en API routes
 //
-// Usa un Map en memoria por instancia de Vercel.
-// No es perfecto entre instancias, pero protege contra
-// ráfagas de un mismo origen en la misma instancia.
-//
-// Para producción a escala: migrar a Vercel KV (Redis).
+// TODO: migrar a Vercel KV para seguridad multi-instancia.
+// Actualmente usa Map en memoria — solo protege dentro de
+// una misma instancia de Vercel. En producción con múltiples
+// instancias, un atacante podría evadir los límites.
 // ============================================================
+
+import { timingSafeEqual } from 'crypto'
 
 interface RateLimitEntry {
   count: number
@@ -88,4 +89,23 @@ export function getClientIp(request: Request): string {
     request.headers.get('x-real-ip') ||
     'unknown'
   )
+}
+
+/**
+ * Verifica el Bearer token de cron jobs con comparación timing-safe.
+ * SECURITY: nunca usar === para comparar secrets.
+ */
+export function verifyCronSecret(authHeader: string | null): boolean {
+  const secret = process.env.CRON_SECRET
+  if (!authHeader || !secret) return false
+
+  const expected = `Bearer ${secret}`
+
+  if (authHeader.length !== expected.length) return false
+
+  try {
+    return timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
+  } catch {
+    return false
+  }
 }

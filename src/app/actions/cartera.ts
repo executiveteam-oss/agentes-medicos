@@ -6,6 +6,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendEmail } from '@/lib/email/client'
 import { revalidatePath } from 'next/cache'
 import { formatCOP } from '@/lib/utils/dates'
 import { getSessionClinicId, checkWritePermission } from '@/lib/actions-helpers'
@@ -22,7 +23,7 @@ export async function sendCollectionMessage(carteraId: string): Promise<{ ok: bo
     // Obtener entrada de cartera con datos del paciente
     const { data: entry, error: fetchError } = await supabaseAdmin
       .from('cartera')
-      .select('*, patients(name, phone)')
+      .select('*, patients(name, phone, email)')
       .eq('id', carteraId)
       .eq('clinic_id', clinicId)
       .single()
@@ -31,7 +32,7 @@ export async function sendCollectionMessage(carteraId: string): Promise<{ ok: bo
       return { ok: false, error: 'Entrada de cartera no encontrada' }
     }
 
-    const patient = entry.patients as { name: string; phone: string } | null
+    const patient = entry.patients as { name: string; phone: string; email: string | null } | null
     if (!patient) return { ok: false, error: 'Paciente no encontrado' }
 
     const monto = formatCOP(entry.amount)
@@ -206,6 +207,90 @@ export async function markCarteraPaid(
     return { ok: true }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
+/**
+ * Enviar mensaje de cobro por EMAIL a un paciente en cartera
+ */
+export async function sendCollectionEmail(carteraId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await getSessionClinicId()
+
+    const { data: entry, error: fetchError } = await supabaseAdmin
+      .from('cartera')
+      .select('*, patients(name, email)')
+      .eq('id', carteraId)
+      .eq('clinic_id', clinicId)
+      .single()
+
+    if (fetchError || !entry) {
+      return { ok: false, error: 'Entrada de cartera no encontrada' }
+    }
+
+    const patient = entry.patients as { name: string; email: string | null } | null
+    if (!patient?.email) return { ok: false, error: 'El paciente no tiene email registrado' }
+
+    // Obtener nombre de la clínica
+    const { data: clinic } = await supabaseAdmin
+      .from('clinics')
+      .select('name, phone')
+      .eq('id', clinicId)
+      .single()
+
+    const clinicName = clinic?.name ?? 'el consultorio'
+    const clinicPhone = clinic?.phone ?? ''
+    const monto = formatCOP(entry.amount)
+
+    const html = `
+      <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto;">
+        <h2 style="color: #1e293b;">Recordatorio de saldo pendiente</h2>
+        <p>Hola <strong>${patient.name}</strong>,</p>
+        <p>Te escribimos de <strong>${clinicName}</strong> para recordarte que tienes un saldo pendiente:</p>
+        <div style="background: #f8fafc; border-radius: 8px; padding: 16px; margin: 16px 0;">
+          <p style="margin: 0; font-size: 14px; color: #64748b;">Monto pendiente</p>
+          <p style="margin: 4px 0 0; font-size: 24px; font-weight: 600; color: #0f172a;">${monto} COP</p>
+          ${entry.treatment ? `<p style="margin: 8px 0 0; font-size: 14px; color: #64748b;">Concepto: ${entry.treatment}</p>` : ''}
+        </div>
+        <p>Por favor comunícate con nosotros para coordinar el pago.</p>
+        ${clinicPhone ? `<p style="font-size: 14px; color: #64748b;">Tel: ${clinicPhone}</p>` : ''}
+        <p style="font-size: 12px; color: #94a3b8; margin-top: 24px;">Este es un mensaje automático. Si ya realizaste el pago, puedes ignorar este correo.</p>
+      </div>
+    `
+
+    const result = await sendEmail({
+      to: patient.email,
+      subject: `Recordatorio de saldo pendiente — ${clinicName}`,
+      html,
+    })
+
+    if (!result.ok) return { ok: false, error: result.error ?? 'Error enviando email' }
+
+    // Actualizar intentos
+    await supabaseAdmin
+      .from('cartera')
+      .update({
+        collection_attempts: (entry.collection_attempts ?? 0) + 1,
+        last_collection_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', carteraId)
+      .eq('clinic_id', clinicId)
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'cartera_collection_email',
+      actor_type: 'staff',
+      target_type: 'cartera',
+      target_id: carteraId,
+      details: { patient_name: patient.name, amount: entry.amount, channel: 'email' },
+    })
+
+    revalidatePath('/dashboard/cartera')
+    return { ok: true }
+  } catch (error) {
+    console.error('[sendCollectionEmail]', error)
+    return { ok: false, error: 'Error enviando email' }
   }
 }
 

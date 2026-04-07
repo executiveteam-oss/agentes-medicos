@@ -139,6 +139,117 @@ export async function toggleDoctorActive(
   }
 }
 
+/** Cerrar agenda de un doctor */
+export async function closeDoctorAgenda(
+  doctorId: string,
+  reason: string | null,
+  until: string | null  // YYYY-MM-DD or null = indefinido
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('whatsapp')
+
+    const { error } = await supabaseAdmin
+      .from('doctors')
+      .update({
+        agenda_closed: true,
+        agenda_closed_reason: reason?.trim() || null,
+        agenda_closed_until: until || null,
+      })
+      .eq('id', doctorId)
+      .eq('clinic_id', clinicId)
+
+    if (error) return { ok: false, error: 'Error cerrando agenda' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'agenda_closed',
+      actor_type: 'staff',
+      target_type: 'doctor',
+      target_id: doctorId,
+      details: { reason: reason?.trim() || null, until },
+    })
+
+    revalidatePath('/dashboard/whatsapp')
+    revalidatePath('/dashboard')
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
+/** Reabrir agenda de un doctor */
+export async function reopenDoctorAgenda(
+  doctorId: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('whatsapp')
+
+    const { error } = await supabaseAdmin
+      .from('doctors')
+      .update({
+        agenda_closed: false,
+        agenda_closed_reason: null,
+        agenda_closed_until: null,
+      })
+      .eq('id', doctorId)
+      .eq('clinic_id', clinicId)
+
+    if (error) return { ok: false, error: 'Error reabriendo agenda' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'agenda_reopened',
+      actor_type: 'staff',
+      target_type: 'doctor',
+      target_id: doctorId,
+      details: {},
+    })
+
+    revalidatePath('/dashboard/whatsapp')
+    revalidatePath('/dashboard')
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
+/** Actualizar tipo de horario del doctor */
+export async function updateDoctorScheduleType(
+  doctorId: string,
+  scheduleType: 'fixed' | 'manual',
+  manualMessage: string | null
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('whatsapp')
+
+    const { error } = await supabaseAdmin
+      .from('doctors')
+      .update({
+        schedule_type: scheduleType,
+        manual_availability_message: scheduleType === 'manual' ? (manualMessage?.trim() || null) : null,
+      })
+      .eq('id', doctorId)
+      .eq('clinic_id', clinicId)
+
+    if (error) return { ok: false, error: 'Error actualizando tipo de horario' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'doctor_schedule_type_updated',
+      actor_type: 'staff',
+      target_type: 'doctor',
+      target_id: doctorId,
+      details: { schedule_type: scheduleType },
+    })
+
+    revalidatePath('/dashboard/whatsapp')
+    revalidatePath('/dashboard')
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
 /** Eliminar doctor (solo si no tiene citas futuras) */
 export async function deleteDoctor(
   doctorId: string

@@ -6,9 +6,33 @@
 
 import { useState, useTransition } from 'react'
 import { CarteraFormModal } from '@/components/dashboard/cartera-form-modal'
-import { markCarteraPaid, deleteCarteraEntry, sendCollectionMessage } from '@/app/actions/cartera'
+import { markCarteraPaid, deleteCarteraEntry, sendCollectionMessage, sendCollectionEmail } from '@/app/actions/cartera'
 import { formatCOP } from '@/lib/utils/dates'
+import { PriorityBadge } from '@/components/dashboard/priority-badge'
+import type { PriorityTier } from '@/components/dashboard/priority-badge'
 import type { CarteraEntryWithDetails, PaymentType } from '@/types/database'
+
+function getCarteraPatientTier(entry: CarteraEntryWithDetails): PriorityTier | null {
+  const p = entry.patient
+  if (!p) return null
+  let score = 0
+  // Payment: use cartera entry payment_type
+  if (entry.payment_type === 'Particular') score += 30
+  else score += 10
+  // Cartera: always -20 (they're in cartera)
+  score -= 20
+  // Frequency
+  if (p.total_appointments >= 5) score += 25
+  else if (p.total_appointments >= 2) score += 15
+  // No-shows
+  if (p.no_show_count === 0) score += 20
+  else if (p.no_show_count === 1) score += 5
+  else score -= 10
+
+  if (score >= 80) return 'high'
+  if (score >= 50) return 'mid'
+  return null
+}
 
 interface Props {
   entries: CarteraEntryWithDetails[]
@@ -124,7 +148,7 @@ export function CarteraPanel({ entries: initialEntries, totalDeuda, totalVencida
               <thead>
                 <tr className="bg-slate-50">
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Paciente</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Teléfono</th>
+                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Contacto</th>
                   <th className="text-right py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Monto</th>
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Vencida</th>
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Tipo pago</th>
@@ -179,6 +203,7 @@ function CarteraRowExtended({
 }) {
   const [isPending, startTransition] = useTransition()
   const [sent, setSent] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
   const isOverdue30 = entry.days_overdue > 30
 
   const PAYMENT_COLORS: Record<string, string> = {
@@ -193,11 +218,33 @@ function CarteraRowExtended({
     })
   }
 
+  function handleCobrarEmail() {
+    startTransition(async () => {
+      const result = await sendCollectionEmail(entry.id)
+      if (result.ok) setEmailSent(true)
+    })
+  }
+
+  const tier = getCarteraPatientTier(entry)
+  const hasEmail = !!entry.patient?.email
+
   return (
     <tr className={`border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors ${isOverdue30 ? 'bg-red-50/30' : ''}`}>
-      <td className="py-3.5 px-5 text-sm font-medium text-slate-900">{entry.patient?.name ?? '-'}</td>
-      <td className="py-3.5 px-5 text-slate-500 text-sm">
-        {entry.patient?.phone?.replace('+57', '').replace(/(\d{3})(\d{3})(\d{4})/, '$1 $2 $3') ?? '-'}
+      <td className="py-3.5 px-5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-900">{entry.patient?.name ?? '-'}</span>
+          {tier && <PriorityBadge tier={tier} size="xs" />}
+        </div>
+      </td>
+      <td className="py-3.5 px-5">
+        <div className="text-slate-500 text-sm">
+          {entry.patient?.phone?.replace('+57', '').replace(/(\d{3})(\d{3})(\d{4})/, '$1 $2 $3') ?? '-'}
+        </div>
+        {hasEmail && (
+          <div className="text-slate-400 text-xs truncate max-w-[160px]" title={entry.patient.email!}>
+            {entry.patient.email}
+          </div>
+        )}
       </td>
       <td className="py-3.5 px-5 text-right">
         <span className="text-sm font-semibold text-slate-900">{formatCOP(entry.amount)}</span>
@@ -213,11 +260,20 @@ function CarteraRowExtended({
       <td className="py-3.5 px-5 text-right">
         <div className="flex gap-1 justify-end items-center">
           {sent ? (
-            <span className="badge badge-green text-xs">Enviado</span>
+            <span className="badge badge-green text-xs">WA</span>
           ) : (
             <button onClick={handleCobrar} disabled={isPending} className="bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-medium py-1 px-2 rounded-lg transition-colors whitespace-nowrap">
               {isPending ? '...' : 'WA'}
             </button>
+          )}
+          {hasEmail && (
+            emailSent ? (
+              <span className="badge badge-green text-xs">Email</span>
+            ) : (
+              <button onClick={handleCobrarEmail} disabled={isPending} className="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-xs font-medium py-1 px-2 rounded-lg transition-colors whitespace-nowrap" title="Enviar cobro por email">
+                {isPending ? '...' : 'Email'}
+              </button>
+            )
           )}
           <button onClick={onEdit} className="text-slate-400 hover:text-blue-600 p-1" title="Editar">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" /></svg>

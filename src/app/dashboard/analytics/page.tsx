@@ -6,18 +6,35 @@
 export const dynamic = 'force-dynamic'
 
 import { getAnalyticsData } from '@/app/actions/analytics'
+import { getEpsProfitability } from '@/app/actions/glosas'
+import { getUserSession } from '@/lib/session'
+import { getRestrictedDoctorId, isDoctorUnlinked } from '@/lib/doctor-filter'
+import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-banner'
 import { formatCOP, formatPhone } from '@/lib/utils/dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import {
   DayOccupationChart,
   TimeSlotsChart,
   PaymentBreakdownChart,
+  LossValuationChart,
+  EpsProfitabilityChart,
 } from '@/components/dashboard/analytics-charts'
+import { ReactivationButton } from '@/components/dashboard/reactivation-button'
 
 export default async function AnalyticsPage() {
-  const data = await getAnalyticsData()
+  const session = await getUserSession()
+  if (!session) redirect('/login')
+  if (isDoctorUnlinked(session)) return <DoctorUnlinkedBanner />
+
+  const restrictDoctorId = getRestrictedDoctorId(session)
+
+  const [data, epsProfitability] = await Promise.all([
+    getAnalyticsData(restrictDoctorId),
+    getEpsProfitability(restrictDoctorId),
+  ])
   const { week, month } = data
 
   // Helpers para comparar vs mes anterior
@@ -28,10 +45,79 @@ export default async function AnalyticsPage() {
   return (
     <div className="p-6 lg:p-8 space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Estadísticas</h1>
-        <p className="text-slate-500 text-sm">Métricas del consultorio en tiempo real</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Estadísticas</h1>
+          <p className="text-slate-500 text-sm">Métricas del consultorio en tiempo real</p>
+        </div>
+        <Link
+          href="/dashboard/analytics/vacaciones"
+          className="btn-primary text-sm py-2 px-4 whitespace-nowrap shrink-0"
+        >
+          Planificar vacaciones
+        </Link>
       </div>
+
+      {/* ==================== SECCIÓN 0: PÉRDIDAS ESTE MES ==================== */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-red-500">Pérdidas este mes</h2>
+
+        {/* 3 loss cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* No-shows */}
+          <div className="card p-5 border-red-200 bg-red-50/40">
+            <p className="text-xs font-medium uppercase tracking-wider text-red-400 mb-1">Pérdidas por no-shows</p>
+            <p className="text-xl font-bold text-red-600">{formatCOP(data.lossValuation.noShows.amount)} COP</p>
+            <p className="text-xs text-red-400 mt-1">
+              {data.lossValuation.noShows.count} cita{data.lossValuation.noShows.count !== 1 ? 's' : ''} no atendida{data.lossValuation.noShows.count !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {/* Cancelaciones */}
+          <div className="card p-5 border-amber-200 bg-amber-50/40">
+            <p className="text-xs font-medium uppercase tracking-wider text-amber-500 mb-1">Pérdidas por cancelaciones</p>
+            <p className="text-xl font-bold text-amber-600">{formatCOP(data.lossValuation.cancellations.amount)} COP</p>
+            <p className="text-xs text-amber-400 mt-1">
+              {data.lossValuation.cancellations.count} cita{data.lossValuation.cancellations.count !== 1 ? 's' : ''} cancelada{data.lossValuation.cancellations.count !== 1 ? 's' : ''}
+            </p>
+          </div>
+
+          {/* Sin facturar */}
+          <div className="card p-5 border-amber-200 bg-amber-50/40">
+            <p className="text-xs font-medium uppercase tracking-wider text-amber-500 mb-1">Citas sin facturar</p>
+            <p className="text-xl font-bold text-amber-600">{formatCOP(data.lossValuation.unbilled.amount)} COP</p>
+            <p className="text-xs text-amber-400 mt-1">
+              {data.lossValuation.unbilled.count} cita{data.lossValuation.unbilled.count !== 1 ? 's' : ''} completada{data.lossValuation.unbilled.count !== 1 ? 's' : ''} sin factura
+            </p>
+          </div>
+        </div>
+
+        {/* Total */}
+        <div className="card p-5 bg-slate-900 text-white">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-1">Total pérdidas estimadas</p>
+              <p className="text-2xl font-bold">{formatCOP(data.lossValuation.total)} COP</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Este mes · basado en precio de consulta configurado ({formatCOP(data.consultationPrice)} COP)
+              </p>
+            </div>
+            <Link
+              href="/dashboard/settings/clinic"
+              className="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              Configurar precio →
+            </Link>
+          </div>
+        </div>
+
+        {/* Trend chart */}
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-slate-900 mb-1">Ingresos reales vs potenciales</h3>
+          <p className="text-xs text-slate-400 mb-4">Últimos 6 meses · la brecha roja representa las pérdidas</p>
+          <LossValuationChart data={data.monthTrend} />
+        </div>
+      </section>
 
       {/* ==================== SECCIÓN 1: ESTA SEMANA ==================== */}
       <section className="space-y-4">
@@ -181,7 +267,115 @@ export default async function AnalyticsPage() {
         </div>
       </section>
 
-      {/* ==================== SECCIÓN 4: ALERTAS FINANCIERAS ==================== */}
+      {/* ==================== SECCIÓN 4: AUTOMATIZACIONES ==================== */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Automatizaciones</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="card p-4">
+            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-1">NPS promedio</p>
+            <p className={`text-lg font-semibold ${
+              data.npsAverage === null ? 'text-slate-400'
+                : data.npsAverage >= 8 ? 'text-emerald-600'
+                  : data.npsAverage >= 5 ? 'text-amber-600'
+                    : 'text-red-600'
+            }`}>
+              {data.npsAverage !== null ? data.npsAverage.toFixed(1) : 'Sin datos'}
+            </p>
+            {data.npsCount > 0 && (
+              <p className="text-xs text-slate-400 mt-0.5">{data.npsCount} respuesta{data.npsCount !== 1 ? 's' : ''} este mes</p>
+            )}
+          </div>
+          <StatCard
+            label="Pacientes inactivos"
+            value={String(data.inactivePatients)}
+            sub="Sin cita en +90 días"
+            valueClass={data.inactivePatients > 10 ? 'text-amber-600' : undefined}
+          />
+          <StatCard
+            label="Reactivados este mes"
+            value={String(data.reactivatedThisMonth)}
+            valueClass={data.reactivatedThisMonth > 0 ? 'text-teal-700' : undefined}
+          />
+          <StatCard
+            label="Tasa respuesta NPS"
+            value={data.npsCount > 0
+              ? `${data.npsCount}`
+              : '0'}
+            sub="Calificaciones recibidas"
+          />
+        </div>
+      </section>
+
+      {/* ==================== SECCIÓN 5: RETENCIÓN ==================== */}
+      <section className="space-y-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Retención de pacientes</h2>
+
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          <StatCard
+            label="Pacientes recurrentes"
+            value={String(data.retention.recurringPatients)}
+            sub="Con 2+ visitas completadas"
+            valueClass="text-teal-700"
+          />
+          <StatCard
+            label="Tasa de retorno"
+            value={`${data.retention.returnRate}%`}
+            sub="Pacientes que volvieron tras 1era visita"
+            valueClass={data.retention.returnRate >= 50 ? 'text-teal-700' : 'text-amber-600'}
+          />
+          <StatCard
+            label="En riesgo de pérdida"
+            value={String(data.retention.atRiskCount)}
+            sub="Última visita > frecuencia habitual × 1.5"
+            valueClass={data.retention.atRiskCount > 0 ? 'text-red-600' : undefined}
+          />
+        </div>
+
+        {data.retention.topAtRisk.length > 0 && (
+          <div className="card overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-900">Pacientes en riesgo de pérdida</h3>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {data.retention.topAtRisk.map((p) => (
+                <div key={p.id} className="px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <Link
+                        href={`/dashboard/patients/${p.id}`}
+                        className="text-sm font-medium text-blue-700 hover:text-blue-800 hover:underline truncate block"
+                      >
+                        {p.name}
+                      </Link>
+                      <p className="text-xs text-slate-400">
+                        Frecuencia: cada {p.visitFrequencyDays} días · Última visita: hace {p.daysSinceLastVisit} días
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="badge badge-red">{p.daysSinceLastVisit}d sin visita</span>
+                    <ReactivationButton patientId={p.id} patientName={p.name} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ==================== SECCIÓN 6: RENTABILIDAD EPS ==================== */}
+      {epsProfitability.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Rentabilidad por EPS</h2>
+          <div className="card p-5">
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">Facturado vs Cobrado vs Glosado</h3>
+            <p className="text-xs text-slate-400 mb-4">Últimos 6 meses · la diferencia entre facturado y cobrado son las pérdidas por glosas y retrasos</p>
+            <EpsProfitabilityChart data={epsProfitability} />
+          </div>
+        </section>
+      )}
+
+      {/* ==================== SECCIÓN 7: ALERTAS FINANCIERAS ==================== */}
       <section className="space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Alertas financieras</h2>
 

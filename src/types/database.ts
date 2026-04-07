@@ -47,11 +47,35 @@ export interface WhatsAppDoctorConfig {
   duration: number           // duración de cita en minutos
 }
 
+export interface WhatsAppAutomations {
+  post_consulta: {
+    enabled: boolean
+  }
+  reactivacion: {
+    enabled: boolean
+    days_inactive: number              // días sin visita para considerar inactivo
+  }
+}
+
+// --- Consultas virtuales (config por clínica) ---
+export type VirtualPlatform = 'google_meet' | 'zoom' | 'teams' | 'custom' | 'isalud'
+
+export interface VirtualConsultationConfig {
+  enabled: boolean
+  platform: VirtualPlatform
+  base_url: string | null       // URL base para Zoom/Teams/Custom
+  instructions: string | null   // Instrucciones para el paciente
+}
+
+export type ConsultationModality = 'presencial' | 'virtual' | 'ambas'
+export type AppointmentModality = 'presencial' | 'virtual'
+
 export interface WhatsAppConfig {
   schedule: WhatsAppScheduleConfig
   appointment: WhatsAppAppointmentConfig
   escalation_keywords: string[]
   doctors: Record<string, WhatsAppDoctorConfig>  // doctor_id → config
+  automations: WhatsAppAutomations
 }
 
 // --- CLÍNICAS (tabla: clinics) ---
@@ -62,6 +86,13 @@ export interface Clinic {
   phone: string
   whatsapp_phone_id: string | null
   whatsapp_token: string | null
+  whatsapp_access_token: string | null
+  whatsapp_app_secret: string | null
+  whatsapp_verify_token: string | null
+  whatsapp_connected: boolean
+  whatsapp_display_name: string | null
+  whatsapp_phone_display: string | null
+  whatsapp_connected_at: string | null
   address: string | null
   city: string
   department: string
@@ -77,7 +108,7 @@ export interface Clinic {
   agent_personality: string
   welcome_message: string | null
   subscription_status: 'trial' | 'active' | 'cancelled' | 'expired'
-  subscription_plan: 'basic' | 'pro'
+  subscription_plan: 'core' | 'basic' | 'pro'
   trial_ends_at: string | null             // ISO 8601
   whatsapp_config: WhatsAppConfig | null    // Configuración del agente (migración 00012)
   google_sheet_id: string | null           // ID de Google Sheets vinculado
@@ -87,24 +118,91 @@ export interface Clinic {
   website: string | null                    // Sitio web (migración 00016)
   logo_url: string | null                   // URL del logo (migración 00016)
   notification_settings: NotificationSettings // Config notificaciones (migración 00016)
+  min_booking_advance_hours: number        // Mínimo horas de anticipación para agendar (migración 00024)
+  max_booking_advance_days: number         // Máximo días hacia el futuro para agendar (migración 00024)
+  virtual_config: VirtualConsultationConfig | null  // Config consultas virtuales (migración 00027)
+  integrations: IntegrationsDbConfig | null // Config integraciones externas (migración 00032)
+  feature_config: FeatureConfig | null     // Config features del configurador (migración 00039)
+  preferred_plan: string | null            // Plan seleccionado en configurador
+  expected_doctors: number | null          // Médicos esperados
+  expected_monthly_appointments: number | null // Citas mensuales esperadas
   onboarded_at: string | null              // Null = no ha completado el wizard (migración 00007)
   created_at: string
   updated_at: string
 }
 
+// --- Integraciones externas ---
+export interface HisCredentials {
+  api_url?: string
+  api_key?: string
+  clinic_code?: string
+  username?: string
+  password?: string
+  subdomain?: string
+  token?: string
+  [key: string]: string | undefined
+}
+
+export interface HisIntegrationConfig {
+  software: string
+  status: 'pending' | 'active' | 'error'
+  credentials: HisCredentials
+  last_sync: string | null
+  error_message: string | null
+}
+
+export interface IntegrationsDbConfig {
+  his?: HisIntegrationConfig
+}
+
+// --- CONFIGURACIÓN DE FEATURES (configurador de pricing) ---
+export interface FeatureConfig {
+  agent: boolean
+  reminders_24h: boolean
+  reminders_72h: boolean
+  docs_required: boolean
+  waitlist: boolean
+  reactivation: boolean
+  dashboard: boolean
+  insights: boolean
+  virtual: boolean
+}
+
 // --- NOTIFICACIONES ---
 export interface NotificationSettings {
+  reminder_72h: boolean
   reminder_24h: boolean
   reminder_2h: boolean
   morning_report: boolean
   morning_report_hour: string
+  weekly_report: boolean
   noshow_alert: boolean
   noshow_alert_threshold: number
   overdue_billing_alert: boolean
   overdue_billing_days: number
 }
 
+// --- TIPOS DE CONSULTA (tabla: consultation_types) ---
+export interface ConsultationType {
+  id: string
+  clinic_id: string
+  doctor_id: string
+  name: string
+  duration_minutes: number
+  requires_preparation: boolean
+  preparation_instructions: string | null
+  price: number | null            // COP
+  is_active: boolean
+  bookable_via_whatsapp: boolean  // Si el agente puede ofrecer este servicio (migración 00025)
+  requires_documents: boolean     // Si requiere documentos previos (migración 00025)
+  required_documents_description: string | null  // Instrucciones de documentos (migración 00025)
+  modality: ConsultationModality  // presencial / virtual / ambas (migración 00027)
+  created_at: string
+}
+
 // --- DOCTORES (tabla: doctors) ---
+export type DoctorScheduleType = 'fixed' | 'manual'
+
 export interface Doctor {
   id: string
   clinic_id: string
@@ -114,6 +212,11 @@ export interface Doctor {
   email: string | null
   is_active: boolean
   working_hours: WorkingHours | null       // null = usa horarios de la clínica
+  agenda_closed: boolean                   // Agenda cerrada temporalmente (migración 00026)
+  agenda_closed_reason: string | null      // Motivo del cierre (migración 00026)
+  agenda_closed_until: string | null       // Fecha hasta la cual está cerrada YYYY-MM-DD (migración 00026)
+  schedule_type: DoctorScheduleType        // fixed = horario fijo, manual = sin horario fijo (migración 00029)
+  manual_availability_message: string | null // Mensaje para pacientes cuando schedule_type = manual (migración 00029)
   created_at: string
 }
 
@@ -134,6 +237,8 @@ export interface Patient {
   no_show_count: number
   total_appointments: number
   data_consent_at: string | null           // null = no ha aceptado privacidad
+  last_reactivation_sent: string | null    // YYYY-MM-DD, última reactivación enviada (migración 00020)
+  visit_frequency_days: number | null      // Promedio días entre visitas (migración 00030)
   created_at: string
   updated_at: string
 }
@@ -156,6 +261,8 @@ export type PaymentType = 'EPS' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
 export type InvoiceStatus = 'pendiente' | 'emitida' | 'en_tramite' | 'pagada' | 'glosada' | 'vencida'
 
 export type CollectionStatus = 'pendiente' | 'en_tramite' | 'cobrada' | 'glosada' | 'vencida'
+
+export type GlosaStatus = 'none' | 'pending' | 'responded' | 'lifted' | 'definitive'
 
 export type EpsName = 'Sura' | 'Compensar' | 'Nueva EPS' | 'Sanitas'
 
@@ -191,6 +298,21 @@ export interface Appointment {
   invoice_amount: number | null           // Valor facturado COP (migración 00014)
   invoice_observations: string | null     // Notas de facturación (migración 00014)
   collection_status: CollectionStatus     // Estado cobro (migración 00014)
+  followup_sent: boolean                 // Seguimiento post-consulta enviado (migración 00020)
+  nps_score: number | null               // Calificación 1-10 del paciente (migración 00020)
+  consultation_type_id: string | null    // Tipo de consulta (migración 00023)
+  modality: AppointmentModality         // presencial / virtual (migración 00027)
+  virtual_link: string | null           // Link de videollamada (migración 00027)
+  virtual_link_sent_at: string | null   // Cuándo se envió el link (migración 00027)
+  documents_requested: boolean         // Si la cita requiere documentos previos (migración 00028)
+  documents_received: boolean          // Si los documentos fueron recibidos (migración 00028)
+  documents_received_at: string | null // Cuándo se recibieron (migración 00028)
+  documents_notes: string | null       // Notas sobre los documentos (migración 00028)
+  glosa_notification_date: string | null  // Fecha notificación glosa YYYY-MM-DD (migración 00031)
+  glosa_response_date: string | null      // Fecha respuesta glosa YYYY-MM-DD (migración 00031)
+  glosa_status: GlosaStatus               // Estado de la glosa (migración 00031)
+  glosa_notes: string | null              // Notas/argumentos de respuesta (migración 00031)
+  external_his_id: string | null          // ID en sistema de HC externo (migración 00032)
   created_at: string
   updated_at: string
 }
@@ -247,6 +369,8 @@ export type PreferredTime = 'morning' | 'afternoon' | 'any'
 
 export type WaitlistPriority = 'normal' | 'urgente'
 
+export type WaitlistSource = 'dashboard' | 'whatsapp'
+
 export interface WaitlistEntry {
   id: string
   clinic_id: string
@@ -259,6 +383,9 @@ export interface WaitlistEntry {
   status: WaitlistStatus
   notified_at: string | null
   converted_appointment_id: string | null
+  preferred_schedule_notes: string | null  // Notas de preferencia de horario (migración 00029)
+  source: WaitlistSource                   // dashboard | whatsapp (migración 00029)
+  consultation_type_name: string | null    // Tipo de consulta solicitado (migración 00029)
   created_at: string
 }
 
@@ -315,7 +442,7 @@ export interface CarteraEntry {
 }
 
 export interface CarteraEntryWithDetails extends CarteraEntry {
-  patient: Pick<Patient, 'name' | 'phone'>
+  patient: Pick<Patient, 'name' | 'phone' | 'email' | 'no_show_count' | 'total_appointments'>
 }
 
 // --- ROLES DE CLÍNICA (tabla: clinic_roles) ---

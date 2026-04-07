@@ -1,6 +1,7 @@
 // ============================================================
 // Cliente WhatsApp Business Cloud API
 // Envía mensajes de texto y marca mensajes como leídos
+// Soporta credenciales globales (env) o per-clínica
 // Docs: https://developers.facebook.com/docs/whatsapp/cloud-api
 // ============================================================
 
@@ -8,8 +9,18 @@ import type { WhatsAppSendTextPayload } from '@/types/whatsapp'
 
 const WHATSAPP_API_URL = 'https://graph.facebook.com/v21.0'
 
-// Obtener variables de entorno (se validan al usarse)
-function getConfig() {
+/** Credenciales opcionales por clínica */
+export interface ClinicWhatsAppCredentials {
+  phoneNumberId: string
+  accessToken: string
+}
+
+// Obtener variables de entorno (fallback global)
+function getConfig(clinicCreds?: ClinicWhatsAppCredentials | null) {
+  if (clinicCreds?.phoneNumberId && clinicCreds?.accessToken) {
+    return { phoneNumberId: clinicCreds.phoneNumberId, accessToken: clinicCreds.accessToken }
+  }
+
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
   const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
 
@@ -23,13 +34,15 @@ function getConfig() {
  * Envía un mensaje de texto por WhatsApp
  * @param to - Número del paciente SIN el "+" (ej: "573101112233")
  * @param message - Texto del mensaje (máx 4096 caracteres)
+ * @param clinicCreds - Credenciales opcionales de la clínica (si no se pasan, usa env vars)
  * @returns ID del mensaje enviado o null si falló
  */
 export async function sendWhatsAppMessage(
   to: string,
-  message: string
+  message: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null
 ): Promise<string | null> {
-  const { phoneNumberId, accessToken } = getConfig()
+  const { phoneNumberId, accessToken } = getConfig(clinicCreds)
 
   // Truncar si excede el límite de WhatsApp
   const truncatedMessage = message.length > 4096
@@ -94,9 +107,13 @@ export async function sendWhatsAppMessage(
 /**
  * Marca un mensaje como leído (los dos checks azules ✓✓)
  * @param messageId - ID del mensaje recibido de WhatsApp
+ * @param clinicCreds - Credenciales opcionales de la clínica
  */
-export async function markAsRead(messageId: string): Promise<void> {
-  const { phoneNumberId, accessToken } = getConfig()
+export async function markAsRead(
+  messageId: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null
+): Promise<void> {
+  const { phoneNumberId, accessToken } = getConfig(clinicCreds)
 
   try {
     await fetch(

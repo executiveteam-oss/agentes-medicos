@@ -5,8 +5,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { checkWritePermission, checkReadPermission } from '@/lib/actions-helpers'
-import { revalidatePath } from 'next/cache'
+import { checkReadPermission } from '@/lib/actions-helpers'
 import type { FeatureConfig } from '@/types/database'
 
 const DEFAULT_FEATURES: FeatureConfig = {
@@ -33,6 +32,7 @@ export interface PlanData {
   subscriptionStatus: string
   expectedDoctors: number | null
   expectedMonthlyAppointments: number | null
+  clinicName: string
 }
 
 /** Obtener configuración de features y plan */
@@ -42,7 +42,7 @@ export async function getPlanData(): Promise<PlanData | null> {
 
     const { data } = await supabaseAdmin
       .from('clinics')
-      .select('feature_config, preferred_plan, subscription_plan, subscription_status, expected_doctors, expected_monthly_appointments')
+      .select('name, feature_config, preferred_plan, subscription_plan, subscription_status, expected_doctors, expected_monthly_appointments')
       .eq('id', clinicId)
       .single()
 
@@ -55,56 +55,22 @@ export async function getPlanData(): Promise<PlanData | null> {
       subscriptionStatus: data.subscription_status ?? 'trial',
       expectedDoctors: data.expected_doctors ?? null,
       expectedMonthlyAppointments: data.expected_monthly_appointments ?? null,
+      clinicName: data.name ?? 'Mi consultorio',
     }
   } catch {
     return null
   }
 }
 
-/** Actualizar una feature individual */
+/**
+ * Actualizar una feature individual.
+ * DESHABILITADO desde la UI — módulos Plus solo se activan manualmente
+ * por el equipo de Omuwan vía Supabase dashboard.
+ * TODO: habilitar cuando se construya panel admin interno.
+ */
 export async function toggleFeature(
-  featureKey: keyof FeatureConfig,
-  enabled: boolean
+  _featureKey: keyof FeatureConfig,
+  _enabled: boolean
 ): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const clinicId = await checkWritePermission('settings')
-
-    // No permitir desactivar features base
-    if (['agent', 'reminders_24h', 'dashboard'].includes(featureKey) && !enabled) {
-      return { ok: false, error: 'Esta función no se puede desactivar' }
-    }
-
-    // Leer config actual
-    const { data: current } = await supabaseAdmin
-      .from('clinics')
-      .select('feature_config')
-      .eq('id', clinicId)
-      .single()
-
-    const config: FeatureConfig = { ...DEFAULT_FEATURES, ...((current?.feature_config as Partial<FeatureConfig>) ?? {}) }
-    config[featureKey] = enabled
-
-    const { error } = await supabaseAdmin
-      .from('clinics')
-      .update({
-        feature_config: config as unknown as Record<string, unknown>,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', clinicId)
-
-    if (error) return { ok: false, error: 'Error guardando configuración' }
-
-    await supabaseAdmin.from('audit_log').insert({
-      clinic_id: clinicId,
-      action: 'feature_config_updated',
-      actor_type: 'staff',
-      details: { feature: featureKey, enabled },
-    })
-
-    revalidatePath('/dashboard/settings/plan')
-    revalidatePath('/dashboard')
-    return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
-  }
+  return { ok: false, error: 'Para activar módulos Plus, contacta a soporte por WhatsApp.' }
 }

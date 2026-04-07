@@ -60,9 +60,15 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
   const specialtyRaw = formData.getAll('specialty') as string[]
   const specialty = specialtyRaw.filter(Boolean)
 
+  // Doctor range from registration form
+  const doctorRange = (formData.get('doctor_range') as string) || null
+  const doctorCountMap: Record<string, number> = { '1': 1, '2-3': 2, '4-6': 4, '7-10': 7 }
+  const priceMap: Record<string, number> = { '1': 390000, '2-3': 620000, '4-6': 850000, '7-10': 1090000 }
+  const cfgMedicos = doctorRange ? (doctorCountMap[doctorRange] ?? null) : null
+  const cfgPlanPrice = doctorRange ? (priceMap[doctorRange] ?? null) : null
+
   // Configurator selections (optional, from pricing wizard)
-  const cfgPlan = (formData.get('cfg_plan') as string) || null
-  const cfgMedicos = parseInt((formData.get('cfg_medicos') as string) || '', 10) || null
+  const cfgPlan = (formData.get('cfg_plan') as string) || 'core'
   const cfgCitas = parseInt((formData.get('cfg_citas') as string) || '', 10) || null
   const cfgFeaturesRaw = (formData.get('cfg_features') as string) || ''
   const cfgFeaturesList = cfgFeaturesRaw.split(',').filter(Boolean)
@@ -147,8 +153,10 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
         daily_goal_appointments: cfgCitas ? Math.round(cfgCitas / 22) : 8,
         feature_config: featureConfig as unknown as Record<string, unknown>,
         preferred_plan: cfgPlan,
+        preferred_plan_price: cfgPlanPrice,
         expected_doctors: cfgMedicos,
         expected_monthly_appointments: cfgCitas,
+        doctor_range: doctorRange,
       })
       .select('id')
       .single()

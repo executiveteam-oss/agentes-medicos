@@ -77,7 +77,15 @@ function RegisterForm() {
   const [specError, setSpecError] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordValue, setPasswordValue] = useState('')
+  const [doctorRange, setDoctorRange] = useState<string>('')
   const specsRef = useRef<HTMLDivElement>(null)
+
+  const DOCTOR_OPTIONS = [
+    { range: '1', label: '1 médico', price: '$390.000/mes' },
+    { range: '2-3', label: '2-3 médicos', price: '$620.000/mes' },
+    { range: '4-6', label: '4-6 médicos', price: '$850.000/mes' },
+    { range: '7-10', label: '7-10 médicos', price: '$1.090.000/mes' },
+  ]
 
   // Configurator params from URL
   const cfgPlan = searchParams.get('plan')
@@ -143,12 +151,14 @@ function RegisterForm() {
     formData.delete('specialty')
     selectedSpecs.forEach((s) => formData.append('specialty', s))
 
+    // Doctor range from step 1
+    if (doctorRange) formData.set('doctor_range', doctorRange)
+
     // Pass configurator selections as hidden fields
     const savedConfig = sessionStorage.getItem('omuwan_config')
     if (savedConfig) {
       const config = JSON.parse(savedConfig)
       if (config.plan) formData.set('cfg_plan', config.plan)
-      if (config.medicos) formData.set('cfg_medicos', config.medicos)
       if (config.citas) formData.set('cfg_citas', config.citas)
       if (config.features) formData.set('cfg_features', config.features)
     }
@@ -315,6 +325,33 @@ function RegisterForm() {
             )}
           </div>
 
+          {/* Doctor count selector */}
+          <div>
+            <label className="label">¿Cuántos médicos atienden en tu consultorio?</label>
+            <div className="grid grid-cols-2 gap-3">
+              {DOCTOR_OPTIONS.map((opt) => (
+                <button
+                  key={opt.range}
+                  type="button"
+                  onClick={() => setDoctorRange(opt.range)}
+                  className={`p-3 rounded-lg border-2 text-left transition-all ${
+                    doctorRange === opt.range
+                      ? 'border-[#028090] bg-[#028090]/5'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <p className={`text-sm font-semibold ${doctorRange === opt.range ? 'text-[#028090]' : 'text-slate-900'}`}>
+                    {opt.label}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">{opt.price}</p>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-[#028090] font-medium text-center mt-2">
+              2 meses gratis &middot; Sin permanencia
+            </p>
+          </div>
+
           {specError && (
             <p className="text-sm text-red-600">{specError}</p>
           )}
@@ -324,6 +361,10 @@ function RegisterForm() {
             onClick={() => {
               if (selectedSpecs.length === 0) {
                 setSpecError('Selecciona al menos una especialidad')
+                return
+              }
+              if (!doctorRange) {
+                setSpecError('Selecciona cuántos médicos atienden')
                 return
               }
               setSpecError('')

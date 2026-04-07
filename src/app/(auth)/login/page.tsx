@@ -7,29 +7,23 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { loginAction, resendConfirmationAction } from '@/app/actions/auth'
+import { loginAction } from '@/app/actions/auth'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
 function LoginForm() {
   const [error, setError] = useState<string>('')
   const [loading, setLoading] = useState(false)
-  const [resending, setResending] = useState(false)
-  const [resendSuccess, setResendSuccess] = useState(false)
-  const [emailValue, setEmailValue] = useState('')
   const searchParams = useSearchParams()
   const urlError = searchParams.get('error')
-  const justRegistered = searchParams.get('registered') === 'true'
   const passwordReset = searchParams.get('password_reset') === 'true'
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
-    setResendSuccess(false)
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    setEmailValue(formData.get('email') as string)
     const result = await loginAction(formData)
 
     if (result?.error) {
@@ -38,26 +32,10 @@ function LoginForm() {
     }
   }
 
-  async function handleResend() {
-    if (!emailValue || resending) return
-    setResending(true)
-    await resendConfirmationAction(emailValue)
-    setResendSuccess(true)
-    setResending(false)
-  }
-
-  const isUnconfirmed = error === 'EMAIL_NOT_CONFIRMED'
-
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
       <h2 className="text-xl font-semibold tracking-tight text-slate-900 mb-1">Iniciar sesión</h2>
       <p className="text-sm text-slate-500 mb-6">Ingresa a tu consultorio</p>
-
-      {justRegistered && (
-        <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
-          Cuenta creada. Revisa tu correo para confirmar tu cuenta antes de iniciar sesión.
-        </div>
-      )}
 
       {passwordReset && (
         <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
@@ -84,7 +62,6 @@ function LoginForm() {
             autoComplete="email"
             className="input-field"
             placeholder="tu@consultorio.com"
-            onChange={(e) => setEmailValue(e.target.value)}
           />
         </div>
 
@@ -108,25 +85,7 @@ function LoginForm() {
           </div>
         </div>
 
-        {isUnconfirmed && (
-          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-sm space-y-2">
-            <p>Confirma tu email antes de iniciar sesión. ¿No recibiste el correo? Revisa tu spam.</p>
-            {resendSuccess ? (
-              <p className="text-emerald-600 font-medium">Correo reenviado. Revisa tu bandeja.</p>
-            ) : (
-              <button
-                type="button"
-                onClick={handleResend}
-                disabled={resending}
-                className="text-[#0f2a6e] hover:text-[#1a3a8a] font-medium underline disabled:opacity-60"
-              >
-                {resending ? 'Enviando...' : 'Reenviar confirmación'}
-              </button>
-            )}
-          </div>
-        )}
-
-        {error && !isUnconfirmed && (
+        {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
             {error}
           </div>

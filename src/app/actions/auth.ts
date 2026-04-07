@@ -32,11 +32,6 @@ export async function loginAction(formData: FormData): Promise<{ error?: string 
 
   if (error) {
     console.error('[loginAction] Auth error code:', error.status, error.name)
-    // Caso especial: email no confirmado — el usuario necesita saber para poder actuar
-    if (error.message === 'Email not confirmed') {
-      return { error: 'EMAIL_NOT_CONFIRMED' }
-    }
-    // SECURITY: mensaje genérico para todo lo demás — no revelar si el email existe
     return { error: 'Credenciales inválidas' }
   }
 

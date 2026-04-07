@@ -166,6 +166,8 @@ export interface FeatureConfig {
   dashboard: boolean
   insights: boolean
   virtual: boolean
+  vacations: boolean
+  ai_assistant: boolean
 }
 
 // --- NOTIFICACIONES ---

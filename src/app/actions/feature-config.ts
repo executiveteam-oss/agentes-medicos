@@ -19,6 +19,8 @@ const DEFAULT_FEATURES: FeatureConfig = {
   dashboard: true,
   insights: true,
   virtual: true,
+  vacations: true,
+  ai_assistant: true,
 }
 
 export interface PlanData {

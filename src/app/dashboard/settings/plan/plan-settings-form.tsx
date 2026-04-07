@@ -39,13 +39,15 @@ interface FeatureItem {
 const FEATURES: FeatureItem[] = [
   { key: 'agent', label: 'Agente IA WhatsApp', description: 'Atiende pacientes por WhatsApp 24/7', locked: true },
   { key: 'reminders_24h', label: 'Recordatorio 24h', description: 'Envía recordatorio automático 24 horas antes de la cita', locked: true },
-  { key: 'reminders_72h', label: 'Recordatorio 72h', description: 'Recordatorio adicional 3 días antes de la cita', locked: false },
-  { key: 'docs_required', label: 'Documentos requeridos', description: 'Incluye instrucciones y documentos en recordatorios', locked: false },
-  { key: 'waitlist', label: 'Lista de espera', description: 'Gestión de pacientes en espera cuando no hay disponibilidad', locked: false },
-  { key: 'reactivation', label: 'Reactivación de pacientes', description: 'Contacta automáticamente pacientes inactivos', locked: false },
+  { key: 'reminders_72h', label: 'Recordatorio 72h', description: 'Recordatorio adicional 3 días antes de la cita', locked: true },
+  { key: 'docs_required', label: 'Documentos requeridos', description: 'Solicita documentos previos automáticamente', locked: true },
+  { key: 'waitlist', label: 'Lista de espera', description: 'Gestión de pacientes en espera cuando no hay disponibilidad', locked: true },
   { key: 'dashboard', label: 'Dashboard', description: 'Panel de control con métricas del consultorio', locked: true },
-  { key: 'insights', label: 'Insights IA', description: 'Análisis inteligente con recomendaciones automáticas', locked: false },
-  { key: 'virtual', label: 'Consultas virtuales', description: 'Soporte para consultas por videollamada', locked: false },
+  { key: 'reactivation', label: 'Reactivación de pacientes', description: 'Contacta automáticamente pacientes inactivos — módulo Plus', locked: false },
+  { key: 'insights', label: 'Insights IA', description: 'Análisis inteligente con recomendaciones automáticas — módulo Plus', locked: false },
+  { key: 'virtual', label: 'Consultas virtuales', description: 'Soporte para consultas por videollamada — módulo Plus', locked: false },
+  { key: 'vacations', label: 'Planificación de vacaciones', description: 'Bloqueo de agenda con redistribución de citas — módulo Plus', locked: false },
+  { key: 'ai_assistant', label: 'Asistente IA dashboard', description: 'Consultor IA interactivo dentro del dashboard — módulo Plus', locked: false },
 ]
 
 interface Props {

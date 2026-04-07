@@ -43,7 +43,7 @@ const ALL_NAV_ITEMS: Array<{
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', featureKey: 'waitlist' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations' },
-  { href: '/dashboard/asistente', label: 'Asistente IA', iconName: 'Bot', module: 'asistente' },
+  { href: '/dashboard/asistente', label: 'Asistente IA', iconName: 'Bot', module: 'asistente', featureKey: 'ai_assistant' },
   { href: '/dashboard/whatsapp', label: 'WhatsApp', iconName: 'Phone', module: 'whatsapp' },
   { href: '/dashboard/analytics', label: 'Estadísticas', iconName: 'BarChart2', module: 'analytics' },
   { href: '/dashboard/insights', label: 'Insights', iconName: 'Lightbulb', module: 'analytics', featureKey: 'insights' },
@@ -80,6 +80,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const DEFAULT_FEATURES: FeatureConfig = {
     agent: true, reminders_24h: true, reminders_72h: true, docs_required: true,
     waitlist: true, reactivation: true, dashboard: true, insights: true, virtual: true,
+    vacations: true, ai_assistant: true,
   }
   const features: FeatureConfig = featureConfig ? { ...DEFAULT_FEATURES, ...featureConfig } : DEFAULT_FEATURES
 

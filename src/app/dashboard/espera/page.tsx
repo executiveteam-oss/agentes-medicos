@@ -27,6 +27,7 @@ export default async function EsperaPage() {
         featureDescription="Cuando cancela alguien, el siguiente en espera recibe aviso automático en segundos. Cupos siempre llenos."
         whatsappMessage="quiero activar la Lista de espera activa"
         clinicName={session.clinic?.name}
+        doctorCount={gate.expectedDoctors}
       />
     )
   }

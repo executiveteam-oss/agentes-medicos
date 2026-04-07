@@ -106,17 +106,20 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
     const trialEndsAt = new Date()
     trialEndsAt.setDate(trialEndsAt.getDate() + 14)
 
-    // Build feature_config from configurator selections
+    // Core plan: features incluidas por defecto
+    // Plus modules: desactivados, se activan comprando módulo
     const featureConfig: FeatureConfig = {
-      agent: true,           // siempre activo
-      reminders_24h: true,   // siempre activo
-      reminders_72h: cfgFeaturesList.includes('reminders'),
-      docs_required: cfgFeaturesList.includes('docs'),
-      waitlist: cfgFeaturesList.includes('waitlist'),
-      reactivation: cfgFeaturesList.includes('reactivation'),
-      dashboard: true,       // siempre activo
-      insights: cfgFeaturesList.includes('insights'),
-      virtual: cfgFeaturesList.includes('virtual'),
+      agent: true,              // Core — siempre activo
+      reminders_24h: true,      // Core — siempre activo
+      reminders_72h: true,      // Core — incluido
+      docs_required: true,      // Core — incluido
+      waitlist: true,           // Core — incluido
+      dashboard: true,          // Core — siempre activo
+      reactivation: false,      // Plus — módulo pago
+      insights: false,          // Plus — módulo pago
+      virtual: false,           // Plus — módulo pago
+      vacations: false,         // Plus — módulo pago
+      ai_assistant: false,      // Plus — módulo pago
     }
 
     // Map plan name → subscription_plan (Core + Plus model)

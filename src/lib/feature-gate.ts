@@ -27,6 +27,8 @@ const ALL_ENABLED: FeatureConfig = {
   dashboard: true,
   insights: true,
   virtual: true,
+  vacations: true,
+  ai_assistant: true,
 }
 
 export interface FeatureGateResult {

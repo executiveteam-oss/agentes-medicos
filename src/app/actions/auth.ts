@@ -86,9 +86,17 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
   })
 
   if (authError || !authData.user) {
-    console.error('[registerAction] Auth error code:', authError?.status)
-    // SECURITY: mensaje genérico — no revelar si el email ya existe
-    return { error: 'No se pudo crear la cuenta. Verifica los datos e intenta de nuevo.' }
+    console.error('[registerAction] Auth error:', authError?.message, authError?.status)
+    if (authError?.message?.includes('already been registered') || authError?.message?.includes('already exists')) {
+      return { error: 'ALREADY_REGISTERED' }
+    }
+    if (authError?.message?.includes('password')) {
+      return { error: 'La contraseña no cumple los requisitos mínimos de seguridad.' }
+    }
+    return { error: process.env.NODE_ENV === 'development'
+      ? `Error: ${authError?.message ?? 'Respuesta vacía de Auth'}`
+      : 'No se pudo crear la cuenta. Verifica los datos e intenta de nuevo.'
+    }
   }
 
   const authUserId = authData.user.id

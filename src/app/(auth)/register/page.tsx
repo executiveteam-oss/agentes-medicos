@@ -408,11 +408,18 @@ function RegisterForm() {
             )}
           </div>
 
-          {error && (
+          {error === 'ALREADY_REGISTERED' ? (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-sm">
+              Este email ya tiene una cuenta.{' '}
+              <Link href="/login" className="font-semibold underline">
+                ¿Quieres iniciar sesión?
+              </Link>
+            </div>
+          ) : error ? (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               {error}
             </div>
-          )}
+          ) : null}
 
           <div className="flex gap-3">
             <button

@@ -38,14 +38,14 @@ const ALL_NAV_ITEMS: Array<{
 }> = [
   { href: '/dashboard', label: 'Agenda', iconName: 'CalendarDays', module: 'agenda' },
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow' },
-  { href: '/dashboard/cartera', label: 'Cartera', iconName: 'CreditCard', module: 'cartera' },
-  { href: '/dashboard/facturacion', label: 'Facturación', iconName: 'FileText', module: 'facturacion' },
+  { href: '/dashboard/cartera', label: 'Cartera', iconName: 'CreditCard', module: 'cartera', featureKey: 'cartera' },
+  { href: '/dashboard/facturacion', label: 'Facturación', iconName: 'FileText', module: 'facturacion', featureKey: 'facturacion' },
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', featureKey: 'waitlist' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations' },
   { href: '/dashboard/asistente', label: 'Asistente IA', iconName: 'Bot', module: 'asistente', featureKey: 'ai_assistant' },
   { href: '/dashboard/whatsapp', label: 'WhatsApp', iconName: 'Phone', module: 'whatsapp' },
-  { href: '/dashboard/analytics', label: 'Estadísticas', iconName: 'BarChart2', module: 'analytics' },
+  { href: '/dashboard/analytics', label: 'Estadísticas', iconName: 'BarChart2', module: 'analytics', featureKey: 'estadisticas' },
   { href: '/dashboard/insights', label: 'Insights', iconName: 'Lightbulb', module: 'analytics', featureKey: 'insights' },
   { href: '/dashboard/legal', label: 'Legal', iconName: 'Shield', module: 'settings' },
   { href: '/dashboard/settings', label: 'Configuración', iconName: 'Settings', module: 'user_management' },
@@ -80,7 +80,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const DEFAULT_FEATURES: FeatureConfig = {
     agent: true, reminders_24h: true, reminders_72h: true, docs_required: true,
     waitlist: true, reactivation: true, dashboard: true, insights: true, virtual: true,
-    vacations: true, ai_assistant: true,
+    vacations: true, ai_assistant: true, cartera: true, facturacion: true, estadisticas: true,
   }
   const features: FeatureConfig = featureConfig ? { ...DEFAULT_FEATURES, ...featureConfig } : DEFAULT_FEATURES
 

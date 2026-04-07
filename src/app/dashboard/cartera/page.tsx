@@ -8,6 +8,8 @@ import { getUserSession } from '@/lib/session'
 import { isDoctorRole } from '@/lib/doctor-filter'
 import { CarteraPanel } from '@/components/dashboard/cartera-panel'
 import { redirect } from 'next/navigation'
+import { getFeatureGate, isFeatureEnabled } from '@/lib/feature-gate'
+import { FeatureLocked } from '@/components/dashboard/feature-locked'
 import type { CarteraEntryWithDetails } from '@/types/database'
 
 export const dynamic = 'force-dynamic'
@@ -16,6 +18,20 @@ export default async function CarteraPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
   if (isDoctorRole(session)) redirect('/dashboard')
+
+  const gate = await getFeatureGate(session.clinicId)
+  if (!isFeatureEnabled(gate.config, 'cartera')) {
+    return (
+      <FeatureLocked
+        featureName="Control de cartera"
+        featureDescription="Visualiza tu cartera vencida, pagos pendientes y estado de cuentas por cobrar."
+        whatsappMessage="quiero activar Cartera y facturación"
+        clinicName={session.clinic?.name}
+        plusModuleName="Cartera y facturación"
+        doctorCount={gate.expectedDoctors}
+      />
+    )
+  }
 
   const { data: clinic } = await supabaseAdmin
     .from('clinics')

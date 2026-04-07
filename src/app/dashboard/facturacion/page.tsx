@@ -11,6 +11,8 @@ import { redirect } from 'next/navigation'
 import { FacturacionPanel } from '@/components/dashboard/facturacion-panel'
 import { GlosaPanel } from '@/components/dashboard/glosa-panel'
 import { getGlosaPageData } from '@/app/actions/glosas'
+import { getFeatureGate, isFeatureEnabled } from '@/lib/feature-gate'
+import { FeatureLocked } from '@/components/dashboard/feature-locked'
 import type { InvoicedItem } from '@/components/dashboard/facturacion-panel'
 import type { CollectionStatus } from '@/types/database'
 
@@ -20,6 +22,20 @@ export default async function FacturacionPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
   if (isDoctorRole(session)) redirect('/dashboard')
+
+  const gate = await getFeatureGate(session.clinicId)
+  if (!isFeatureEnabled(gate.config, 'facturacion')) {
+    return (
+      <FeatureLocked
+        featureName="Control de facturación"
+        featureDescription="Registra y gestiona la facturación interna de tu consultorio."
+        whatsappMessage="quiero activar Cartera y facturación"
+        clinicName={session.clinic?.name}
+        plusModuleName="Cartera y facturación"
+        doctorCount={gate.expectedDoctors}
+      />
+    )
+  }
 
   const clinicId = session.clinicId
 

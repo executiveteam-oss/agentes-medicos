@@ -18,6 +18,8 @@ const PLUS_PRICES: Record<string, number[]> = {
   'Consultas virtuales':           [65_000, 100_000, 140_000, 185_000],
   'Planificación de vacaciones':   [40_000,  65_000,  90_000, 120_000],
   'Asistente IA dashboard':        [45_000,  70_000,  95_000, 120_000],
+  'Cartera y facturación':         [85_000, 130_000, 180_000, 240_000],
+  'Estadísticas avanzadas':        [55_000,  85_000, 115_000, 150_000],
 }
 
 function getDoctorTierIndex(doctorCount: number | null | undefined): number {

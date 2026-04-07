@@ -48,6 +48,9 @@ const FEATURES: FeatureItem[] = [
   { key: 'virtual', label: 'Consultas virtuales', description: 'Soporte para consultas por videollamada — módulo Plus', locked: false },
   { key: 'vacations', label: 'Planificación de vacaciones', description: 'Bloqueo de agenda con redistribución de citas — módulo Plus', locked: false },
   { key: 'ai_assistant', label: 'Asistente IA dashboard', description: 'Consultor IA interactivo dentro del dashboard — módulo Plus', locked: false },
+  { key: 'cartera', label: 'Control de cartera', description: 'Cartera vencida, pagos pendientes y cuentas por cobrar — módulo Plus', locked: false },
+  { key: 'facturacion', label: 'Facturación', description: 'Facturación interna del consultorio — módulo Plus', locked: false },
+  { key: 'estadisticas', label: 'Estadísticas avanzadas', description: 'Métricas de ocupación, no-shows e ingresos — módulo Plus', locked: false },
 ]
 
 interface Props {

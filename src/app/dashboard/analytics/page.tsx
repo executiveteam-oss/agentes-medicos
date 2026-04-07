@@ -23,11 +23,27 @@ import {
   EpsProfitabilityChart,
 } from '@/components/dashboard/analytics-charts'
 import { ReactivationButton } from '@/components/dashboard/reactivation-button'
+import { getFeatureGate, isFeatureEnabled } from '@/lib/feature-gate'
+import { FeatureLocked } from '@/components/dashboard/feature-locked'
 
 export default async function AnalyticsPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
   if (isDoctorUnlinked(session)) return <DoctorUnlinkedBanner />
+
+  const gate = await getFeatureGate(session.clinicId)
+  if (!isFeatureEnabled(gate.config, 'estadisticas')) {
+    return (
+      <FeatureLocked
+        featureName="Estadísticas avanzadas"
+        featureDescription="Métricas detalladas de ocupación, no-shows, ingresos y rendimiento por médico."
+        whatsappMessage="quiero activar Estadísticas avanzadas"
+        clinicName={session.clinic?.name}
+        plusModuleName="Estadísticas avanzadas"
+        doctorCount={gate.expectedDoctors}
+      />
+    )
+  }
 
   const restrictDoctorId = getRestrictedDoctorId(session)
 

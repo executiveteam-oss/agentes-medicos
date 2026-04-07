@@ -128,6 +128,9 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
       virtual: false,           // Plus — módulo pago
       vacations: false,         // Plus — módulo pago
       ai_assistant: false,      // Plus — módulo pago
+      cartera: false,           // Plus — módulo pago
+      facturacion: false,       // Plus — módulo pago
+      estadisticas: false,      // Plus — módulo pago
     }
 
     // Map plan name → subscription_plan (Core + Plus model)

@@ -16,9 +16,6 @@ export async function updateClinicData(data: {
   address: string
   city: string
   phone: string
-  consultation_price: number
-  consultation_duration_minutes: number
-  specialty: string[]
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const clinicId = await getSessionClinicId()

@@ -5,7 +5,7 @@
 // Ruta: /onboarding
 // ============================================================
 
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   updateClinicData,
@@ -78,67 +78,12 @@ function ProgressBar({ current }: { current: Step }) {
   )
 }
 
-const ESPECIALIDADES = [
-  'Medicina General',
-  'Odontología',
-  'Ortodoncia',
-  'Implantología',
-  'Endodoncia',
-  'Periodoncia',
-  'Cirugía Oral',
-  'Pediatría',
-  'Ginecología',
-  'Dermatología',
-  'Oftalmología',
-  'Psicología',
-  'Nutrición',
-  'Fisioterapia',
-  'Cardiología',
-  'Neurología',
-  'Ortopedia',
-  'Otorrinolaringología',
-  'Urología',
-  'Optometría',
-]
-
 // ============================================================
 // Paso 1: Datos de la clínica
 // ============================================================
 function Step1({ onNext }: { onNext: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [selectedSpecs, setSelectedSpecs] = useState<string[]>([])
-  const [customSpec, setCustomSpec] = useState('')
-  const [showSpecs, setShowSpecs] = useState(false)
-  const specsRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (specsRef.current && !specsRef.current.contains(e.target as Node)) {
-        setShowSpecs(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
-  function toggleSpec(spec: string) {
-    setSelectedSpecs((prev) =>
-      prev.includes(spec) ? prev.filter((s) => s !== spec) : [...prev, spec]
-    )
-  }
-
-  function addCustomSpec() {
-    const trimmed = customSpec.trim()
-    if (trimmed && !selectedSpecs.includes(trimmed)) {
-      setSelectedSpecs((prev) => [...prev, trimmed])
-      setCustomSpec('')
-    }
-  }
-
-  function removeSpec(spec: string) {
-    setSelectedSpecs((prev) => prev.filter((s) => s !== spec))
-  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -151,9 +96,6 @@ function Step1({ onNext }: { onNext: () => void }) {
       address: fd.get('address') as string,
       city: fd.get('city') as string,
       phone: fd.get('phone') as string,
-      consultation_price: parseInt(fd.get('consultation_price') as string) || 0,
-      consultation_duration_minutes: parseInt(fd.get('duration') as string) || 30,
-      specialty: selectedSpecs,
     })
 
     if (result.error) {
@@ -171,74 +113,6 @@ function Step1({ onNext }: { onNext: () => void }) {
           <label className="label">Nombre del consultorio *</label>
           <input name="name" required className="input-field" placeholder="Consultorio Médico Dr. García" />
         </div>
-
-        {/* Multi-select de especialidades */}
-        <div className="col-span-2 relative" ref={specsRef}>
-          <label className="label">Especialidades</label>
-          <div
-            className="w-full min-h-[42px] bg-white border border-slate-200 rounded-lg px-3 py-2 cursor-pointer flex flex-wrap gap-1.5 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent transition-all"
-            onClick={() => setShowSpecs(!showSpecs)}
-          >
-            {selectedSpecs.length === 0 && (
-              <span className="text-slate-400 text-sm py-0.5">Selecciona especialidades...</span>
-            )}
-            {selectedSpecs.map((spec) => (
-              <span
-                key={spec}
-                className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full"
-              >
-                {spec}
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); removeSpec(spec) }}
-                  className="hover:text-blue-900 transition-colors"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-          {showSpecs && (
-            <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-              <div className="sticky top-0 bg-white p-2 border-b border-slate-100">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={customSpec}
-                    onChange={(e) => setCustomSpec(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomSpec() } }}
-                    className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Agregar otra..."
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); addCustomSpec() }}
-                    className="bg-blue-700 hover:bg-blue-800 text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
-              {ESPECIALIDADES.map((spec) => (
-                <label
-                  key={spec}
-                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-slate-50 cursor-pointer text-sm transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedSpecs.includes(spec)}
-                    onChange={() => toggleSpec(spec)}
-                    className="rounded border-slate-300 text-blue-700 focus:ring-blue-500"
-                  />
-                  <span className="text-slate-700">{spec}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div className="col-span-2">
           <label className="label">Dirección</label>
           <input name="address" className="input-field" placeholder="Cra 10 #25-30, Pereira" />
@@ -250,14 +124,6 @@ function Step1({ onNext }: { onNext: () => void }) {
         <div>
           <label className="label">Teléfono de contacto</label>
           <input name="phone" className="input-field" placeholder="+57 300 000 0000" />
-        </div>
-        <div>
-          <label className="label">Precio consulta (COP)</label>
-          <input name="consultation_price" type="number" min="0" className="input-field" placeholder="80000" />
-        </div>
-        <div>
-          <label className="label">Duración consulta (min)</label>
-          <input name="duration" type="number" min="10" max="120" defaultValue="30" className="input-field" />
         </div>
       </div>
 

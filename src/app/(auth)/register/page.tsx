@@ -75,6 +75,8 @@ function RegisterForm() {
   const [customSpec, setCustomSpec] = useState('')
   const [showSpecs, setShowSpecs] = useState(false)
   const [specError, setSpecError] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordValue, setPasswordValue] = useState('')
   const specsRef = useRef<HTMLDivElement>(null)
 
   // Configurator params from URL
@@ -129,6 +131,12 @@ function RegisterForm() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setError('')
+
+    if (passwordValue !== confirmPassword) {
+      setError('Las contraseñas deben coincidir para continuar.')
+      return
+    }
+
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
@@ -371,7 +379,33 @@ function RegisterForm() {
               autoComplete="new-password"
               className="input-field"
               placeholder="Mínimo 10 caracteres"
+              value={passwordValue}
+              onChange={(e) => setPasswordValue(e.target.value)}
             />
+          </div>
+
+          <div>
+            <label className="label" htmlFor="confirm_password">
+              Confirmar contraseña
+            </label>
+            <input
+              id="confirm_password"
+              type="password"
+              required
+              minLength={10}
+              autoComplete="new-password"
+              className="input-field"
+              placeholder="Repite tu contraseña"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+            {confirmPassword.length > 0 && (
+              passwordValue === confirmPassword ? (
+                <p className="text-xs text-emerald-600 mt-1">✓ Las contraseñas coinciden</p>
+              ) : (
+                <p className="text-xs text-red-500 mt-1">Las contraseñas no coinciden</p>
+              )
+            )}
           </div>
 
           {error && (

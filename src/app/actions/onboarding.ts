@@ -115,6 +115,7 @@ export async function updateWhatsappConfig(data: {
   try {
     const clinicId = await getSessionClinicId()
 
+    // TODO SECURITY: whatsapp_token almacenado como texto plano — migrar a Supabase Vault (SEC-001)
     const { error } = await supabaseAdmin
       .from('clinics')
       .update({

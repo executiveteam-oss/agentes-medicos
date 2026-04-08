@@ -94,6 +94,9 @@ export async function saveWhatsAppCredentials(formData: FormData): Promise<Verif
   const verification = await testMetaConnection(phoneNumberId, accessToken)
 
   // Guardar en DB (siempre guardar, aunque falle la verificación)
+  // TODO SECURITY: whatsapp_access_token y whatsapp_app_secret se almacenan como texto plano.
+  // Antes de go-live a producción: migrar a Supabase Vault (pgsodium) o cifrar con
+  // encrypt/decrypt helpers usando ENCRYPTION_KEY del env. Ticket: SEC-001
   const updateData: Record<string, unknown> = {
     whatsapp_phone_id: phoneNumberId,
     whatsapp_access_token: accessToken,

@@ -18,6 +18,20 @@ import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 import { formatCOP, formatForPatient, nowColombia } from '@/lib/utils/dates'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { z } from 'zod'
+
+// Zod schema para validar el body del request
+const asistenteRequestSchema = z.object({
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().max(10000),
+  })).min(1).max(50),
+  confirmedAction: z.object({
+    toolName: z.string(),
+    params: z.record(z.string(), z.unknown()),
+    description: z.string(),
+  }).optional(),
+})
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages'
 
 // Tools de solo lectura — se ejecutan automáticamente
@@ -131,14 +145,12 @@ export async function POST(req: NextRequest) {
       }, { status: 429 })
     }
 
-    const { messages, confirmedAction } = await req.json() as {
-      messages: MessageParam[]
-      confirmedAction?: PendingAction
+    const rawBody = await req.json()
+    const parsed = asistenteRequestSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Datos inválidos', details: parsed.error.flatten() }, { status: 400 })
     }
-
-    if (!messages || !Array.isArray(messages)) {
-      return NextResponse.json({ error: 'messages requerido' }, { status: 400 })
-    }
+    const { messages, confirmedAction } = parsed.data
 
     // Si el usuario confirmó una acción pendiente, ejecutarla
     if (confirmedAction) {

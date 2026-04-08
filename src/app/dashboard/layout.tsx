@@ -38,15 +38,12 @@ const ALL_NAV_ITEMS: Array<{
 }> = [
   { href: '/dashboard', label: 'Agenda', iconName: 'CalendarDays', module: 'agenda' },
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow' },
-  { href: '/dashboard/cartera', label: 'Cartera', iconName: 'CreditCard', module: 'cartera', featureKey: 'cartera' },
-  { href: '/dashboard/facturacion', label: 'Facturación', iconName: 'FileText', module: 'facturacion', featureKey: 'facturacion' },
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', featureKey: 'waitlist' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations' },
   { href: '/dashboard/asistente', label: 'Asistente IA', iconName: 'Bot', module: 'asistente', featureKey: 'ai_assistant' },
   { href: '/dashboard/whatsapp', label: 'WhatsApp', iconName: 'Phone', module: 'whatsapp' },
-  { href: '/dashboard/analytics', label: 'Estadísticas', iconName: 'BarChart2', module: 'analytics', featureKey: 'estadisticas' },
-  { href: '/dashboard/insights', label: 'Insights', iconName: 'Lightbulb', module: 'analytics', featureKey: 'insights' },
+  { href: '/dashboard/stradmed', label: 'Finanzas', iconName: 'CreditCard', module: 'settings' },
   { href: '/dashboard/legal', label: 'Legal', iconName: 'Shield', module: 'settings' },
   { href: '/dashboard/settings', label: 'Configuración', iconName: 'Settings', module: 'user_management' },
 ]
@@ -195,10 +192,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
                   badge={
                     item.href === '/dashboard/espera' ? esperaBadge
                       : item.href === '/dashboard/conversations' ? escalatedBadge
-                        : item.href === '/dashboard/insights' ? insightsBadge
-                          : undefined
+                        : undefined
                   }
-                  badgeColor={item.href === '/dashboard/conversations' ? 'red' : item.href === '/dashboard/insights' ? 'red' : 'blue'}
+                  badgeColor={item.href === '/dashboard/conversations' ? 'red' : 'blue'}
                   locked={isLocked}
                 />
               )

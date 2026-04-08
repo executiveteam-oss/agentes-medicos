@@ -26,12 +26,9 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 // Precios Plus por módulo y rango de médicos [1, 2-3, 4-6, 7-10]
 const PLUS_PRICES: Record<string, number[]> = {
   'Reactivación de pacientes':     [75_000, 120_000, 165_000, 220_000],
-  'Insights de rentabilidad':      [90_000, 145_000, 200_000, 265_000],
   'Consultas virtuales':           [65_000, 100_000, 140_000, 185_000],
   'Planificación de vacaciones':   [40_000,  65_000,  90_000, 120_000],
   'Asistente IA dashboard':        [45_000,  70_000,  95_000, 120_000],
-  'Cartera y facturación':         [85_000, 130_000, 180_000, 240_000],
-  'Estadísticas avanzadas':        [55_000,  85_000, 115_000, 150_000],
 }
 
 function getDoctorTierIndex(n: number | null): number {
@@ -63,13 +60,9 @@ const FEATURES: FeatureItem[] = [
   { key: 'dashboard', label: 'Dashboard', description: 'Panel de control con agenda y pacientes', core: true },
   // Plus
   { key: 'reactivation', label: 'Reactivación de pacientes', description: 'Contacta automáticamente pacientes inactivos', core: false, plusName: 'Reactivación de pacientes' },
-  { key: 'insights', label: 'Insights IA', description: 'Recomendaciones automáticas de rentabilidad', core: false, plusName: 'Insights de rentabilidad' },
   { key: 'virtual', label: 'Consultas virtuales', description: 'Videollamadas con link automático', core: false, plusName: 'Consultas virtuales' },
   { key: 'vacations', label: 'Planificación de vacaciones', description: 'Bloqueo de agenda con redistribución de citas', core: false, plusName: 'Planificación de vacaciones' },
   { key: 'ai_assistant', label: 'Asistente IA dashboard', description: 'Consultor IA interactivo dentro del dashboard', core: false, plusName: 'Asistente IA dashboard' },
-  { key: 'cartera', label: 'Control de cartera', description: 'Cartera vencida, pagos pendientes y cuentas por cobrar', core: false, plusName: 'Cartera y facturación' },
-  { key: 'facturacion', label: 'Facturación', description: 'Facturación interna del consultorio', core: false, plusName: 'Cartera y facturación' },
-  { key: 'estadisticas', label: 'Estadísticas avanzadas', description: 'Métricas de ocupación, no-shows e ingresos', core: false, plusName: 'Estadísticas avanzadas' },
 ]
 
 interface Props {

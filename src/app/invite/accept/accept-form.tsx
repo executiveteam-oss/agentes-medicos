@@ -29,8 +29,8 @@ export function AcceptInviteForm({ defaultName }: Props) {
       setError('Ingresa tu nombre completo')
       return
     }
-    if (password.length < 6) {
-      setError('La contraseña debe tener al menos 6 caracteres')
+    if (password.length < 10) {
+      setError('La contraseña debe tener al menos 10 caracteres')
       return
     }
     if (password !== confirmPassword) {
@@ -69,7 +69,7 @@ export function AcceptInviteForm({ defaultName }: Props) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="input-field"
-          placeholder="Mínimo 6 caracteres"
+          placeholder="Mínimo 10 caracteres"
         />
       </div>
 

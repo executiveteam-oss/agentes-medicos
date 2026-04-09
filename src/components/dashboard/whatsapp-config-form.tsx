@@ -292,11 +292,11 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
       </div>
 
       {/* 4. Doctores — CRUD completo + configuración de agenda */}
-      <div className="card p-5">
+      <div id="doctores" className="card p-5 scroll-mt-24">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Doctores</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Gestiona médicos y su horario de citas</p>
+            <p className="text-xs text-slate-400 mt-0.5">Gestiona médicos, horarios y tipos de consulta</p>
           </div>
           <button
             type="button"

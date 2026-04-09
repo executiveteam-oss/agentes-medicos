@@ -709,16 +709,17 @@ async function handleReminderResponse(
   // Normalizar respuesta
   const normalized = messageText.toLowerCase().trim()
 
-  // Solo procesar si parece una respuesta de confirmación
+  // Detectar tipo de respuesta
   const isConfirmation = /^(s[ií]|si|yes|confirmo|confirmar|dale|claro|ok|listo)$/i.test(normalized)
   const isCancellation = /^(no|cancelar|cancelo|no puedo)$/i.test(normalized)
+  const isReschedule = /^(cambiar|reagendar|reprogramar|cambio|mover)$/i.test(normalized)
 
-  if (!isConfirmation && !isCancellation) return false
+  if (!isConfirmation && !isCancellation && !isReschedule) return false
 
   // Buscar citas con recordatorio enviado pero sin confirmar
   const { data: pendingAppointment } = await supabaseAdmin
     .from('appointments')
-    .select('id, starts_at')
+    .select('id, starts_at, doctor_id')
     .eq('clinic_id', clinicId)
     .eq('patient_id', patientId)
     .eq('reminder_24h_sent', true)
@@ -727,7 +728,7 @@ async function handleReminderResponse(
     .gte('starts_at', new Date().toISOString())
     .order('starts_at', { ascending: true })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (!pendingAppointment) return false // No hay recordatorio pendiente
 
@@ -749,11 +750,16 @@ async function handleReminderResponse(
     await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
 
     console.log(`[Webhook] Recordatorio CONFIRMADO para cita ${pendingAppointment.id}`)
-  } else {
-    // Marcar como no confirmada
+  } else if (isCancellation) {
+    // Cancelar cita de verdad — liberar slot y notificar waitlist
     await supabaseAdmin
       .from('appointments')
-      .update({ reminder_confirmed: false })
+      .update({
+        status: 'cancelled',
+        reminder_confirmed: false,
+        cancelled_at: new Date().toISOString(),
+        cancellation_reason: 'reminder_declined',
+      })
       .eq('id', pendingAppointment.id)
 
     await supabaseAdmin
@@ -762,11 +768,42 @@ async function handleReminderResponse(
       .eq('appointment_id', pendingAppointment.id)
       .eq('type', '24h')
 
-    const response = '😔 Entendido. ¿Te gustaría reagendar tu cita para otro día? Escríbeme la fecha que prefieras.'
+    // Notificar al siguiente en lista de espera
+    try {
+      const { notifyHighestPriorityWaitlistPatient } = await import('@/app/actions/priority')
+      if (pendingAppointment.doctor_id) {
+        await notifyHighestPriorityWaitlistPatient(clinicId, pendingAppointment.doctor_id)
+      }
+    } catch (err) {
+      console.error('[Webhook] Error notificando waitlist tras cancelación:', err)
+    }
+
+    const response = 'Tu cita ha sido cancelada. Si cambias de opinión puedes agendar nuevamente escribiéndonos.'
     await saveMessage(conversationId, 'agent', response)
     await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
 
-    console.log(`[Webhook] Recordatorio RECHAZADO para cita ${pendingAppointment.id}`)
+    console.log(`[Webhook] Cita ${pendingAppointment.id} CANCELADA vía recordatorio`)
+  } else {
+    // CAMBIAR — rutear al agente de IA para reagendamiento
+    // Marcar conversación con flag wants_to_reschedule para que el agente lo detecte
+    await supabaseAdmin
+      .from('conversations')
+      .update({
+        context: { wants_to_reschedule: true, appointment_id: pendingAppointment.id },
+      })
+      .eq('id', conversationId)
+
+    await supabaseAdmin
+      .from('reminders')
+      .update({ response: 'rescheduled' })
+      .eq('appointment_id', pendingAppointment.id)
+      .eq('type', '24h')
+
+    const response = 'Claro, con gusto te ayudo a cambiar la cita. ¿Qué día y hora te quedaría mejor?'
+    await saveMessage(conversationId, 'agent', response)
+    await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
+
+    console.log(`[Webhook] Paciente pidió CAMBIAR cita ${pendingAppointment.id}`)
   }
 
   // Recalcular probabilidad de no-show

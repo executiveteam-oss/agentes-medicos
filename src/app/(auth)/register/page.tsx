@@ -235,26 +235,11 @@ function RegisterForm() {
       </div>
 
       <h2 className="text-xl font-semibold tracking-tight text-slate-900 mb-1">Crear cuenta</h2>
-      <p className="text-sm text-slate-500 mb-6">14 días gratis, sin tarjeta de crédito</p>
+      <p className="text-sm text-slate-500 mb-6">Sin tarjeta de crédito · Sin permanencia</p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Step 1: Datos del consultorio */}
         <div className={step === 1 ? 'space-y-4' : 'hidden'}>
-          <div>
-            <label className="label" htmlFor="invitation_code" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.7rem' }}>
-              Código de invitación
-            </label>
-            <input
-              id="invitation_code"
-              name="invitation_code"
-              type="text"
-              required
-              autoComplete="off"
-              className="input-field"
-              placeholder="Ingresa tu código de acceso"
-            />
-          </div>
-
           <div>
             <label className="label" htmlFor="clinic_name">
               Nombre del consultorio
@@ -395,6 +380,21 @@ function RegisterForm() {
 
         {/* Step 2: Datos de la cuenta */}
         <div className={step === 2 ? 'space-y-4' : 'hidden'}>
+          <div>
+            <label className="label" htmlFor="invitation_code" style={{ textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.7rem' }}>
+              Código de invitación
+            </label>
+            <input
+              id="invitation_code"
+              name="invitation_code"
+              type="text"
+              required
+              autoComplete="off"
+              className="input-field"
+              placeholder="Ingresa tu código de acceso"
+            />
+          </div>
+
           <div>
             <label className="label" htmlFor="full_name">
               Tu nombre completo

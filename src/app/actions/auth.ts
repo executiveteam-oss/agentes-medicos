@@ -52,8 +52,19 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
   const password = formData.get('password') as string
   const fullName = formData.get('full_name') as string
   const clinicName = formData.get('clinic_name') as string
+  const invitationCode = ((formData.get('invitation_code') as string) || '').trim()
   const specialtyRaw = formData.getAll('specialty') as string[]
   const specialty = specialtyRaw.filter(Boolean)
+
+  // Validar código de invitación
+  const validCodes = (process.env.VALID_INVITE_CODES ?? '')
+    .split(',')
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (!invitationCode || !validCodes.includes(invitationCode.toLowerCase())) {
+    return { error: 'Código de invitación inválido. Contáctanos en executive.team@loncocapital.com para solicitar acceso.' }
+  }
 
   // Doctor range from registration form
   const doctorRange = (formData.get('doctor_range') as string) || null
@@ -154,6 +165,7 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
         expected_doctors: cfgMedicos,
         expected_monthly_appointments: cfgCitas,
         doctor_range: doctorRange,
+        invitation_code: invitationCode,
       })
       .select('id')
       .single()

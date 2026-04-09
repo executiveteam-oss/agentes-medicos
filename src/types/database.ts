@@ -127,6 +127,7 @@ export interface Clinic {
   preferred_plan_price: number | null     // Precio mensual Core en COP
   expected_doctors: number | null          // Médicos esperados
   doctor_range: string | null             // Rango seleccionado: "1", "2-3", "4-6", "7-10"
+  invitation_code: string | null          // Código usado al registrarse (migración 00041)
   expected_monthly_appointments: number | null // Citas mensuales esperadas
   onboarded_at: string | null              // Null = no ha completado el wizard (migración 00007)
   created_at: string

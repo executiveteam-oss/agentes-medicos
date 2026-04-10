@@ -4,12 +4,16 @@
 // ============================================================
 
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { getUserSession } from '@/lib/session'
 import { isDoctorRole } from '@/lib/doctor-filter'
 import { UserSessionProvider } from '@/context/user-session'
 import { NavLink } from '@/components/dashboard/nav-link'
 import { logoutAction } from '@/app/actions/auth'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { isDoctorProfileComplete } from '@/app/actions/doctor-onboarding'
+import { DoctorWelcomeModal } from '@/components/dashboard/doctor-welcome-modal'
+import { DoctorIncompleteBanner } from '@/components/dashboard/doctor-incomplete-banner'
 import type { ModuleKey } from '@/types/permissions'
 import type { FeatureConfig } from '@/types/database'
 
@@ -156,6 +160,33 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .join('')
     .toUpperCase() || 'C'
 
+  // Doctor onboarding state — solo aplica a doctores, no admins
+  let showDoctorWelcomeModal = false
+  let showDoctorIncompleteBanner = false
+
+  if (isDoctor && session.doctorId) {
+    const { data: clinicUserRow } = await supabaseAdmin
+      .from('clinic_users')
+      .select('onboarding_completed_at')
+      .eq('id', session.clinicUserId)
+      .maybeSingle()
+
+    const onboardingCompletedAt = (clinicUserRow as { onboarding_completed_at: string | null } | null)?.onboarding_completed_at ?? null
+
+    if (!onboardingCompletedAt) {
+      const profileComplete = await isDoctorProfileComplete(session.doctorId, session.clinicId)
+      if (!profileComplete) {
+        const cookieStore = await cookies()
+        const dismissed = cookieStore.get('doctor_modal_dismissed')?.value === '1'
+        if (dismissed) {
+          showDoctorIncompleteBanner = true
+        } else {
+          showDoctorWelcomeModal = true
+        }
+      }
+    }
+  }
+
   return (
     <UserSessionProvider session={session}>
       <div className="min-h-screen bg-slate-50 flex">
@@ -228,9 +259,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {/* Main content area */}
         <div className="flex-1 ml-60">
           <main className="min-h-screen">
+            {showDoctorIncompleteBanner && <DoctorIncompleteBanner />}
             {children}
           </main>
         </div>
+
+        {showDoctorWelcomeModal && (
+          <DoctorWelcomeModal fullName={session.fullName} clinicName={clinicName} />
+        )}
       </div>
     </UserSessionProvider>
   )

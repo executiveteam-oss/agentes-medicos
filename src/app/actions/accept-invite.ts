@@ -1,11 +1,16 @@
 'use server'
 
 // ============================================================
-// Server Action — Aceptar invitación (setear contraseña y nombre)
+// Server Action — Aceptar invitación
+// Flujo 1 (legacy): usuario ya autenticado via Supabase invite link
+// Flujo 2 (nuevo): token propio vía Resend email
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
+
+// --- Flujo legacy: usuario ya tiene sesión via callback ---
 
 interface AcceptInviteInput {
   fullName: string
@@ -19,9 +24,8 @@ export async function acceptInviteAction(
     const { fullName, password } = input
 
     if (!fullName.trim()) return { ok: false, error: 'El nombre es requerido' }
-    if (password.length < 6) return { ok: false, error: 'La contraseña debe tener al menos 6 caracteres' }
+    if (password.length < 10) return { ok: false, error: 'La contraseña debe tener al menos 10 caracteres' }
 
-    // Obtener sesión actual (el usuario ya está autenticado via el callback)
     const supabase = await createSupabaseServerClient()
     const { data: { user }, error: userError } = await supabase.auth.getUser()
 
@@ -29,7 +33,6 @@ export async function acceptInviteAction(
       return { ok: false, error: 'Sesión no encontrada. Intenta abrir el enlace de invitación nuevamente.' }
     }
 
-    // Setear la contraseña
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       user.id,
       { password }
@@ -39,18 +42,11 @@ export async function acceptInviteAction(
       return { ok: false, error: 'Error al crear la contraseña' }
     }
 
-    // Actualizar nombre en clinic_users (por si el invitado quiere cambiarlo)
-    const { error: nameError } = await supabaseAdmin
+    await supabaseAdmin
       .from('clinic_users')
       .update({ full_name: fullName.trim() })
       .eq('auth_user_id', user.id)
 
-    if (nameError) {
-      console.error('[acceptInviteAction] Error updating name:', nameError)
-      // No fallar por esto, la contraseña ya se seteó
-    }
-
-    // Actualizar metadata en auth
     await supabaseAdmin.auth.admin.updateUserById(user.id, {
       user_metadata: { full_name: fullName.trim() },
     })
@@ -60,4 +56,130 @@ export async function acceptInviteAction(
     console.error('[acceptInviteAction]', err)
     return { ok: false, error: 'Error inesperado. Intenta de nuevo.' }
   }
+}
+
+// --- Flujo nuevo: token propio via Resend ---
+
+interface InvitationInfo {
+  fullName: string
+  email: string
+  clinicName: string
+  roleName: string
+}
+
+/** Validar token de invitación (sin login requerido) */
+export async function validateInvitationToken(token: string): Promise<{
+  valid: boolean
+  error?: string
+  invitation?: InvitationInfo
+}> {
+  if (!token) return { valid: false, error: 'Token requerido' }
+
+  const { data } = await supabaseAdmin
+    .from('invitations')
+    .select('id, email, full_name, expires_at, accepted_at, clinics(name)')
+    .eq('token', token)
+    .maybeSingle()
+
+  if (!data) return { valid: false, error: 'Invitación no encontrada' }
+
+  const inv = data as { id: string; email: string; full_name: string; expires_at: string; accepted_at: string | null; clinics: { name: string } | { name: string }[] | null }
+  if (inv.accepted_at) return { valid: false, error: 'Esta invitación ya fue aceptada' }
+  if (new Date(inv.expires_at) < new Date()) return { valid: false, error: 'Esta invitación ha expirado. Pide una nueva al administrador.' }
+
+  const clinicRaw = inv.clinics
+  const clinicName = Array.isArray(clinicRaw)
+    ? (clinicRaw[0] as { name: string })?.name ?? 'tu consultorio'
+    : (clinicRaw as { name: string } | null)?.name ?? 'tu consultorio'
+
+  return {
+    valid: true,
+    invitation: {
+      fullName: inv.full_name,
+      email: inv.email,
+      clinicName,
+      roleName: 'miembro del equipo',
+    },
+  }
+}
+
+/** Aceptar invitación con token: crear usuario + vincular a clínica */
+export async function acceptTokenInvitation(
+  token: string,
+  fullName: string,
+  password: string
+): Promise<{ error?: string }> {
+  if (!token || !fullName || !password) {
+    return { error: 'Todos los campos son requeridos' }
+  }
+  if (password.length < 10) {
+    return { error: 'La contraseña debe tener al menos 10 caracteres' }
+  }
+
+  // 1. Validar invitación
+  const { data: inv } = await supabaseAdmin
+    .from('invitations')
+    .select('id, clinic_id, email, full_name, role_id, expires_at, accepted_at')
+    .eq('token', token)
+    .maybeSingle()
+
+  if (!inv) return { error: 'Invitación no encontrada' }
+  if (inv.accepted_at) return { error: 'Esta invitación ya fue aceptada' }
+  if (new Date(inv.expires_at) < new Date()) return { error: 'Esta invitación ha expirado' }
+
+  // 2. Crear usuario (auto-confirmado — la invitación por email es verificación implícita)
+  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email: inv.email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
+  })
+
+  if (authError) {
+    if (authError.message?.includes('already been registered')) {
+      return { error: 'Este email ya tiene una cuenta. Inicia sesión en /login.' }
+    }
+    console.error('[acceptTokenInvitation] Auth error:', authError.message)
+    return { error: 'Error creando la cuenta' }
+  }
+
+  if (!authData.user) return { error: 'Error creando la cuenta' }
+
+  // 3. Vincular a la clínica
+  const { error: linkError } = await supabaseAdmin
+    .from('clinic_users')
+    .upsert({
+      clinic_id: inv.clinic_id,
+      auth_user_id: authData.user.id,
+      full_name: fullName,
+      role_id: inv.role_id,
+      is_active: true,
+    }, { onConflict: 'clinic_id,auth_user_id' })
+
+  if (linkError) {
+    console.error('[acceptTokenInvitation] Link error:', linkError.message)
+    await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+    return { error: 'Error vinculando a la clínica' }
+  }
+
+  // 4. Marcar invitación como aceptada
+  await supabaseAdmin
+    .from('invitations')
+    .update({ accepted_at: new Date().toISOString() })
+    .eq('id', inv.id)
+
+  // 5. Audit log
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: inv.clinic_id,
+    action: 'invitation_accepted',
+    actor_type: 'staff',
+    actor_id: authData.user.id,
+    details: { email: inv.email, role_id: inv.role_id },
+  })
+
+  // 6. Crear sesión e ir al dashboard
+  const supabase = await createSupabaseServerClient()
+  await supabase.auth.signInWithPassword({ email: inv.email, password })
+
+  redirect('/dashboard')
 }

@@ -450,7 +450,7 @@ function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
       out_of_hours_message: 'Hola, nuestro horario de atención es de 7am a 8pm. Te responderemos mañana.',
     },
     appointment: { default_duration: 30, max_duration: 60 },
-    escalation_keywords: ['urgencia', 'dolor', 'emergencia', 'hablar con alguien', 'médico', 'sangrado'],
+    escalation_keywords: ['urgencia', 'emergencia', 'hablar con alguien', 'sangrado', 'humano', 'persona real', 'quiero hablar con alguien'],
     doctors: {},
     automations: {
       post_consulta: { enabled: false },

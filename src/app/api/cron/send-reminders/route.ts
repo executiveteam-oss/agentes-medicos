@@ -79,9 +79,12 @@ export async function GET(request: NextRequest) {
     // Enviar recordatorios de documentos pendientes (48h)
     const docResult = await sendDocumentReminders()
 
+    // Auto-timeout: reabrir conversaciones escaladas sin respuesta >24h
+    const escalationTimeouts = await autoTimeoutEscalatedConversations()
+
     console.log(
       `[Cron:Reminders] Completado — 72h: ${result72h.sent}, 24h: ${result24h.sent}, 2h: ${result2h.sent}, ` +
-      `virtual: ${virtualResult.sent}, docs: ${docResult.sent}`
+      `virtual: ${virtualResult.sent}, docs: ${docResult.sent}, esc_timeout: ${escalationTimeouts}`
     )
 
     return NextResponse.json({
@@ -91,6 +94,7 @@ export async function GET(request: NextRequest) {
       reminders_2h: result2h,
       virtual_links_sent: virtualResult.sent,
       document_reminders_sent: docResult.sent,
+      escalation_timeouts: escalationTimeouts,
     })
   } catch (error) {
     console.error('[Cron:Reminders] Error general:', error)
@@ -602,4 +606,73 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
   }
 
   return { sent, failed }
+}
+
+// ============================================================
+// Auto-timeout: reabrir conversaciones escaladas >24h sin respuesta staff
+// ============================================================
+async function autoTimeoutEscalatedConversations(): Promise<number> {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+  const { data: stale } = await supabaseAdmin
+    .from('conversations')
+    .select('id, clinic_id, whatsapp_phone, patient_id')
+    .eq('status', 'escalated')
+    .lt('escalated_at', cutoff)
+
+  if (!stale || stale.length === 0) return 0
+
+  let count = 0
+  for (const conv of stale) {
+    // Verificar que NO hubo respuesta staff en las últimas 24h
+    const { count: staffMsgCount } = await supabaseAdmin
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', conv.id)
+      .eq('role', 'staff')
+      .gte('created_at', cutoff)
+
+    if ((staffMsgCount ?? 0) > 0) continue
+
+    // Reabrir conversación
+    await supabaseAdmin
+      .from('conversations')
+      .update({ status: 'active', escalated_to: null, escalated_at: null })
+      .eq('id', conv.id)
+
+    // Enviar mensaje al paciente
+    const phone = conv.whatsapp_phone.replace('+', '')
+    const { data: clinic } = await supabaseAdmin
+      .from('clinics')
+      .select('whatsapp_phone_id, whatsapp_access_token')
+      .eq('id', conv.clinic_id)
+      .maybeSingle()
+    const creds = clinic?.whatsapp_phone_id && clinic?.whatsapp_access_token
+      ? { phoneNumberId: clinic.whatsapp_phone_id, accessToken: clinic.whatsapp_access_token }
+      : null
+
+    const msg = 'Hola, retomamos tu conversación. ¿En qué podemos ayudarte?'
+    await sendWhatsAppMessage(phone, msg, creds)
+
+    await supabaseAdmin.from('messages').insert({
+      conversation_id: conv.id,
+      role: 'agent',
+      content: msg,
+      message_type: 'text',
+    })
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: conv.clinic_id,
+      action: 'escalation_auto_timeout',
+      actor_type: 'system',
+      target_type: 'conversation',
+      target_id: conv.id,
+      details: { timeout_hours: 24 },
+    })
+
+    count++
+    console.log(`[Cron:EscTimeout] Conversación ${conv.id} reabierta tras 24h sin respuesta staff`)
+  }
+
+  return count
 }

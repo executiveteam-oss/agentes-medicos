@@ -224,13 +224,16 @@ export function ConversationChat({ conversation, initialMessages, canWrite }: Pr
               </>
             )}
             {(status === 'resolved' || status === 'escalated') && (
-              <button
-                onClick={handleReopen}
-                disabled={isPending}
-                className="text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-              >
-                Reabrir conversación
-              </button>
+              <div className="flex flex-col items-end gap-0.5">
+                <button
+                  onClick={handleReopen}
+                  disabled={isPending}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Reabrir y pasar al agente
+                </button>
+                <span className="text-[10px] text-slate-400">El agente responderá al próximo mensaje</span>
+              </div>
             )}
           </div>
         )}

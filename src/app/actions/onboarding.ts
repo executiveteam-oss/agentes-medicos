@@ -8,6 +8,8 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getSessionClinicId } from '@/lib/actions-helpers'
 import { getUserSession } from '@/lib/session'
+import { sendEmail } from '@/lib/email/client'
+import { randomUUID } from 'crypto'
 import { revalidatePath } from 'next/cache'
 
 /** Paso 1: Actualizar datos básicos de la clínica */
@@ -59,7 +61,7 @@ export async function updateRolePermissions(
   }
 }
 
-/** Paso 3: Invitar un usuario por email */
+/** Paso 3: Invitar un usuario por email via Resend */
 export async function inviteUser(data: {
   email: string
   full_name: string
@@ -67,38 +69,59 @@ export async function inviteUser(data: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const clinicId = await getSessionClinicId()
+    const session = await getUserSession()
 
-    // Enviar invitación (Supabase enviará email automáticamente)
-    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-      data.email,
-      {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
-        data: { full_name: data.full_name },
-      }
-    )
+    const token = randomUUID()
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
 
-    if (inviteError) {
-      return { ok: false, error: 'Error enviando invitación' }
-    }
+    // Obtener nombre de la clínica
+    const { data: clinic } = await supabaseAdmin
+      .from('clinics')
+      .select('name')
+      .eq('id', clinicId)
+      .maybeSingle()
+    const clinicName = (clinic as { name: string } | null)?.name ?? 'tu consultorio'
+    const inviterName = session?.fullName ?? 'El administrador'
 
-    if (!inviteData.user) {
-      return { ok: false, error: 'No se pudo crear el usuario' }
-    }
-
-    // Pre-crear el clinic_user (el usuario completará el registro al aceptar la invitación)
-    const { error: userError } = await supabaseAdmin
-      .from('clinic_users')
-      .upsert({
+    // Guardar invitación en tabla
+    const { error: insertError } = await supabaseAdmin
+      .from('invitations')
+      .insert({
         clinic_id: clinicId,
-        auth_user_id: inviteData.user.id,
+        email: data.email,
         full_name: data.full_name,
         role_id: data.role_id,
-        is_active: true,
-      }, { onConflict: 'clinic_id,auth_user_id' })
+        token,
+        invited_by: session?.clinicUserId ?? null,
+        expires_at: expiresAt.toISOString(),
+      })
 
-    if (userError) {
-      return { ok: false, error: 'Error registrando usuario en la clínica' }
+    if (insertError) {
+      console.error('[inviteUser] Insert error:', insertError.message)
+      return { ok: false, error: 'Error creando invitación' }
     }
+
+    // Enviar email via Resend
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://agentes-medicos-ten.vercel.app'
+    const acceptUrl = `${appUrl}/invite/accept?token=${token}`
+
+    await sendEmail({
+      to: data.email,
+      subject: `Te invitaron a unirte a ${clinicName} en Omuwan`,
+      html: `
+        <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; color: #1e293b;">
+          <p>Hola,</p>
+          <p><strong>${inviterName}</strong> te ha invitado a unirte a <strong>${clinicName}</strong> en Omuwan.</p>
+          <p style="margin: 24px 0;">
+            <a href="${acceptUrl}" style="display: inline-block; background: #0f2a6e; color: #fff; font-weight: 600; padding: 12px 24px; border-radius: 8px; text-decoration: none;">
+              Aceptar invitación
+            </a>
+          </p>
+          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 48 horas.</p>
+          <p style="color: #94a3b8; margin-top: 24px;">— El equipo de Omuwan</p>
+        </div>
+      `,
+    })
 
     return { ok: true }
   } catch (err) {

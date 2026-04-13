@@ -211,22 +211,66 @@ export async function toggleUserActive(
   }
 }
 
-/** Reenviar invitación a un usuario */
+/** Reenviar invitación a un usuario via Resend */
 export async function resendInvite(email: string): Promise<{ ok: boolean; error?: string }> {
   try {
     const clinicId = await checkWritePermission('user_management')
 
-    const { error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/invite/accept`,
-    })
+    // Buscar invitación pendiente para este email
+    const { data: inv } = await supabaseAdmin
+      .from('invitations')
+      .select('id, token, full_name, expires_at, accepted_at')
+      .eq('clinic_id', clinicId)
+      .eq('email', email)
+      .is('accepted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
-    if (error) return { ok: false, error: 'Error reenviando invitación' }
+    if (!inv) return { ok: false, error: 'No hay invitación pendiente para este email' }
+    if (inv.accepted_at) return { ok: false, error: 'Esta invitación ya fue aceptada' }
+
+    // Renovar expiración a 48h desde ahora
+    const newExpiry = new Date(Date.now() + 48 * 60 * 60 * 1000)
+    await supabaseAdmin
+      .from('invitations')
+      .update({ expires_at: newExpiry.toISOString() })
+      .eq('id', inv.id)
+
+    // Obtener nombre de la clínica
+    const { data: clinic } = await supabaseAdmin
+      .from('clinics')
+      .select('name')
+      .eq('id', clinicId)
+      .maybeSingle()
+    const clinicName = (clinic as { name: string } | null)?.name ?? 'tu consultorio'
+
+    // Reenviar email via Resend
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://agentes-medicos-ten.vercel.app'
+    const acceptUrl = `${appUrl}/invite/accept?token=${inv.token}`
+
+    await sendEmail({
+      to: email,
+      subject: `Recordatorio: te invitaron a unirte a ${clinicName} en Omuwan`,
+      html: `
+        <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; color: #1e293b;">
+          <p>Hola ${inv.full_name},</p>
+          <p>Tienes una invitación pendiente para unirte a <strong>${clinicName}</strong> en Omuwan.</p>
+          <p style="margin: 24px 0;">
+            <a href="${acceptUrl}" style="display: inline-block; background: #0f2a6e; color: #fff; font-weight: 600; padding: 12px 24px; border-radius: 8px; text-decoration: none;">
+              Aceptar invitación
+            </a>
+          </p>
+          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 48 horas.</p>
+          <p style="color: #94a3b8; margin-top: 24px;">— El equipo de Omuwan</p>
+        </div>
+      `,
+    })
 
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,
       action: 'invite_resent',
       actor_type: 'staff',
-      target_type: 'clinic_user',
       details: { email },
     })
 

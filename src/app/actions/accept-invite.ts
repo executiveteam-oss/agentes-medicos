@@ -119,7 +119,7 @@ export async function acceptTokenInvitation(
   // 1. Validar invitación
   const { data: inv } = await supabaseAdmin
     .from('invitations')
-    .select('id, clinic_id, email, full_name, role_id, expires_at, accepted_at')
+    .select('id, clinic_id, email, full_name, role_id, doctor_id, expires_at, accepted_at')
     .eq('token', token)
     .maybeSingle()
 
@@ -159,16 +159,36 @@ export async function acceptTokenInvitation(
     authUserId = authData.user.id
   }
 
-  // 3. Vincular a la clínica
+  // 3. Vincular a la clínica (con doctor_id si la invitación lo tiene)
+  const clinicUserData: Record<string, unknown> = {
+    clinic_id: inv.clinic_id,
+    auth_user_id: authUserId,
+    full_name: fullName,
+    role_id: inv.role_id,
+    is_active: true,
+  }
+
+  // Vincular doctor_id si está presente y no está ya vinculado a otro usuario
+  const invDoctorId = (inv as Record<string, unknown>).doctor_id as string | null
+  if (invDoctorId) {
+    const { data: doctorRow } = await supabaseAdmin
+      .from('clinic_users')
+      .select('id')
+      .eq('clinic_id', inv.clinic_id)
+      .eq('doctor_id', invDoctorId)
+      .maybeSingle()
+
+    if (!doctorRow) {
+      // Doctor no vinculado a nadie — vincular
+      clinicUserData.doctor_id = invDoctorId
+    } else {
+      console.warn(`[acceptTokenInvitation] Doctor ${invDoctorId} ya vinculado a otro usuario, omitiendo`)
+    }
+  }
+
   const { error: linkError } = await supabaseAdmin
     .from('clinic_users')
-    .upsert({
-      clinic_id: inv.clinic_id,
-      auth_user_id: authUserId,
-      full_name: fullName,
-      role_id: inv.role_id,
-      is_active: true,
-    }, { onConflict: 'clinic_id,auth_user_id' })
+    .upsert(clinicUserData, { onConflict: 'clinic_id,auth_user_id' })
 
   if (linkError) {
     console.error('[acceptTokenInvitation] Link error:', linkError.message)

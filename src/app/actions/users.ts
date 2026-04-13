@@ -34,6 +34,7 @@ export async function inviteUserAction(formData: FormData): Promise<{ ok: boolea
     const email = formData.get('email') as string
     const fullName = formData.get('full_name') as string
     const roleId = formData.get('role_id') as string
+    const doctorId = (formData.get('doctor_id') as string) || null
 
     if (!email || !fullName || !roleId) {
       return { ok: false, error: 'Todos los campos son requeridos' }
@@ -91,6 +92,7 @@ export async function inviteUserAction(formData: FormData): Promise<{ ok: boolea
         email,
         full_name: fullName,
         role_id: roleId,
+        doctor_id: doctorId,
         token,
         invited_by: session?.clinicUserId ?? null,
         expires_at: expiresAt.toISOString(),

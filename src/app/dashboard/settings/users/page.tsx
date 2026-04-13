@@ -23,13 +23,23 @@ export default async function UsersPage() {
     getClinicRoles(),
   ])
 
-  // Cargar doctores activos para el selector "Médico vinculado"
-  const { data: doctors } = await supabaseAdmin
+  // Cargar doctores activos SIN usuario vinculado (para el selector de invitación)
+  const { data: allDoctors } = await supabaseAdmin
     .from('doctors')
     .select('id, name')
     .eq('clinic_id', session.clinicId)
     .eq('is_active', true)
     .order('name')
+
+  // Filtrar doctores que ya tienen un clinic_user con doctor_id
+  const { data: linkedDoctorIds } = await supabaseAdmin
+    .from('clinic_users')
+    .select('doctor_id')
+    .eq('clinic_id', session.clinicId)
+    .not('doctor_id', 'is', null)
+
+  const linkedSet = new Set((linkedDoctorIds ?? []).map((r) => (r as { doctor_id: string }).doctor_id))
+  const doctors = (allDoctors ?? []).filter((d) => !linkedSet.has(d.id))
 
   return <UsersPanel users={users} roles={roles} doctors={(doctors ?? []) as { id: string; name: string }[]} />
 }

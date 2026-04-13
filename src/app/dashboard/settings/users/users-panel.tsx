@@ -89,7 +89,7 @@ export function UsersPanel({ users, roles, doctors }: Props) {
       {/* Formulario de invitación */}
       <div className="card p-6">
         <h2 className="text-sm font-semibold text-slate-900 mb-4">Invitar usuario</h2>
-        <InviteUserForm roles={roles} />
+        <InviteUserForm roles={roles} doctors={doctors} />
       </div>
 
       {/* Toast */}

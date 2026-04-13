@@ -127,30 +127,44 @@ export async function acceptTokenInvitation(
   if (inv.accepted_at) return { error: 'Esta invitación ya fue aceptada' }
   if (new Date(inv.expires_at) < new Date()) return { error: 'Esta invitación ha expirado' }
 
-  // 2. Crear usuario (auto-confirmado — la invitación por email es verificación implícita)
-  const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-    email: inv.email,
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName },
-  })
+  // 2. Verificar si el usuario ya existe en Supabase Auth
+  let authUserId: string
 
-  if (authError) {
-    if (authError.message?.includes('already been registered')) {
-      return { error: 'Este email ya tiene una cuenta. Inicia sesión en /login.' }
+  const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers()
+  const existingUser = existingUsers?.users?.find((u) => u.email === inv.email)
+
+  if (existingUser) {
+    // Usuario ya existe — solo vincular a la clínica
+    authUserId = existingUser.id
+
+    // Actualizar contraseña si proporcionó una nueva
+    await supabaseAdmin.auth.admin.updateUserById(authUserId, {
+      password,
+      user_metadata: { full_name: fullName },
+    })
+  } else {
+    // Crear usuario nuevo (auto-confirmado)
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: inv.email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName },
+    })
+
+    if (authError || !authData.user) {
+      console.error('[acceptTokenInvitation] Auth error:', authError?.message)
+      return { error: 'Error creando la cuenta' }
     }
-    console.error('[acceptTokenInvitation] Auth error:', authError.message)
-    return { error: 'Error creando la cuenta' }
-  }
 
-  if (!authData.user) return { error: 'Error creando la cuenta' }
+    authUserId = authData.user.id
+  }
 
   // 3. Vincular a la clínica
   const { error: linkError } = await supabaseAdmin
     .from('clinic_users')
     .upsert({
       clinic_id: inv.clinic_id,
-      auth_user_id: authData.user.id,
+      auth_user_id: authUserId,
       full_name: fullName,
       role_id: inv.role_id,
       is_active: true,
@@ -158,7 +172,6 @@ export async function acceptTokenInvitation(
 
   if (linkError) {
     console.error('[acceptTokenInvitation] Link error:', linkError.message)
-    await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
     return { error: 'Error vinculando a la clínica' }
   }
 
@@ -173,7 +186,7 @@ export async function acceptTokenInvitation(
     clinic_id: inv.clinic_id,
     action: 'invitation_accepted',
     actor_type: 'staff',
-    actor_id: authData.user.id,
+    actor_id: authUserId,
     details: { email: inv.email, role_id: inv.role_id },
   })
 

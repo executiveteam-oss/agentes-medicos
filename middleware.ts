@@ -60,14 +60,21 @@ export async function middleware(request: NextRequest) {
   // Rutas solo para no-autenticados
   const authOnlyRoutes = pathname === '/login' || pathname === '/register'
 
-  // /invite/accept necesita sesión pero no redirige a dashboard
-  const isInviteAccept = pathname.startsWith('/invite/accept')
+  // /invite/accept con ?token= NO requiere sesión (flujo token propio)
+  // /invite/accept sin ?token= SÍ requiere sesión (flujo legacy Supabase)
+  const isInviteWithToken = pathname.startsWith('/invite/accept') && request.nextUrl.searchParams.has('token')
+  const isInviteLegacy = pathname.startsWith('/invite/accept') && !request.nextUrl.searchParams.has('token')
 
-  if (!user && (requiresAuth || isInviteAccept)) {
+  if (!user && (requiresAuth || isInviteLegacy)) {
     // Sin sesión → redirigir a login
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/login'
     return NextResponse.redirect(loginUrl)
+  }
+
+  // Token invites pasan sin sesión — se ignora el check
+  if (isInviteWithToken && !user) {
+    return response
   }
 
   if (user && authOnlyRoutes) {

@@ -86,3 +86,16 @@ export async function submitAccessRequest(input: WaitlistInput): Promise<{ ok: b
 
   return { ok: true }
 }
+
+/** Validar código de invitación sin revelar códigos válidos */
+export async function validateInviteCode(code: string): Promise<{ valid: boolean }> {
+  const trimmed = (code ?? '').trim()
+  if (!trimmed) return { valid: false }
+
+  const validCodes = (process.env.VALID_INVITE_CODES ?? '')
+    .split(',')
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean)
+
+  return { valid: validCodes.includes(trimmed.toLowerCase()) }
+}

@@ -94,6 +94,7 @@ function RegisterForm() {
   const cfgMedicos = searchParams.get('medicos')
   const cfgCitas = searchParams.get('citas')
   const cfgFeatures = searchParams.get('features')
+  const prefilledCode = searchParams.get('code') ?? ''
   const hasConfig = !!(cfgPlan || cfgMedicos || cfgCitas || cfgFeatures)
 
   // Save config to sessionStorage so it survives form submission
@@ -392,6 +393,7 @@ function RegisterForm() {
               autoComplete="off"
               className="input-field"
               placeholder="Ingresa tu código de acceso"
+              defaultValue={prefilledCode}
             />
           </div>
 

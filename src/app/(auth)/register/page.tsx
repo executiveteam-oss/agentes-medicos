@@ -8,7 +8,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { submitAccessRequest } from '@/app/actions/access-waitlist'
+import { useRouter } from 'next/navigation'
+import { submitAccessRequest, validateInviteCode } from '@/app/actions/access-waitlist'
 
 const DOCTOR_OPTIONS = [
   { value: '1', label: '1 médico' },
@@ -133,19 +134,72 @@ export default function RegisterPage() {
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-500">
-        ¿Ya tienes un código de acceso?{' '}
-        <Link href="/register/invite" className="text-[#0f2a6e] hover:text-[#1a3a8a] font-medium">
-          Regístrate aquí
-        </Link>
-      </p>
+      {/* Divider */}
+      <div className="flex items-center gap-3 mt-6 mb-4">
+        <div className="flex-1 h-px bg-slate-200" />
+        <span className="text-xs text-slate-400">o si ya tienes código</span>
+        <div className="flex-1 h-px bg-slate-200" />
+      </div>
 
-      <p className="mt-3 text-center text-sm text-slate-500">
+      {/* Path B: Invite code */}
+      <InviteCodeSection />
+
+      <p className="mt-5 text-center text-sm text-slate-500">
         ¿Ya tienes cuenta?{' '}
         <Link href="/login" className="text-[#0f2a6e] hover:text-[#1a3a8a] font-medium">
           Iniciar sesión
         </Link>
       </p>
     </div>
+  )
+}
+
+function InviteCodeSection() {
+  const [code, setCode] = useState('')
+  const [codeError, setCodeError] = useState('')
+  const [checking, setChecking] = useState(false)
+  const router = useRouter()
+
+  async function handleCodeSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setCodeError('')
+    const trimmed = code.trim()
+    if (!trimmed) { setCodeError('Ingresa tu código'); return }
+
+    setChecking(true)
+    const result = await validateInviteCode(trimmed)
+    setChecking(false)
+
+    if (result.valid) {
+      router.push(`/register/invite?code=${encodeURIComponent(trimmed)}`)
+    } else {
+      setCodeError('Código inválido. ¿No tienes código? Solicita acceso arriba.')
+    }
+  }
+
+  return (
+    <form onSubmit={handleCodeSubmit} className="space-y-2">
+      <label className="text-xs font-medium text-slate-500 block">Código de invitación</label>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={code}
+          onChange={(e) => { setCode(e.target.value); setCodeError('') }}
+          className="input-field flex-1"
+          placeholder="Ingresa tu código"
+          autoComplete="off"
+        />
+        <button
+          type="submit"
+          disabled={checking}
+          className="bg-[#028090] hover:bg-[#026d7a] disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shrink-0"
+        >
+          {checking ? '...' : 'Acceder'}
+        </button>
+      </div>
+      {codeError && (
+        <p className="text-xs text-red-500">{codeError}</p>
+      )}
+    </form>
   )
 }

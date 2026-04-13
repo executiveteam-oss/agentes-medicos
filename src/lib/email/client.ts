@@ -8,7 +8,7 @@ import { Resend } from 'resend'
 const apiKey = process.env.RESEND_API_KEY
 const resend = apiKey ? new Resend(apiKey) : null
 
-const FROM_EMAIL = process.env.EMAIL_FROM ?? 'consultorio@resend.dev'
+const FROM_EMAIL = process.env.SMTP_FROM ?? process.env.EMAIL_FROM ?? 'noreply@omuwan.co'
 
 interface SendEmailParams {
   to: string

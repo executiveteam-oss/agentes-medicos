@@ -574,18 +574,28 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
           )}
 
           <p className="text-sm text-slate-600 leading-relaxed mt-4">
-            Ultimo paso: configura el webhook para que los mensajes de tus pacientes lleguen a Omuwan.
+            Último paso: configura el webhook para que los mensajes de tus pacientes lleguen a Omuwan.
           </p>
+
+          {/* Mandatory warning */}
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 mt-4 flex items-start gap-2.5">
+            <svg className="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <p className="text-sm text-red-700">
+              <strong>Este paso es obligatorio.</strong> Sin él, el agente no puede recibir mensajes de pacientes.
+            </p>
+          </div>
 
           <div className="space-y-3 mt-4">
             <Instruction num={1}>
-              En Meta Developers, ve a tu app → <strong>WhatsApp → Configuracion</strong>
+              En Meta Developers, ve a tu app → <strong>WhatsApp → Configuración</strong>
             </Instruction>
             <Instruction num={2}>
-              En la seccion <strong>&quot;Webhooks&quot;</strong>, haz clic en <strong>&quot;Editar&quot;</strong>
+              En la sección <strong>&quot;Webhooks&quot;</strong>, haz clic en <strong>&quot;Editar&quot;</strong>
             </Instruction>
             <Instruction num={3}>
-              <span>URL de devolucion de llamada:</span>
+              <span>Copia esta URL y pégala en &quot;URL de devolución de llamada&quot;:</span>
               <CopyableField
                 value={WEBHOOK_URL}
                 label="webhook"
@@ -594,7 +604,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
               />
             </Instruction>
             <Instruction num={4}>
-              <span>Token de verificacion:</span>
+              <span>Copia este token y pégalo en &quot;Token de verificación&quot;:</span>
               <CopyableField
                 value={credentials.verifyToken ?? ''}
                 label="verify2"
@@ -606,10 +616,10 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
               Haz clic en <strong>&quot;Verificar y guardar&quot;</strong>
             </Instruction>
             <Instruction num={6}>
-              Activa el campo <strong>&quot;messages&quot;</strong> en Webhook fields
+              En la sección &quot;Webhook fields&quot;, haz clic en <strong>&quot;Administrar&quot;</strong> y activa el campo <strong>&quot;messages&quot;</strong>
             </Instruction>
             <Instruction num={7}>
-              Enviate un mensaje de prueba al numero para verificar que funciona
+              Envíate un mensaje de prueba desde tu WhatsApp personal al número del consultorio para verificar que funciona
             </Instruction>
           </div>
 
@@ -620,18 +630,30 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
               : 'bg-slate-50 border-slate-200'
           }`}>
             {webhookStatus === 'connected' ? (
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
-                  <svg className="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                    <svg className="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-800">
+                      ¡Tu agente está activo y listo para recibir pacientes!
+                    </p>
+                    <p className="text-xs text-emerald-700 mt-0.5">
+                      Los mensajes de pacientes serán respondidos automáticamente por el agente IA.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-bold text-emerald-800">
-                    WhatsApp activo! Tu agente esta listo.
-                  </p>
-                  <p className="text-xs text-emerald-700 mt-0.5">
-                    Los mensajes de pacientes seran respondidos automaticamente por el agente IA.
+                {/* Warning: need doctor + consultation type */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2.5">
+                  <svg className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                  </svg>
+                  <p className="text-xs text-amber-800">
+                    <strong>Antes de compartir el número con pacientes:</strong> asegúrate de tener al menos 1 médico activo con horario y 1 tipo de consulta configurado en{' '}
+                    <a href="/dashboard/whatsapp#doctores" className="underline font-medium">Configuración del agente →</a>
                   </p>
                 </div>
               </div>
@@ -647,8 +669,8 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                     Esperando primer mensaje de prueba...
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Envia un mensaje desde tu WhatsApp al numero configurado.
-                    Esta pagina se actualiza automaticamente cada 15 segundos.
+                    Envía un mensaje desde tu WhatsApp personal al número del consultorio.
+                    Esta página se actualiza automáticamente cada 15 segundos.
                   </p>
                 </div>
               </div>

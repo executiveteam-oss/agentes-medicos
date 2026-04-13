@@ -16,7 +16,6 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const searchParams = useSearchParams()
   const urlError = searchParams.get('error')
-  const justRegistered = searchParams.get('registered') === 'true'
   const passwordReset = searchParams.get('password_reset') === 'true'
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -37,12 +36,6 @@ function LoginForm() {
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
       <h2 className="text-xl font-semibold tracking-tight text-slate-900 mb-1">Iniciar sesión</h2>
       <p className="text-sm text-slate-500 mb-6">Ingresa a tu consultorio</p>
-
-      {justRegistered && (
-        <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
-          Cuenta creada. Revisa tu correo para confirmar tu cuenta antes de iniciar sesión.
-        </div>
-      )}
 
       {passwordReset && (
         <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-700 text-sm">

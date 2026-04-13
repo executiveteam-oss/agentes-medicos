@@ -88,11 +88,11 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
   }
 
   // 1. Crear usuario en Supabase Auth
-  // Email verification habilitado — funciona vía Resend + omuwan.co
+  // Auto-confirmar usuario — login inmediato sin verificación de email
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email,
     password,
-    email_confirm: false, // Requiere verificación de email vía link
+    email_confirm: true, // Auto-confirmar — login inmediato tras registro
     user_metadata: { full_name: fullName },
   })
 
@@ -194,6 +194,10 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
       throw new Error(`Error vinculando usuario a la clínica: ${userError.message}`)
     }
 
+    // Crear sesión para el usuario recién creado
+    const supabase = await createSupabaseServerClient()
+    await supabase.auth.signInWithPassword({ email, password })
+
   } catch (err) {
     // Si algo falló, eliminar el usuario de Auth para no dejar huérfanos
     await supabaseAdmin.auth.admin.deleteUser(authUserId)
@@ -202,8 +206,7 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
     return { error: message }
   }
 
-  // Email de verificación enviado por Supabase vía Resend + omuwan.co
-  redirect('/login?registered=true')
+  redirect('/onboarding')
 }
 
 /** Reenviar email de confirmación */

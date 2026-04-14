@@ -124,6 +124,11 @@ export default async function DashboardPage() {
     }
   })
 
+  // Debug: count by status
+  const statusCounts: Record<string, number> = {}
+  appointments.forEach((a) => { statusCounts[a.status] = (statusCounts[a.status] ?? 0) + 1 })
+  console.log(`[Dashboard] ${appointments.length} appointments loaded: ${JSON.stringify(statusCounts)}, range: ${rangeStartStr} → ${rangeEndStr}`)
+
   // Doctors list for calendar tabs
   const calendarDoctors: CalendarDoctor[] = (activeDoctors ?? []).map((d) => ({
     id: d.id as string,

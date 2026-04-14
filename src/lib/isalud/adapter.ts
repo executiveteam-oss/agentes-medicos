@@ -68,7 +68,7 @@ async function launchBrowser(): Promise<Browser> {
 async function loginPage(page: Page, credentials: ISaludCredentials): Promise<void> {
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
   console.log(`[iSalud] Navigating to ${baseUrl}/login`)
-  await page.goto(`${baseUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 })
   console.log(`[iSalud] Login page loaded: ${page.url()}, title: "${await page.title()}"`)
 
   // Log all form inputs for debugging
@@ -100,21 +100,30 @@ async function loginPage(page: Page, credentials: ISaludCredentials): Promise<vo
     if (await passInputs.count() > 0) await passInputs.first().fill(credentials.password)
   }
 
-  // Submit
+  // Submit — don't rely on waitForNavigation (iSalud may use AJAX redirect)
   const submitBtn = page.locator('button[type="submit"], input[type="submit"]')
   console.log(`[iSalud] Submit buttons found: ${await submitBtn.count()}`)
 
   await Promise.all([
-    page.waitForNavigation({ waitUntil: 'networkidle', timeout: 30000 }),
+    page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 30000 }).catch(() => {}),
     submitBtn.first().click(),
   ])
 
-  console.log(`[iSalud] Post-login URL: ${page.url()}, title: "${await page.title()}"`)
+  // Wait for post-login page to settle
+  await Promise.race([
+    page.waitForSelector('.navbar, nav, .sidebar', { timeout: 20000 }),
+    page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 20000 }),
+  ]).catch(() => {})
 
-  if (page.url().includes('/login')) {
+  await page.waitForTimeout(3000)
+
+  const currentUrl = page.url()
+  console.log(`[iSalud] Post-login URL: ${currentUrl}, title: "${await page.title()}"`)
+
+  if (currentUrl.includes('/login')) {
     const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 300))
     console.error(`[iSalud] Login FAILED. Page text: ${bodyText}`)
-    throw new Error('Login fallido — credenciales inválidas')
+    throw new Error('Login fallido — sigue en /login después del submit')
   }
 
   // Handle "Cambiar Centro de atención"
@@ -122,10 +131,8 @@ async function loginPage(page: Page, credentials: ISaludCredentials): Promise<vo
   const cambiarCount = await cambiarBtn.count()
   console.log(`[iSalud] "Cambiar" buttons: ${cambiarCount}`)
   if (cambiarCount > 0) {
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle', timeout: 15000 }).catch(() => {}),
-      cambiarBtn.first().click(),
-    ])
+    await cambiarBtn.first().click()
+    await page.waitForTimeout(3000)
     console.log(`[iSalud] After Cambiar: ${page.url()}`)
   }
   console.log(`[iSalud] Login complete: ${page.url()}`)
@@ -136,7 +143,7 @@ async function loginPage(page: Page, credentials: ISaludCredentials): Promise<vo
 export async function scrapeProfesionales(page: Page, credentials: ISaludCredentials): Promise<ISaludProfesional[]> {
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
   console.log(`[iSalud] Navigating to /disponibilidad`)
-  await page.goto(`${baseUrl}/disponibilidad`, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(`${baseUrl}/disponibilidad`, { waitUntil: 'domcontentloaded', timeout: 30000 })
   console.log(`[iSalud] Disponibilidad URL: ${page.url()}, title: "${await page.title()}"`)
 
   // Log page structure
@@ -233,7 +240,7 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
   const today = new Date()
 
   console.log(`[iSalud] Navigating to /admision`)
-  await page.goto(`${baseUrl}/admision`, { waitUntil: 'networkidle', timeout: 30000 })
+  await page.goto(`${baseUrl}/admision`, { waitUntil: 'domcontentloaded', timeout: 30000 })
   console.log(`[iSalud] Admision URL: ${page.url()}, title: "${await page.title()}"`)
 
   // Log initial page structure
@@ -260,7 +267,7 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
         await page.waitForTimeout(1500)
       } else if (d === 0) {
         console.log(`[iSalud] No date input found — trying URL param`)
-        await page.goto(`${baseUrl}/admision?fecha=${fechaStr}`, { waitUntil: 'networkidle', timeout: 15000 })
+        await page.goto(`${baseUrl}/admision?fecha=${fechaStr}`, { waitUntil: 'domcontentloaded', timeout: 15000 })
         await page.waitForTimeout(1500)
       }
 

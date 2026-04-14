@@ -258,11 +258,13 @@ export type AppointmentStatus =
   | 'completed'
   | 'no_show'
   | 'rescheduled'
+  | 'blocked_external'
 
 export type AppointmentSource =
   | 'whatsapp_agent'
   | 'manual'
   | 'dashboard'
+  | 'isalud'
 
 export type PaymentType = 'EPS' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
 

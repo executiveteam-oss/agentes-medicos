@@ -23,6 +23,7 @@ import { getTodayInsight } from '@/app/actions/insights'
 import { InsightWidget } from '@/components/dashboard/insight-widget'
 import { getSetupProgress } from '@/app/actions/setup-progress'
 import { SetupChecklist } from '@/components/dashboard/setup-checklist'
+import { ISaludSyncButton } from '@/components/dashboard/isalud-sync-button'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,7 +87,7 @@ export default async function DashboardPage() {
       doctors(name, specialty)
     `)
     .eq('clinic_id', clinic.id)
-    .in('status', ['confirmed', 'rescheduled', 'completed', 'no_show'])
+    .in('status', ['confirmed', 'rescheduled', 'completed', 'no_show', 'blocked_external'])
     .gte('starts_at', `${rangeStartStr}T00:00:00-05:00`)
     .lte('starts_at', `${rangeEndStr}T23:59:59-05:00`)
     .order('starts_at', { ascending: true })
@@ -169,6 +170,15 @@ export default async function DashboardPage() {
   // Festivos en los próximos 3 días
   const festivosAlert = festivosProximos(3)
 
+  // iSalud integration status
+  const { data: isalud } = await supabaseAdmin
+    .from('sync_integrations')
+    .select('sync_status, last_synced_at, sync_error')
+    .eq('clinic_id', session.clinicId)
+    .eq('provider', 'isalud')
+    .maybeSingle()
+  const isaludIntegration = isalud as { sync_status: string; last_synced_at: string | null; sync_error: string | null } | null
+
   return (
     <div className="p-6 lg:p-8 space-y-6">
       {/* Top bar */}
@@ -185,10 +195,13 @@ export default async function DashboardPage() {
           <p className="text-slate-500 capitalize text-sm mt-1">{todayFormatted}</p>
         </div>
         {!restrictDoctorId && (
-          <NewAppointmentButton
-            doctors={(activeDoctors ?? []) as { id: string; name: string; specialty: string | null }[]}
-            minBookingAdvanceHours={clinic.min_booking_advance_hours ?? 24}
-          />
+          <div className="flex items-center gap-3">
+            <ISaludSyncButton integration={isaludIntegration} />
+            <NewAppointmentButton
+              doctors={(activeDoctors ?? []) as { id: string; name: string; specialty: string | null }[]}
+              minBookingAdvanceHours={clinic.min_booking_advance_hours ?? 24}
+            />
+          </div>
         )}
       </div>
 

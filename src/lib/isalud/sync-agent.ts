@@ -43,7 +43,7 @@ export async function importISalud(
       provider: 'isalud',
       credentials: {
         subdomain: credentials.subdomain,
-        email: credentials.email,
+        username: credentials.username,
         password: credentials.password,
       } as unknown as Record<string, unknown>,
       sync_status: 'running',
@@ -116,7 +116,7 @@ export async function syncOrganization(integration: {
   const errors: string[] = []
   const creds: ISaludCredentials = {
     subdomain: integration.credentials.subdomain as string,
-    email: integration.credentials.email as string,
+    username: integration.credentials.username as string,
     password: integration.credentials.password as string,
   }
   const dias = integration.config.dias_adelante ?? 60

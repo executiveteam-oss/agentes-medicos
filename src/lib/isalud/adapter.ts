@@ -15,7 +15,7 @@ import * as cheerio from 'cheerio'
 
 export interface ISaludCredentials {
   subdomain: string
-  email: string
+  username: string
   password: string
 }
 
@@ -77,7 +77,7 @@ async function login(credentials: ISaludCredentials): Promise<SessionCookies> {
     },
     body: new URLSearchParams({
       _token: csrfToken,
-      email: credentials.email,
+      user: credentials.username,
       password: credentials.password,
     }).toString(),
   })

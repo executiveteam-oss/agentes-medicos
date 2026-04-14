@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json() as {
     action: 'test' | 'import' | 'force_sync'
-    credentials?: { subdomain: string; email: string; password: string }
+    credentials?: { subdomain: string; username: string; password: string }
   }
 
   const clinicId = session.clinicId

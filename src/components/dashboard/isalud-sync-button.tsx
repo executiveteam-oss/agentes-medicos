@@ -85,14 +85,14 @@ export function ISaludSyncButton({ integration }: { integration: SyncIntegration
 function ISaludImportModal({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<'form' | 'importing' | 'done' | 'error'>('form')
   const [subdomain, setSubdomain] = useState('')
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [progress, setProgress] = useState('')
   const [result, setResult] = useState<ImportResult | null>(null)
   const [error, setError] = useState('')
 
   async function handleImport() {
-    if (!subdomain || !email || !password) {
+    if (!subdomain || !username || !password) {
       setError('Todos los campos son requeridos')
       return
     }
@@ -108,7 +108,7 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'test',
-          credentials: { subdomain, email, password },
+          credentials: { subdomain, username, password },
         }),
       })
       const testData = await testRes.json()
@@ -127,7 +127,7 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'import',
-          credentials: { subdomain, email, password },
+          credentials: { subdomain, username, password },
         }),
       })
       const importData = await importRes.json() as ImportResult
@@ -187,8 +187,8 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
             </div>
 
             <div>
-              <label className="label">Email de iSalud</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input-field" placeholder="admin@consultorio.com" />
+              <label className="label">Usuario de iSalud</label>
+              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="input-field" placeholder="admin" autoComplete="off" />
             </div>
 
             <div>

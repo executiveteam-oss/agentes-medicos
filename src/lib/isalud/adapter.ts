@@ -360,55 +360,45 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
   }
   await page.waitForTimeout(1000)
 
-  // Extract rows for each day by filling the visible date field
+  // Identify the date input
+  const dateInput = page.locator('#admision-date, [name="admision-date"]')
+  const dateInputExists = await dateInput.count() > 0
+  console.log(`[iSalud] Date input #admision-date: ${dateInputExists ? 'FOUND' : 'NOT FOUND'}`)
+
+  // Extract rows for each day by filling the datepicker
   for (let d = 0; d < diasAdelante; d++) {
     const date = new Date(today); date.setDate(date.getDate() + d)
     const fechaStr = date.toISOString().split('T')[0]
 
     try {
-      // Set date via page.evaluate — finds visible date input and triggers change
-      const dateSet = await page.evaluate((fecha) => {
-        // Find all visible date-like inputs
-        const dateInputs = Array.from(document.querySelectorAll('input[type="date"]'))
-          .filter((el) => (el as HTMLElement).offsetParent !== null) as HTMLInputElement[]
+      if (dateInputExists) {
+        // Clear + type date + trigger jQuery datepicker
+        await dateInput.click()
+        await dateInput.fill('')
+        await dateInput.type(fechaStr, { delay: 50 })
+        await page.keyboard.press('Enter')
+        await page.waitForTimeout(1500)
 
-        // Also try inputs with "fecha" in name/id that are visible
-        if (dateInputs.length === 0) {
-          const fallbacks = Array.from(document.querySelectorAll('input'))
-            .filter((el) => {
-              const name = (el.name + el.id).toLowerCase()
-              return (name.includes('fecha') || name.includes('date')) && (el as HTMLElement).offsetParent !== null
-            }) as HTMLInputElement[]
-          dateInputs.push(...fallbacks)
-        }
-
-        if (dateInputs.length === 0) return { found: false, inputCount: 0 }
-
-        const input = dateInputs[0]
-        // Use native setter to bypass React/framework wrappers
-        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
-        if (nativeSetter) nativeSetter.call(input, fecha)
-        else input.value = fecha
-
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-        input.dispatchEvent(new Event('change', { bubbles: true }))
-
-        // Also try submitting the form if there's one
-        const form = input.closest('form')
-        if (form) {
-          const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]') as HTMLElement | null
-          if (submitBtn) submitBtn.click()
-        }
-
-        return { found: true, inputCount: dateInputs.length, inputName: input.name, inputId: input.id }
-      }, fechaStr)
-
-      if (d === 0) {
-        console.log(`[iSalud] Date input result: ${JSON.stringify(dateSet)}`)
+        // Also try jQuery trigger as backup
+        await page.evaluate((fecha) => {
+          const el = document.querySelector('#admision-date') as HTMLInputElement | null
+          if (!el) return
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const jq = (window as any).$ ?? (window as any).jQuery
+            if (jq) {
+              jq(el).val(fecha).trigger('change').trigger('changeDate')
+              try { jq(el).datepicker('update', fecha) } catch { /* */ }
+            }
+          } catch { /* jQuery not available */ }
+        }, fechaStr)
+        await page.waitForTimeout(1500)
       }
 
-      // Wait for DataTables to reload
-      await page.waitForTimeout(2000)
+      if (d === 0) {
+        const currentVal = dateInputExists ? await dateInput.inputValue().catch(() => 'N/A') : 'N/A'
+        console.log(`[iSalud] Day 0: input value="${currentVal}", requested="${fechaStr}"`)
+      }
 
       // Extract rows
       const dayData = await page.evaluate(() => {

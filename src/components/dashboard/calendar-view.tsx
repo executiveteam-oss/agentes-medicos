@@ -534,9 +534,9 @@ function WeekView({
                           onClick={() => setExpandedApt(expandedApt === apt.id ? null : apt.id)}
                           className={`absolute left-0.5 right-0.5 ${colors.bg} ${colors.border} border rounded-md px-1 py-0.5 text-left overflow-hidden cursor-pointer hover:shadow-sm transition-shadow z-10`}
                           style={{ top: `${topOffset}%`, minHeight: '20px', maxHeight: '95%' }}
-                          title={`${formatTimeForPatient(apt.starts_at)} — ${apt.patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}`}>
+                          title={`${formatTimeForPatient(apt.starts_at)} — ${apt.patient?.name ?? apt.reason ?? 'Paciente'}`}>
                           <p className={`text-[10px] font-bold ${colors.text} truncate leading-tight`}>
-                            {formatTimeForPatient(apt.starts_at)} — {apt.patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}
+                            {formatTimeForPatient(apt.starts_at)} — {apt.patient?.name ?? apt.reason ?? 'Paciente'}
                           </p>
                           {showDoctorName && apt.doctor && (
                             <p className={`text-[9px] ${colors.text} opacity-70 truncate leading-tight`}>{apt.doctor.name}</p>
@@ -735,7 +735,7 @@ function DayView({
                         <span className="font-semibold text-slate-900 text-sm">{formatTimeForPatient(apt.starts_at)}</span>
                         <span className="text-slate-300">—</span>
                         <span className={`text-slate-700 text-sm font-medium ${apt.status === 'no_show' ? 'line-through text-slate-400' : ''}`}>
-                          {patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}
+                          {patient?.name ?? apt.reason ?? 'Paciente'}
                         </span>
                       </div>
                       {doctor && (
@@ -852,7 +852,7 @@ function AppointmentDetail({ appointment, onClose }: { appointment: CalendarAppo
           <div className="flex items-center gap-3 mt-1.5">
             {doctor && <span className="text-sm text-slate-600 font-medium">{doctor.name}{doctor.specialty ? ` · ${doctor.specialty}` : ''}</span>}
             <span className="text-sm text-slate-400">|</span>
-            <span className="text-sm text-slate-700 font-medium">{patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}</span>
+            <span className="text-sm text-slate-700 font-medium">{patient?.name ?? apt.reason ?? 'Paciente'}</span>
             {priorityTier && <PriorityBadge tier={priorityTier} size="xs" />}
           </div>
         </div>

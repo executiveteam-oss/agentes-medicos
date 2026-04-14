@@ -207,17 +207,28 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     if (isNaN(h) || isNaN(m)) { errors.push(`Invalid time: ${adm.hora_inicial}`); continue }
 
     const startsAt = new Date(`${adm.fecha}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00-05:00`)
-    const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000)
-    const externalId = `isalud-${adm.id}-${adm.fecha}`
 
-    // Log first 3 for debugging
-    if (count < 3) {
-      console.log(`[iSalud] Upsert: ${externalId} | ${adm.fecha} ${adm.hora_inicial} → ${startsAt.toISOString()} | ${adm.nombre_paciente}`)
+    // Use real hora_final from iSalud (column 15), fallback to +30min
+    let endsAt: Date
+    if (adm.hora_final && adm.hora_final.includes(':')) {
+      const [eh, em] = adm.hora_final.split(':').map(Number)
+      if (!isNaN(eh) && !isNaN(em)) {
+        endsAt = new Date(`${adm.fecha}T${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}:00-05:00`)
+      } else {
+        endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000)
+      }
+    } else {
+      endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000)
     }
 
-    // Name for display in calendar (stored in reason + notes)
-    const displayName = adm.nombre_paciente || 'Cita iSalud'
-    const reasonText = `${adm.nombre_paciente} — ${adm.procedimiento}`.slice(0, 200)
+    const externalId = `isalud-${adm.id}-${adm.fecha}`
+
+    if (count < 3) {
+      console.log(`[iSalud] Upsert: ${externalId} | ${adm.fecha} ${adm.hora_inicial}-${adm.hora_final} → ${startsAt.toISOString()} - ${endsAt.toISOString()} | ${adm.nombre_paciente}`)
+    }
+
+    // Patient name for calendar display
+    const reasonText = adm.nombre_paciente || 'Cita iSalud'
     const notesText = `[iSalud] ${adm.nombre_paciente} | ${adm.procedimiento} | ${adm.aseguradora} | ${adm.profesional_nombre}`
 
     const { data: ex } = await supabaseAdmin.from('appointments').select('id').eq('external_his_id', externalId).maybeSingle()

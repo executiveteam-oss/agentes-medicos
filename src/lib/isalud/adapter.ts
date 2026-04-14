@@ -23,7 +23,7 @@ export interface ISaludProfesional {
 export interface ISaludAdmision {
   id: string; identificacion: string; nombre_paciente: string
   procedimiento: string; aseguradora: string; profesional_nombre: string
-  ubicacion: string; hora_inicial: string; fase: string; fecha: string
+  ubicacion: string; hora_inicial: string; hora_final: string; fase: string; fecha: string
 }
 
 export interface ScrapeResult {
@@ -359,16 +359,40 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
           console.log(`[iSalud] Admision headers: [${info.headers.join(' | ')}], ${info.rows} rows`)
         }
 
-        const dayData = await p.evaluate((fecha) => {
-          const r: Array<{ id: string; identificacion: string; nombre_paciente: string; procedimiento: string; aseguradora: string; profesional_nombre: string; ubicacion: string; hora_inicial: string; fase: string; fecha: string }> = []
+        const dayData = await p.evaluate(() => {
+          const r: Array<{ id: string; identificacion: string; nombre_paciente: string; procedimiento: string; aseguradora: string; profesional_nombre: string; ubicacion: string; hora_inicial: string; hora_final: string; fase: string; fecha: string }> = []
           document.querySelectorAll('table tbody tr').forEach((row) => {
-            const c = row.querySelectorAll('td'); if (c.length < 8) return
-            const id = c[0]?.textContent?.trim() ?? '', prof = (c[5]?.textContent?.trim() ?? '').toUpperCase(), fase = c[8]?.textContent?.trim() ?? 'Programado'
+            const c = row.querySelectorAll('td'); if (c.length < 15) return
+            // Indices: 0=Id 1=CC 2=Nombre 3=Procedimiento 4=Aseguradora 5=Profesional
+            //          6=Ubicacion 7=HoraInicial 8=Fase 14=Fecha 15=HoraFinal
+            const id = c[0]?.textContent?.trim() ?? ''
+            const prof = (c[5]?.textContent?.trim() ?? '').toUpperCase()
+            const fase = c[8]?.textContent?.trim() ?? 'Programado'
             if (!id || !prof || (fase !== 'Programado' && fase !== 'Admitido')) return
-            r.push({ id, identificacion: c[1]?.textContent?.trim() ?? '', nombre_paciente: c[2]?.textContent?.trim() ?? '', procedimiento: c[3]?.textContent?.trim() ?? '', aseguradora: c[4]?.textContent?.trim() ?? '', profesional_nombre: prof, ubicacion: c[6]?.textContent?.trim() ?? '', hora_inicial: (c[7]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''), fase, fecha })
+
+            // Fecha real de la cita (columna 14) — normalizar a YYYY-MM-DD
+            let fechaRaw = c[14]?.textContent?.trim() ?? ''
+            if (/^\d{2}\/\d{2}\/\d{4}$/.test(fechaRaw)) {
+              const [dd, mm, yyyy] = fechaRaw.split('/')
+              fechaRaw = `${yyyy}-${mm}-${dd}`
+            }
+
+            r.push({
+              id,
+              identificacion: c[1]?.textContent?.trim() ?? '',
+              nombre_paciente: c[2]?.textContent?.trim() ?? '',
+              procedimiento: c[3]?.textContent?.trim() ?? '',
+              aseguradora: c[4]?.textContent?.trim() ?? '',
+              profesional_nombre: prof,
+              ubicacion: c[6]?.textContent?.trim() ?? '',
+              hora_inicial: (c[7]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''),
+              hora_final: (c[15]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''),
+              fase,
+              fecha: fechaRaw,
+            })
           })
           return r
-        }, fechaStr)
+        })
 
         return dayData ?? []
       } finally {

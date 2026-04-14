@@ -1,15 +1,42 @@
 // ============================================================
-// iSalud Sync Agent
+// iSalud Sync Agent — DB operations only (no browser)
 //
-// importISalud()  — Flujo inicial: login + médicos + citas
-// syncOrganization() — Cron sync: solo actualiza citas
-// syncAllISaludIntegrations() — Cron runner para todas las orgs
+// ingestISaludData() — Processes scraped data from GitHub Actions
+// importISalud()     — Saves credentials + triggers via GitHub dispatch
+//
+// Scraping happens in scripts/isalud-scraper.ts (GitHub Actions)
+// This file only does database operations.
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { scrapeISalud, type ISaludCredentials, type ISaludProfesional, type ISaludAdmision, type ISaludDisponibilidadSlot } from './adapter'
 
 // --- Types ---
+
+interface ISaludDisponibilidadSlot {
+  dia_semana: number
+  hora_inicio: string
+  hora_fin: string
+  fecha: string
+}
+
+interface ISaludProfesional {
+  nombre: string
+  puntos_atencion: string[]
+  slots: ISaludDisponibilidadSlot[]
+}
+
+interface ISaludAdmision {
+  id: string
+  identificacion: string
+  nombre_paciente: string
+  procedimiento: string
+  aseguradora: string
+  profesional_nombre: string
+  ubicacion: string
+  hora_inicial: string
+  fase: string
+  fecha: string
+}
 
 export interface ImportResult {
   doctors_created: number
@@ -18,139 +45,39 @@ export interface ImportResult {
   errors: string[]
 }
 
-export interface SyncReport {
-  inserted: number
-  updated: number
-  cancelled: number
-  unmapped_professionals: string[]
-  errors: string[]
-  duration_ms: number
-}
+// --- Ingest (called by /api/sync/isalud/ingest from GitHub Actions) ---
 
-// --- Import (initial setup) ---
-
-export async function importISalud(
-  credentials: ISaludCredentials,
-  clinicId: string
+export async function ingestISaludData(
+  clinicId: string,
+  profesionales: ISaludProfesional[],
+  admisiones: ISaludAdmision[]
 ): Promise<ImportResult> {
   const errors: string[] = []
+  let doctorsCreated = 0
+  let doctorsExisting = 0
 
-  // 1. Save credentials to sync_integrations
+  // Update sync status to running
   await supabaseAdmin
     .from('sync_integrations')
-    .upsert({
-      clinic_id: clinicId,
-      provider: 'isalud',
-      credentials: {
-        subdomain: credentials.subdomain,
-        username: credentials.username,
-        password: credentials.password,
-      } as unknown as Record<string, unknown>,
-      sync_status: 'running',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'clinic_id,provider' })
+    .update({ sync_status: 'running', updated_at: new Date().toISOString() })
+    .eq('clinic_id', clinicId)
+    .eq('provider', 'isalud')
 
   try {
-    // 2. Scrape iSalud
-    const result = await scrapeISalud(credentials, { diasAdelante: 60 })
-    errors.push(...result.errors)
-
-    // 3. Process professionals → doctors + mappings
-    let doctorsCreated = 0
-    let doctorsExisting = 0
-
-    for (const prof of result.profesionales) {
+    // 1. Process professionals → doctors + mappings
+    for (const prof of profesionales) {
       const mapped = await getOrCreateDoctor(clinicId, prof)
       if (mapped.created) doctorsCreated++
       else doctorsExisting++
     }
 
-    // 4. Process admisiones → blocked appointments
-    const appointmentsBlocked = await upsertBlockedAppointments(
-      clinicId, result.admisiones, errors
-    )
+    // 2. Process admisiones → blocked appointments
+    const appointmentsBlocked = await upsertBlockedAppointments(clinicId, admisiones, errors)
 
-    // 5. Update sync status
-    await supabaseAdmin
-      .from('sync_integrations')
-      .update({
-        sync_status: 'idle',
-        last_synced_at: new Date().toISOString(),
-        sync_error: errors.length > 0 ? errors.join('; ') : null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('clinic_id', clinicId)
-      .eq('provider', 'isalud')
+    // 3. Cleanup orphans
+    const cancelled = await cleanupOrphans(clinicId, admisiones)
 
-    return {
-      doctors_created: doctorsCreated,
-      doctors_existing: doctorsExisting,
-      appointments_blocked: appointmentsBlocked,
-      errors,
-    }
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err)
-    await supabaseAdmin
-      .from('sync_integrations')
-      .update({
-        sync_status: 'error',
-        sync_error: errMsg,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('clinic_id', clinicId)
-      .eq('provider', 'isalud')
-
-    return { doctors_created: 0, doctors_existing: 0, appointments_blocked: 0, errors: [errMsg] }
-  }
-}
-
-// --- Sync (cron — only appointments) ---
-
-export async function syncOrganization(integration: {
-  id: string
-  clinic_id: string
-  credentials: Record<string, unknown>
-  config: { dias_adelante?: number }
-}): Promise<SyncReport> {
-  const start = Date.now()
-  const errors: string[] = []
-  const creds: ISaludCredentials = {
-    subdomain: integration.credentials.subdomain as string,
-    username: integration.credentials.username as string,
-    password: integration.credentials.password as string,
-  }
-  const dias = integration.config.dias_adelante ?? 60
-
-  // Mark as running
-  await supabaseAdmin
-    .from('sync_integrations')
-    .update({ sync_status: 'running', updated_at: new Date().toISOString() })
-    .eq('id', integration.id)
-
-  try {
-    const result = await scrapeISalud(creds, { diasAdelante: dias })
-    errors.push(...result.errors)
-
-    // Upsert appointments
-    const blocked = await upsertBlockedAppointments(
-      integration.clinic_id, result.admisiones, errors
-    )
-
-    // Orphan cleanup: blocked_external that are no longer in iSalud → cancel
-    const cancelled = await cleanupOrphans(integration.clinic_id, result.admisiones)
-
-    // Find unmapped professionals
-    const { data: mappings } = await supabaseAdmin
-      .from('doctor_external_mappings')
-      .select('external_name')
-      .eq('clinic_id', integration.clinic_id)
-      .eq('provider', 'isalud')
-
-    const mappedNames = new Set((mappings ?? []).map((m) => (m as { external_name: string }).external_name))
-    const admisionNames = new Set(result.admisiones.map((a) => a.profesional_nombre))
-    const unmapped = Array.from(admisionNames).filter((n) => !mappedNames.has(n))
-
-    // Update status
+    // 4. Update sync status
     await supabaseAdmin
       .from('sync_integrations')
       .update({
@@ -159,80 +86,69 @@ export async function syncOrganization(integration: {
         sync_error: errors.length > 0 ? errors.slice(0, 3).join('; ') : null,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', integration.id)
+      .eq('clinic_id', clinicId)
+      .eq('provider', 'isalud')
 
-    return {
-      inserted: blocked,
-      updated: 0,
-      cancelled,
-      unmapped_professionals: unmapped,
-      errors,
-      duration_ms: Date.now() - start,
-    }
+    console.log(`[iSalud Ingest] Clinic ${clinicId}: +${doctorsCreated} docs, ${doctorsExisting} existing, ${appointmentsBlocked} blocked, ${cancelled} cancelled`)
+
+    return { doctors_created: doctorsCreated, doctors_existing: doctorsExisting, appointments_blocked: appointmentsBlocked, errors }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     await supabaseAdmin
       .from('sync_integrations')
-      .update({
-        sync_status: 'error',
-        sync_error: errMsg,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', integration.id)
+      .update({ sync_status: 'error', sync_error: errMsg, updated_at: new Date().toISOString() })
+      .eq('clinic_id', clinicId)
+      .eq('provider', 'isalud')
 
-    return {
-      inserted: 0, updated: 0, cancelled: 0,
-      unmapped_professionals: [],
-      errors: [errMsg],
-      duration_ms: Date.now() - start,
-    }
+    return { doctors_created: 0, doctors_existing: 0, appointments_blocked: 0, errors: [errMsg] }
   }
 }
 
-// --- Sync all integrations (cron runner) ---
+// --- Save credentials (from dashboard import modal) ---
 
-export async function syncAllISaludIntegrations(): Promise<{
-  synced: number
-  errors: string[]
-}> {
-  const { data: integrations } = await supabaseAdmin
+export async function saveISaludCredentials(
+  clinicId: string,
+  credentials: { subdomain: string; username: string; password: string }
+): Promise<void> {
+  await supabaseAdmin
     .from('sync_integrations')
-    .select('id, clinic_id, credentials, config')
-    .eq('provider', 'isalud')
-    .neq('sync_status', 'running')
+    .upsert({
+      clinic_id: clinicId,
+      provider: 'isalud',
+      credentials: credentials as unknown as Record<string, unknown>,
+      sync_status: 'idle',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'clinic_id,provider' })
+}
 
-  if (!integrations || integrations.length === 0) {
-    return { synced: 0, errors: [] }
+// --- Trigger GitHub Actions workflow ---
+
+export async function triggerGitHubSync(): Promise<{ ok: boolean; error?: string }> {
+  const token = process.env.GITHUB_DISPATCH_TOKEN
+  const repo = process.env.GITHUB_REPO ?? 'jlondonoechavarria-source/agentes-medicos'
+
+  if (!token) {
+    return { ok: false, error: 'GITHUB_DISPATCH_TOKEN not configured' }
   }
 
-  let synced = 0
-  const errors: string[] = []
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ event_type: 'isalud-sync' }),
+    })
 
-  for (const raw of integrations) {
-    const integration = raw as {
-      id: string
-      clinic_id: string
-      credentials: Record<string, unknown>
-      config: { dias_adelante?: number }
+    if (res.ok || res.status === 204) {
+      return { ok: true }
     }
-
-    try {
-      const report = await syncOrganization(integration)
-      synced++
-      if (report.errors.length > 0) {
-        errors.push(`Clinic ${integration.clinic_id}: ${report.errors[0]}`)
-      }
-      console.log(
-        `[iSalud Sync] Clinic ${integration.clinic_id}: ` +
-        `+${report.inserted} blocked, -${report.cancelled} cancelled, ` +
-        `${report.unmapped_professionals.length} unmapped, ${report.duration_ms}ms`
-      )
-    } catch (err) {
-      errors.push(`Clinic ${integration.clinic_id}: ${err instanceof Error ? err.message : String(err)}`)
-    }
+    return { ok: false, error: `GitHub API: ${res.status}` }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Error de red' }
   }
-
-  return { synced, errors }
 }
 
 // --- Helpers ---
@@ -253,7 +169,7 @@ async function getOrCreateDoctor(
   if (existing) {
     const doctorId = (existing as { doctor_id: string }).doctor_id
 
-    // If doctor exists but has no working_hours, update with inferred schedule
+    // Update working_hours if null
     const { data: doc } = await supabaseAdmin
       .from('doctors')
       .select('working_hours')
@@ -271,10 +187,9 @@ async function getOrCreateDoctor(
     return { doctorId, created: false }
   }
 
-  // Build working_hours from schedule slots (or use defaults)
   const workingHours = buildWorkingHours(prof.slots)
 
-  // Try to match by name (fuzzy — uppercase comparison)
+  // Try to match by name
   const { data: doctorByName } = await supabaseAdmin
     .from('doctors')
     .select('id, working_hours')
@@ -287,8 +202,6 @@ async function getOrCreateDoctor(
 
   if (doctorByName) {
     doctorId = (doctorByName as { id: string }).id
-
-    // Update working_hours only if currently null (don't overwrite admin config)
     if (!(doctorByName as { working_hours: unknown }).working_hours) {
       await supabaseAdmin
         .from('doctors')
@@ -296,7 +209,6 @@ async function getOrCreateDoctor(
         .eq('id', doctorId)
     }
   } else {
-    // Create new doctor with complete data
     const { data: newDoctor } = await supabaseAdmin
       .from('doctors')
       .insert({
@@ -330,34 +242,24 @@ async function getOrCreateDoctor(
   return { doctorId, created }
 }
 
-/**
- * Build Omuwan working_hours JSONB from iSalud availability slots.
- * Groups slots by day of week → finds min start and max end → sets active days.
- * Falls back to L-V 08:00-18:00 if no slot data available.
- */
 function buildWorkingHours(slots: ISaludDisponibilidadSlot[]): Record<string, { start: string; end: string; active: boolean }> {
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-
-  // Default: all inactive
   const result: Record<string, { start: string; end: string; active: boolean }> = {}
+
   for (const day of dayNames) {
     result[day] = { start: '00:00', end: '00:00', active: false }
   }
 
   if (slots.length === 0) {
-    // No data — use sensible defaults (L-V 08:00-18:00)
     for (const day of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']) {
       result[day] = { start: '08:00', end: '18:00', active: true }
     }
     return result
   }
 
-  // Group by day of week → find min start, max end
   const byDay = new Map<number, { starts: string[]; ends: string[] }>()
   for (const slot of slots) {
-    if (!byDay.has(slot.dia_semana)) {
-      byDay.set(slot.dia_semana, { starts: [], ends: [] })
-    }
+    if (!byDay.has(slot.dia_semana)) byDay.set(slot.dia_semana, { starts: [], ends: [] })
     const entry = byDay.get(slot.dia_semana)!
     if (slot.hora_inicio) entry.starts.push(slot.hora_inicio)
     if (slot.hora_fin) entry.ends.push(slot.hora_fin)
@@ -366,16 +268,9 @@ function buildWorkingHours(slots: ISaludDisponibilidadSlot[]): Record<string, { 
   for (const [dayNum, { starts, ends }] of byDay) {
     const dayName = dayNames[dayNum]
     if (!dayName) continue
-
-    // Find earliest start and latest end
-    const sortedStarts = starts.sort()
-    const sortedEnds = ends.sort()
-    const earliest = sortedStarts[0] ?? '08:00'
-    const latest = sortedEnds[sortedEnds.length - 1] ?? '18:00'
-
     result[dayName] = {
-      start: earliest,
-      end: latest,
+      start: starts.sort()[0] ?? '08:00',
+      end: ends.sort().reverse()[0] ?? '18:00',
       active: true,
     }
   }
@@ -391,8 +286,8 @@ async function upsertBlockedAppointments(
   let count = 0
 
   for (const adm of admisiones) {
-    // Find doctor mapping
-    const { data: mapping } = await supabaseAdmin
+    // Find or create doctor mapping
+    let mapping = await supabaseAdmin
       .from('doctor_external_mappings')
       .select('doctor_id')
       .eq('clinic_id', clinicId)
@@ -400,108 +295,63 @@ async function upsertBlockedAppointments(
       .eq('external_name', adm.profesional_nombre)
       .maybeSingle()
 
-    if (!mapping) {
-      // Create mapping on-the-fly if missing
-      const result = await getOrCreateDoctor(clinicId, {
-        nombre: adm.profesional_nombre,
-        puntos_atencion: [adm.ubicacion],
-        slots: [],
-      })
-      if (!result.doctorId) {
-        errors.push(`No mapping for: ${adm.profesional_nombre}`)
-        continue
-      }
+    if (!mapping.data) {
+      await getOrCreateDoctor(clinicId, { nombre: adm.profesional_nombre, puntos_atencion: [adm.ubicacion], slots: [] })
+      mapping = await supabaseAdmin
+        .from('doctor_external_mappings')
+        .select('doctor_id')
+        .eq('clinic_id', clinicId)
+        .eq('provider', 'isalud')
+        .eq('external_name', adm.profesional_nombre)
+        .maybeSingle()
     }
 
-    const doctorId = mapping
-      ? (mapping as { doctor_id: string }).doctor_id
-      : (await supabaseAdmin
-          .from('doctor_external_mappings')
-          .select('doctor_id')
-          .eq('clinic_id', clinicId)
-          .eq('provider', 'isalud')
-          .eq('external_name', adm.profesional_nombre)
-          .single()
-          .then((r) => (r.data as { doctor_id: string } | null)?.doctor_id))
+    const doctorId = (mapping.data as { doctor_id: string } | null)?.doctor_id
+    if (!doctorId) { errors.push(`No mapping: ${adm.profesional_nombre}`); continue }
 
-    if (!doctorId) continue
-
-    // Build timestamps — assume 30min duration
     const [hours, minutes] = adm.hora_inicial.split(':').map(Number)
     const startsAt = new Date(`${adm.fecha}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00-05:00`)
     const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000)
-
     const externalId = `isalud-${adm.id}-${adm.fecha}`
 
-    // Upsert: use external_his_id as unique key
-    const { error: upsertErr } = await supabaseAdmin
+    // Check if exists
+    const { data: existingAppt } = await supabaseAdmin
       .from('appointments')
-      .upsert({
-        clinic_id: clinicId,
-        doctor_id: doctorId,
-        starts_at: startsAt.toISOString(),
-        ends_at: endsAt.toISOString(),
-        status: 'blocked_external',
-        source: 'isalud',
-        external_his_id: externalId,
-        external_source: 'isalud',
-        external_data: adm as unknown as Record<string, unknown>,
-        synced_at: new Date().toISOString(),
-        reason: `${adm.procedimiento} — ${adm.nombre_paciente}`,
-      }, { onConflict: 'external_his_id' })
+      .select('id')
+      .eq('external_his_id', externalId)
+      .maybeSingle()
 
-    if (upsertErr) {
-      // If upsert fails (no unique constraint on external_his_id), try insert with check
-      const { data: existingAppt } = await supabaseAdmin
+    if (existingAppt) {
+      await supabaseAdmin
         .from('appointments')
-        .select('id')
-        .eq('external_his_id', externalId)
-        .maybeSingle()
-
-      if (existingAppt) {
-        // Update existing
-        await supabaseAdmin
-          .from('appointments')
-          .update({
-            status: 'blocked_external',
-            external_data: adm as unknown as Record<string, unknown>,
-            synced_at: new Date().toISOString(),
-          })
-          .eq('id', (existingAppt as { id: string }).id)
-      } else {
-        // Insert new
-        await supabaseAdmin
-          .from('appointments')
-          .insert({
-            clinic_id: clinicId,
-            doctor_id: doctorId,
-            starts_at: startsAt.toISOString(),
-            ends_at: endsAt.toISOString(),
-            status: 'blocked_external',
-            source: 'isalud',
-            external_his_id: externalId,
-            external_source: 'isalud',
-            external_data: adm as unknown as Record<string, unknown>,
-            synced_at: new Date().toISOString(),
-            reason: `${adm.procedimiento} — ${adm.nombre_paciente}`,
-          })
-      }
+        .update({ status: 'blocked_external', external_data: adm as unknown as Record<string, unknown>, synced_at: new Date().toISOString() })
+        .eq('id', (existingAppt as { id: string }).id)
+    } else {
+      await supabaseAdmin
+        .from('appointments')
+        .insert({
+          clinic_id: clinicId,
+          doctor_id: doctorId,
+          starts_at: startsAt.toISOString(),
+          ends_at: endsAt.toISOString(),
+          status: 'blocked_external',
+          source: 'isalud',
+          external_his_id: externalId,
+          external_source: 'isalud',
+          external_data: adm as unknown as Record<string, unknown>,
+          synced_at: new Date().toISOString(),
+          reason: `${adm.procedimiento} — ${adm.nombre_paciente}`,
+        })
     }
-
     count++
   }
 
   return count
 }
 
-async function cleanupOrphans(
-  clinicId: string,
-  currentAdmisiones: ISaludAdmision[]
-): Promise<number> {
-  // Get all current external IDs from scrape
+async function cleanupOrphans(clinicId: string, currentAdmisiones: ISaludAdmision[]): Promise<number> {
   const currentIds = new Set(currentAdmisiones.map((a) => `isalud-${a.id}-${a.fecha}`))
 
-  // Get all future blocked_external appointments from this clinic
   const { data: blocked } = await supabaseAdmin
     .from('appointments')
     .select('id, external_his_id')

@@ -27,10 +27,6 @@
     {
       "path": "/api/cron/weekly-report",
       "schedule": "0 13 * * 1"
-    },
-    {
-      "path": "/api/sync/isalud",
-      "schedule": "30 * * * *"
     }
   ]
 }

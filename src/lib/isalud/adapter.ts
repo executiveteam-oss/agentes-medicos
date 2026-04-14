@@ -384,8 +384,26 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
     console.log(`[iSalud] Batch ${Math.floor(b / BATCH_SIZE) + 1}/${Math.ceil(dates.length / BATCH_SIZE)}: ${all.length} total citas`)
   }
 
-  console.log(`[iSalud] Admision COMPLETE: ${all.length} citas in ${diasAdelante} days, ${errors.length} errors`)
-  return { admisiones: all, errors }
+  // Deduplicate — if iSalud ignores ?fecha= param, same IDs appear for every day
+  const uniqueMap = new Map<string, ISaludAdmision>()
+  for (const adm of all) {
+    const key = `${adm.id}-${adm.fecha}`
+    uniqueMap.set(key, adm)
+  }
+  const deduped = Array.from(uniqueMap.values())
+
+  if (deduped.length < all.length) {
+    console.log(`[iSalud] Deduplicated: ${all.length} → ${deduped.length} (${all.length - deduped.length} duplicates removed)`)
+  }
+
+  // Check if all dates are the same (indicates ?fecha= is being ignored)
+  const uniqueDates = new Set(deduped.map((a) => a.fecha))
+  if (uniqueDates.size === 1 && diasAdelante > 1) {
+    console.warn(`[iSalud] WARNING: All ${deduped.length} citas have the same date ${Array.from(uniqueDates)[0]} — ?fecha= param may be ignored`)
+  }
+
+  console.log(`[iSalud] Admision COMPLETE: ${deduped.length} unique citas, ${uniqueDates.size} unique dates, ${errors.length} errors`)
+  return { admisiones: deduped, errors }
 }
 
 // --- Main ---

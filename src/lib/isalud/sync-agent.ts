@@ -199,16 +199,43 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     const doctorId = (mapping.data as { doctor_id: string } | null)?.doctor_id
     if (!doctorId) { errors.push(`No mapping: ${adm.profesional_nombre}`); continue }
 
+    // Validate fecha format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(adm.fecha)) { errors.push(`Bad date: ${adm.fecha}`); continue }
+    if (!adm.hora_inicial || !adm.hora_inicial.includes(':')) { errors.push(`Bad time: ${adm.hora_inicial}`); continue }
+
     const [h, m] = adm.hora_inicial.split(':').map(Number)
+    if (isNaN(h) || isNaN(m)) { errors.push(`Invalid time: ${adm.hora_inicial}`); continue }
+
     const startsAt = new Date(`${adm.fecha}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00-05:00`)
     const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000)
     const externalId = `isalud-${adm.id}-${adm.fecha}`
 
+    // Log first 3 for debugging
+    if (count < 3) {
+      console.log(`[iSalud] Upsert: ${externalId} | ${adm.fecha} ${adm.hora_inicial} → ${startsAt.toISOString()} | ${adm.nombre_paciente}`)
+    }
+
+    // Name for display in calendar (stored in reason + notes)
+    const displayName = adm.nombre_paciente || 'Cita iSalud'
+    const reasonText = `${adm.nombre_paciente} — ${adm.procedimiento}`.slice(0, 200)
+    const notesText = `[iSalud] ${adm.nombre_paciente} | ${adm.procedimiento} | ${adm.aseguradora} | ${adm.profesional_nombre}`
+
     const { data: ex } = await supabaseAdmin.from('appointments').select('id').eq('external_his_id', externalId).maybeSingle()
     if (ex) {
-      await supabaseAdmin.from('appointments').update({ status: 'blocked_external', external_data: adm as unknown as Record<string, unknown>, synced_at: new Date().toISOString() }).eq('id', (ex as { id: string }).id)
+      await supabaseAdmin.from('appointments').update({
+        status: 'blocked_external', external_data: adm as unknown as Record<string, unknown>,
+        synced_at: new Date().toISOString(), reason: reasonText, notes: notesText,
+      }).eq('id', (ex as { id: string }).id)
     } else {
-      await supabaseAdmin.from('appointments').insert({ clinic_id: clinicId, doctor_id: doctorId, starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(), status: 'blocked_external', source: 'isalud', external_his_id: externalId, external_source: 'isalud', external_data: adm as unknown as Record<string, unknown>, synced_at: new Date().toISOString(), reason: `${adm.procedimiento} — ${adm.nombre_paciente}` })
+      await supabaseAdmin.from('appointments').insert({
+        clinic_id: clinicId, doctor_id: doctorId,
+        starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
+        status: 'blocked_external', source: 'isalud',
+        external_his_id: externalId, external_source: 'isalud',
+        external_data: adm as unknown as Record<string, unknown>,
+        synced_at: new Date().toISOString(),
+        reason: reasonText, notes: notesText,
+      })
     }
     count++
   }

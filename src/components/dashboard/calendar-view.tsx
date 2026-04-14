@@ -99,7 +99,8 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }
   rescheduled: { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-800' },
   completed:   { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800' },
   no_show:     { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-800' },
-  cancelled:   { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500' },
+  cancelled:          { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500' },
+  blocked_external:   { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-800' },
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -107,6 +108,7 @@ const STATUS_LABELS: Record<string, string> = {
   rescheduled: 'Reagendada',
   completed: 'Completada',
   no_show: 'No-show',
+  blocked_external: 'iSalud',
   cancelled: 'Cancelada',
 }
 
@@ -532,9 +534,9 @@ function WeekView({
                           onClick={() => setExpandedApt(expandedApt === apt.id ? null : apt.id)}
                           className={`absolute left-0.5 right-0.5 ${colors.bg} ${colors.border} border rounded-md px-1 py-0.5 text-left overflow-hidden cursor-pointer hover:shadow-sm transition-shadow z-10`}
                           style={{ top: `${topOffset}%`, minHeight: '20px', maxHeight: '95%' }}
-                          title={`${formatTimeForPatient(apt.starts_at)} — ${apt.patient?.name ?? 'Paciente'}`}>
+                          title={`${formatTimeForPatient(apt.starts_at)} — ${apt.patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}`}>
                           <p className={`text-[10px] font-bold ${colors.text} truncate leading-tight`}>
-                            {formatTimeForPatient(apt.starts_at)} — {apt.patient?.name ?? 'Paciente'}
+                            {formatTimeForPatient(apt.starts_at)} — {apt.patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}
                           </p>
                           {showDoctorName && apt.doctor && (
                             <p className={`text-[9px] ${colors.text} opacity-70 truncate leading-tight`}>{apt.doctor.name}</p>
@@ -733,7 +735,7 @@ function DayView({
                         <span className="font-semibold text-slate-900 text-sm">{formatTimeForPatient(apt.starts_at)}</span>
                         <span className="text-slate-300">—</span>
                         <span className={`text-slate-700 text-sm font-medium ${apt.status === 'no_show' ? 'line-through text-slate-400' : ''}`}>
-                          {patient?.name ?? 'Paciente'}
+                          {patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}
                         </span>
                       </div>
                       {doctor && (
@@ -850,7 +852,7 @@ function AppointmentDetail({ appointment, onClose }: { appointment: CalendarAppo
           <div className="flex items-center gap-3 mt-1.5">
             {doctor && <span className="text-sm text-slate-600 font-medium">{doctor.name}{doctor.specialty ? ` · ${doctor.specialty}` : ''}</span>}
             <span className="text-sm text-slate-400">|</span>
-            <span className="text-sm text-slate-700 font-medium">{patient?.name ?? 'Paciente'}</span>
+            <span className="text-sm text-slate-700 font-medium">{patient?.name ?? apt.reason?.split(' — ')[0] ?? 'Paciente'}</span>
             {priorityTier && <PriorityBadge tier={priorityTier} size="xs" />}
           </div>
         </div>

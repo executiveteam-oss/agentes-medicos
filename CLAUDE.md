@@ -525,4 +525,71 @@ Si necesitas cambiar algo, escríbenos."
 
 ---
 
-*Última actualización: Febrero 2026 | Versión: 1.0 — MVP*
+## 🔄 iSalud Sync Agent (14 Abril 2026)
+
+### Qué se construyó
+
+**Archivos principales:**
+- `src/lib/isalud/adapter.ts` — Playwright headless con login HTTP + cookie injection
+- `src/lib/isalud/sync-agent.ts` — importISalud(), ingestISaludData(), syncAllISaludIntegrations()
+- `src/app/api/sync/isalud/route.ts` — GET (cron) + POST (import/force_sync/test)
+- `src/components/dashboard/isalud-sync-button.tsx` — Botón "Importar agenda desde iSalud" en Dashboard
+- `supabase/migrations/00047_isalud_sync.sql` — Tablas sync_integrations + doctor_external_mappings
+
+**Tablas nuevas:**
+- `sync_integrations` — credentials JSONB, sync_status, last_synced_at, UNIQUE(clinic_id, provider)
+- `doctor_external_mappings` — mapeo profesional iSalud → doctor Omuwan, UNIQUE(clinic_id, provider, external_name)
+- `appointments` columnas nuevas: external_source, external_data, synced_at
+
+### Login iSalud (iSalud 24.02)
+
+- URL raíz: `https://{subdomain}.isalud.co/`
+- Form action: `/autenticacion/login`
+- Campos: `login[Usuario]`, `login[Clave]`, `login[_csrf_token]`
+- Login vía HTTP fetch (no Playwright) → extrae CSRF + cookies → POST form-urlencoded
+- Cookies de sesión inyectadas en Playwright context para scraping de datos
+
+### Scraping
+
+- `/disponibilidad` — Playwright con "Cargar todo" toggle + DataTables max registros
+- `/admision` — Datepicker jQuery (`#admision-date`, type=text, readonly)
+  - Fecha se setea via `page.evaluate()` → `el.value = fecha` + jQuery `.datepicker('setDate')` + triggers
+  - Columnas: 0=Id, 1=CC, 2=Nombre, 3=Procedimiento, 4=Aseguradora, 5=Profesional, 6=Ubicación, 7=HoraInicial, 8=Fase, 14=Fecha, 15=HoraFinal
+- Appointments guardados con `status='blocked_external'`, `source='isalud'`
+- `external_his_id` formato: `isalud-{id}-{fecha}`
+
+### Datos confirmados de Algia
+
+- URL: `https://algia.isalud.co/`
+- 9 médicos importados dinámicamente con `working_hours` default (L-V 08:00-18:00, S 08:00-13:00)
+- 313 citas bloqueadas en 60 días
+- Cron cada 30 minutos: `/api/sync/isalud` en vercel.json
+- `@sparticuz/chromium` + `playwright-core` en Vercel Pro (250MB)
+- Binary fallback: descarga de GitHub Releases si local no existe
+
+### Agente WhatsApp — integración
+
+- `check_availability` en `src/agents/tools/executor.ts`:
+  ```
+  .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
+  ```
+  Slots de iSalud NO aparecen como disponibles para el agente.
+
+### Calendario — integración
+
+- `src/app/dashboard/page.tsx`: query incluye `blocked_external`
+- `src/components/dashboard/calendar-view.tsx`: color morado para `blocked_external`, label "iSalud"
+- Nombre del paciente: `apt.reason` (sin patient_id)
+
+### Deuda técnica pendiente
+
+1. **Orphan cleanup DESACTIVADO** — reactivar cuando multi-day scraping esté confirmado. El cleanup cancelaba todas las citas porque solo el día actual matcheaba
+2. **Credenciales en texto plano** — `sync_integrations.credentials` JSONB sin encriptar (SEC-001)
+3. **Horarios de médicos** — default L-V 08:00-18:00 para todos. Admin debe configurar horarios reales manualmente
+4. **Datepicker /admision** — no confirmado que el cambio de fecha funciona para todos los días (puede devolver solo citas de hoy)
+5. **Pacientes** — iSalud tiene nombre + CC pero no WhatsApp. No se crean registros en tabla patients
+6. **Duración de citas** — usa hora_final real de col[15] cuando disponible, fallback +30min
+
+---
+
+*Última actualización: Abril 2026 | Versión: 2.0 — Piloto Algia + iSalud Sync*

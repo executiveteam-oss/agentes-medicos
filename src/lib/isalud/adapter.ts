@@ -400,80 +400,174 @@ export async function testISaludConnection(credentials: ISaludCredentials): Prom
 
 // --- Diagnostic function ---
 
-export async function diagnoseISalud(credentials: ISaludCredentials): Promise<{
-  login: { ok: boolean; error?: string; cookies_count: number; redirect_location: string }
-  disponibilidad: { html_length: number; html_preview: string; has_table: boolean; tbody_rows: number; profesionales: ISaludProfesional[] }
-  admision_hoy: { html_length: number; html_preview: string; has_table: boolean; tbody_rows: number; admisiones: ISaludAdmision[] }
-  errors: string[]
-}> {
+interface AjaxProbeResult {
+  url: string
+  status: number
+  content_type: string
+  body_length: number
+  body_preview: string
+  is_json: boolean
+  json_keys?: string[]
+  json_data_count?: number
+}
+
+export async function diagnoseISalud(credentials: ISaludCredentials): Promise<Record<string, unknown>> {
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
   const errors: string[] = []
-  const result = {
-    login: { ok: false, cookies_count: 0, redirect_location: '', error: undefined as string | undefined },
-    disponibilidad: { html_length: 0, html_preview: '', has_table: false, tbody_rows: 0, profesionales: [] as ISaludProfesional[] },
-    admision_hoy: { html_length: 0, html_preview: '', has_table: false, tbody_rows: 0, admisiones: [] as ISaludAdmision[] },
-    errors,
-  }
+  const headers = { 'Cookie': '', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+
+  const diag: Record<string, unknown> = { errors }
 
   // 1. Login
   let session: SessionCookies
   try {
     session = await login(credentials)
-    result.login.ok = true
-    result.login.cookies_count = session.raw.split(';').length
+    headers['Cookie'] = session.raw
+    diag.login = { ok: true, cookies_count: session.raw.split(';').length }
   } catch (err) {
-    result.login.error = err instanceof Error ? err.message : String(err)
-    errors.push(`Login: ${result.login.error}`)
-    return result
+    diag.login = { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return diag
   }
 
-  // 2. Disponibilidad
-  try {
-    const res = await fetch(`${baseUrl}/disponibilidad`, {
-      headers: { 'Cookie': session.raw, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    })
-    const html = await res.text()
-    result.disponibilidad.html_length = html.length
-    result.disponibilidad.html_preview = html.slice(0, 2000)
-    const $ = cheerio.load(html)
-    result.disponibilidad.has_table = $('table').length > 0
-    result.disponibilidad.tbody_rows = $('table tbody tr').length
-
-    // Try parsing
+  // Helper to probe a URL
+  async function probe(url: string, method: string = 'GET', body?: string, extraHeaders?: Record<string, string>): Promise<AjaxProbeResult> {
     try {
-      result.disponibilidad.profesionales = await scrapeProfesionales(credentials, session)
-    } catch (e) {
-      errors.push(`Parsing profesionales: ${e instanceof Error ? e.message : String(e)}`)
+      const opts: RequestInit = {
+        method,
+        headers: { ...headers, ...(extraHeaders ?? {}) },
+        redirect: 'follow',
+      }
+      if (body) opts.body = body
+      const res = await fetch(url, opts)
+      const text = await res.text()
+      const ct = res.headers.get('content-type') ?? ''
+      const isJson = ct.includes('json') || (text.startsWith('{') || text.startsWith('['))
+      let jsonKeys: string[] | undefined
+      let jsonDataCount: number | undefined
+      if (isJson) {
+        try {
+          const parsed = JSON.parse(text)
+          jsonKeys = Object.keys(parsed)
+          if (Array.isArray(parsed.data)) jsonDataCount = parsed.data.length
+          else if (Array.isArray(parsed)) jsonDataCount = parsed.length
+        } catch { /* not valid JSON */ }
+      }
+      return {
+        url, status: res.status, content_type: ct,
+        body_length: text.length, body_preview: text.slice(0, 1500),
+        is_json: isJson, json_keys: jsonKeys, json_data_count: jsonDataCount,
+      }
+    } catch (err) {
+      return { url, status: 0, content_type: 'error', body_length: 0, body_preview: err instanceof Error ? err.message : String(err), is_json: false }
     }
-  } catch (err) {
-    errors.push(`GET /disponibilidad: ${err instanceof Error ? err.message : String(err)}`)
   }
 
-  // 3. Admisión hoy
-  try {
-    const hoy = new Date().toISOString().split('T')[0]
-    const res = await fetch(`${baseUrl}/admision?fecha=${hoy}`, {
-      headers: { 'Cookie': session.raw, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    })
-    const html = await res.text()
-    result.admision_hoy.html_length = html.length
-    result.admision_hoy.html_preview = html.slice(0, 2000)
-    const $ = cheerio.load(html)
-    result.admision_hoy.has_table = $('table').length > 0
-    result.admision_hoy.tbody_rows = $('table tbody tr').length
-
-    // Try parsing
-    try {
-      const admResult = await scrapeAdmisiones(credentials, session, 1)
-      result.admision_hoy.admisiones = admResult.admisiones
-    } catch (e) {
-      errors.push(`Parsing admisiones: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  } catch (err) {
-    errors.push(`GET /admision: ${err instanceof Error ? err.message : String(err)}`)
+  // 2. Disponibilidad — HTML page
+  const dispPage = await probe(`${baseUrl}/disponibilidad`)
+  const $disp = cheerio.load(dispPage.body_preview + (dispPage.body_length > 1500 ? '...' : ''))
+  diag.disponibilidad_page = {
+    html_length: dispPage.body_length,
+    status: dispPage.status,
+    tables_found: cheerio.load(await (await fetch(`${baseUrl}/disponibilidad`, { headers })).text())('table').length,
+    tbody_rows: cheerio.load(await (await fetch(`${baseUrl}/disponibilidad`, { headers })).text())('table tbody tr').length,
+    title: $disp('title').text().trim(),
+    h1: $disp('h1').text().trim().slice(0, 100),
+    html_preview: dispPage.body_preview.slice(0, 800),
   }
 
-  return result
+  // 3. Probe AJAX endpoints for disponibilidad
+  const dispAjaxProbes = await Promise.all([
+    probe(`${baseUrl}/disponibilidad?draw=1&start=0&length=1000`, 'GET'),
+    probe(`${baseUrl}/disponibilidad?draw=1&columns[0][data]=0&start=0&length=1000&cargar_todo=1`, 'GET'),
+    probe(`${baseUrl}/disponibilidad/data`, 'GET'),
+    probe(`${baseUrl}/disponibilidad/data?draw=1&start=0&length=1000`, 'GET'),
+    probe(`${baseUrl}/disponibilidad?cargar_todo=1&all=1`, 'GET'),
+    probe(`${baseUrl}/api/disponibilidad`, 'GET'),
+    probe(`${baseUrl}/disponibilidad`, 'POST', 'draw=1&start=0&length=1000&cargar_todo=1', { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }),
+  ])
+  diag.disponibilidad_ajax = dispAjaxProbes.map((p) => ({
+    url: p.url.replace(baseUrl, ''),
+    status: p.status,
+    is_json: p.is_json,
+    json_keys: p.json_keys,
+    json_data_count: p.json_data_count,
+    body_length: p.body_length,
+    content_type: p.content_type,
+    body_preview: p.body_preview.slice(0, 500),
+  }))
+
+  // 4. Admision — HTML page for today
+  const hoy = new Date().toISOString().split('T')[0]
+  const admPage = await probe(`${baseUrl}/admision?fecha=${hoy}`)
+  const fullAdmHtml = await (await fetch(`${baseUrl}/admision?fecha=${hoy}`, { headers })).text()
+  const $adm = cheerio.load(fullAdmHtml)
+  diag.admision_page = {
+    html_length: admPage.body_length,
+    status: admPage.status,
+    tables_found: $adm('table').length,
+    tbody_rows: $adm('table tbody tr').length,
+    tbody_html: $adm('table tbody').html()?.slice(0, 500) ?? 'EMPTY',
+    title: $adm('title').text().trim(),
+    html_preview: admPage.body_preview.slice(0, 800),
+  }
+
+  // 5. Probe AJAX endpoints for admision
+  const admAjaxProbes = await Promise.all([
+    probe(`${baseUrl}/admision?fecha=${hoy}&draw=1&start=0&length=100`, 'GET'),
+    probe(`${baseUrl}/admision/data?fecha=${hoy}&draw=1&start=0&length=100`, 'GET'),
+    probe(`${baseUrl}/admision/data?fecha=${hoy}`, 'GET'),
+    probe(`${baseUrl}/api/admision?fecha=${hoy}`, 'GET'),
+    probe(`${baseUrl}/admision`, 'POST', `fecha=${hoy}&draw=1&start=0&length=100`, { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' }),
+    probe(`${baseUrl}/admision`, 'POST', JSON.stringify({ fecha: hoy }), { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }),
+  ])
+  diag.admision_ajax = admAjaxProbes.map((p) => ({
+    url: p.url.replace(baseUrl, ''),
+    status: p.status,
+    is_json: p.is_json,
+    json_keys: p.json_keys,
+    json_data_count: p.json_data_count,
+    body_length: p.body_length,
+    content_type: p.content_type,
+    body_preview: p.body_preview.slice(0, 500),
+  }))
+
+  // 6. Look for DataTables AJAX URL in the HTML source
+  const dtPatterns = [
+    /ajax["']?\s*:\s*["']([^"']+)["']/g,
+    /url["']?\s*:\s*["']([^"']+)["']/g,
+    /\$\.ajax\s*\(\s*\{[^}]*url\s*:\s*["']([^"']+)["']/g,
+  ]
+  const foundUrls: string[] = []
+  for (const pattern of dtPatterns) {
+    let match
+    while ((match = pattern.exec(fullAdmHtml)) !== null) {
+      if (match[1] && !match[1].includes('cdn') && !match[1].includes('.css') && !match[1].includes('.js')) {
+        foundUrls.push(match[1])
+      }
+    }
+  }
+  diag.datatables_ajax_urls_found = foundUrls
+
+  // If we found AJAX URLs, probe them too
+  if (foundUrls.length > 0) {
+    const dtProbes = await Promise.all(
+      foundUrls.slice(0, 5).map((u) => {
+        const fullUrl = u.startsWith('http') ? u : `${baseUrl}${u.startsWith('/') ? '' : '/'}${u}`
+        return probe(`${fullUrl}${u.includes('?') ? '&' : '?'}fecha=${hoy}&draw=1&start=0&length=100`)
+      })
+    )
+    diag.datatables_probes = dtProbes.map((p) => ({
+      url: p.url.replace(baseUrl, ''),
+      status: p.status,
+      is_json: p.is_json,
+      json_keys: p.json_keys,
+      json_data_count: p.json_data_count,
+      body_length: p.body_length,
+      body_preview: p.body_preview.slice(0, 500),
+    }))
+  }
+
+  return diag
 }
 
 // --- Time helpers ---

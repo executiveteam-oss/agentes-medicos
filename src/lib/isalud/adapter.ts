@@ -100,13 +100,31 @@ async function loginPage(page: Page, credentials: ISaludCredentials): Promise<vo
     if (await passInputs.count() > 0) await passInputs.first().fill(credentials.password)
   }
 
-  // Submit — don't rely on waitForNavigation (iSalud may use AJAX redirect)
-  const submitBtn = page.locator('button[type="submit"], input[type="submit"]')
-  console.log(`[iSalud] Submit buttons found: ${await submitBtn.count()}`)
+  // Log all clickable elements for debugging
+  const buttons = await page.evaluate(() => {
+    const els = document.querySelectorAll('button, input[type="submit"], a.btn, [type="submit"], .btn, .btn-primary')
+    return Array.from(els).map(el => ({
+      tag: el.tagName, type: el.getAttribute('type'),
+      text: el.textContent?.trim().slice(0, 50),
+      className: el.className, id: el.id,
+    }))
+  })
+  console.log(`[iSalud] Botones encontrados: ${JSON.stringify(buttons)}`)
+
+  const formHtml = await page.evaluate(() =>
+    document.querySelector('form')?.outerHTML?.slice(0, 1500) ?? 'NO FORM FOUND'
+  )
+  console.log(`[iSalud] Form HTML: ${formHtml}`)
+
+  // Submit — try multiple selectors, fallback to Enter key
+  const submitSelectors = 'button[type="submit"], input[type="submit"], button:has-text("Ingresar"), button:has-text("Entrar"), button:has-text("Iniciar"), .btn-primary, [type="submit"]'
+  const submitBtn = await page.$(submitSelectors)
 
   await Promise.all([
     page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 30000 }).catch(() => {}),
-    submitBtn.first().click(),
+    submitBtn
+      ? submitBtn.click().then(() => console.log('[iSalud] Clicked submit button'))
+      : page.locator('input[name="login[Clave]"]').press('Enter').then(() => console.log('[iSalud] Pressed Enter on password field')),
   ])
 
   // Wait for post-login page to settle

@@ -328,105 +328,142 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
   const all: ISaludAdmision[] = []
   const errors: string[] = []
   const today = new Date()
-  const context = page.context()
 
-  // Build date list
-  const dates: string[] = []
+  // Navigate to /admision ONCE
+  console.log(`[iSalud] Navigating to /admision`)
+  await page.goto(`${baseUrl}/admision`, { waitUntil: 'domcontentloaded', timeout: 30000 })
+  await page.waitForTimeout(2000)
+  console.log(`[iSalud] Admision URL: ${page.url()}`)
+
+  // Log ALL visible inputs/selects to identify the date field
+  const visibleInputs = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('input, select'))
+      .filter((el) => (el as HTMLElement).offsetParent !== null)
+      .map((el) => ({
+        tag: el.tagName, name: (el as HTMLInputElement).name, id: el.id,
+        type: (el as HTMLInputElement).type, value: (el as HTMLInputElement).value,
+        placeholder: (el as HTMLInputElement).placeholder ?? '',
+        className: el.className.slice(0, 50),
+      }))
+  )
+  console.log(`[iSalud] Visible inputs: ${JSON.stringify(visibleInputs)}`)
+
+  // Log table headers
+  const headers = await page.evaluate(() => {
+    const h: string[] = []; document.querySelectorAll('table thead th').forEach((th) => { h.push(th.textContent?.trim() ?? '') }); return h
+  })
+  console.log(`[iSalud] Headers: [${headers.join(' | ')}]`)
+
+  // Max DataTables records
+  try { await page.selectOption('.dataTables_length select', '-1') } catch {
+    try { await page.selectOption('.dataTables_length select', '100') } catch {}
+  }
+  await page.waitForTimeout(1000)
+
+  // Extract rows for each day by filling the visible date field
   for (let d = 0; d < diasAdelante; d++) {
     const date = new Date(today); date.setDate(date.getDate() + d)
-    dates.push(date.toISOString().split('T')[0])
-  }
+    const fechaStr = date.toISOString().split('T')[0]
 
-  console.log(`[iSalud] Scraping admisiones: ${dates.length} days in batches of 5`)
+    try {
+      // Set date via page.evaluate — finds visible date input and triggers change
+      const dateSet = await page.evaluate((fecha) => {
+        // Find all visible date-like inputs
+        const dateInputs = Array.from(document.querySelectorAll('input[type="date"]'))
+          .filter((el) => (el as HTMLElement).offsetParent !== null) as HTMLInputElement[]
 
-  // Process in parallel batches of 5 pages
-  const BATCH_SIZE = 5
-  for (let b = 0; b < dates.length; b += BATCH_SIZE) {
-    const batch = dates.slice(b, b + BATCH_SIZE)
-
-    const results = await Promise.allSettled(batch.map(async (fechaStr, idx) => {
-      const p = await context.newPage()
-      try {
-        await p.goto(`${baseUrl}/admision?fecha=${fechaStr}`, { waitUntil: 'domcontentloaded', timeout: 15000 })
-        await p.waitForTimeout(1500)
-
-        // Log first day headers
-        if (b === 0 && idx === 0) {
-          const info = await p.evaluate(() => {
-            const headers: string[] = []; document.querySelectorAll('table thead th').forEach((th) => { headers.push(th.textContent?.trim() ?? '') })
-            return { rows: document.querySelectorAll('table tbody tr').length, headers }
-          })
-          console.log(`[iSalud] Admision headers: [${info.headers.join(' | ')}], ${info.rows} rows`)
+        // Also try inputs with "fecha" in name/id that are visible
+        if (dateInputs.length === 0) {
+          const fallbacks = Array.from(document.querySelectorAll('input'))
+            .filter((el) => {
+              const name = (el.name + el.id).toLowerCase()
+              return (name.includes('fecha') || name.includes('date')) && (el as HTMLElement).offsetParent !== null
+            }) as HTMLInputElement[]
+          dateInputs.push(...fallbacks)
         }
 
-        const dayData = await p.evaluate(() => {
-          const r: Array<{ id: string; identificacion: string; nombre_paciente: string; procedimiento: string; aseguradora: string; profesional_nombre: string; ubicacion: string; hora_inicial: string; hora_final: string; fase: string; fecha: string }> = []
-          document.querySelectorAll('table tbody tr').forEach((row) => {
-            const c = row.querySelectorAll('td'); if (c.length < 15) return
-            // Indices: 0=Id 1=CC 2=Nombre 3=Procedimiento 4=Aseguradora 5=Profesional
-            //          6=Ubicacion 7=HoraInicial 8=Fase 14=Fecha 15=HoraFinal
-            const id = c[0]?.textContent?.trim() ?? ''
-            const prof = (c[5]?.textContent?.trim() ?? '').toUpperCase()
-            const fase = c[8]?.textContent?.trim() ?? 'Programado'
-            if (!id || !prof || (fase !== 'Programado' && fase !== 'Admitido')) return
+        if (dateInputs.length === 0) return { found: false, inputCount: 0 }
 
-            // Fecha real de la cita (columna 14) — normalizar a YYYY-MM-DD
-            let fechaRaw = c[14]?.textContent?.trim() ?? ''
-            if (/^\d{2}\/\d{2}\/\d{4}$/.test(fechaRaw)) {
-              const [dd, mm, yyyy] = fechaRaw.split('/')
-              fechaRaw = `${yyyy}-${mm}-${dd}`
-            }
+        const input = dateInputs[0]
+        // Use native setter to bypass React/framework wrappers
+        const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+        if (nativeSetter) nativeSetter.call(input, fecha)
+        else input.value = fecha
 
-            r.push({
-              id,
-              identificacion: c[1]?.textContent?.trim() ?? '',
-              nombre_paciente: c[2]?.textContent?.trim() ?? '',
-              procedimiento: c[3]?.textContent?.trim() ?? '',
-              aseguradora: c[4]?.textContent?.trim() ?? '',
-              profesional_nombre: prof,
-              ubicacion: c[6]?.textContent?.trim() ?? '',
-              hora_inicial: (c[7]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''),
-              hora_final: (c[15]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''),
-              fase,
-              fecha: fechaRaw,
-            })
-          })
-          return r
-        })
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        input.dispatchEvent(new Event('change', { bubbles: true }))
 
-        return dayData ?? []
-      } finally {
-        await p.close()
+        // Also try submitting the form if there's one
+        const form = input.closest('form')
+        if (form) {
+          const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]') as HTMLElement | null
+          if (submitBtn) submitBtn.click()
+        }
+
+        return { found: true, inputCount: dateInputs.length, inputName: input.name, inputId: input.id }
+      }, fechaStr)
+
+      if (d === 0) {
+        console.log(`[iSalud] Date input result: ${JSON.stringify(dateSet)}`)
       }
-    }))
 
-    for (const r of results) {
-      if (r.status === 'fulfilled') all.push(...r.value)
-      else errors.push(r.reason?.message ?? 'Unknown error')
+      // Wait for DataTables to reload
+      await page.waitForTimeout(2000)
+
+      // Extract rows
+      const dayData = await page.evaluate(() => {
+        const r: Array<{ id: string; identificacion: string; nombre_paciente: string; procedimiento: string; aseguradora: string; profesional_nombre: string; ubicacion: string; hora_inicial: string; hora_final: string; fase: string; fecha: string }> = []
+        document.querySelectorAll('table tbody tr').forEach((row) => {
+          const c = row.querySelectorAll('td'); if (c.length < 15) return
+          const id = c[0]?.textContent?.trim() ?? ''
+          const prof = (c[5]?.textContent?.trim() ?? '').toUpperCase()
+          const fase = c[8]?.textContent?.trim() ?? 'Programado'
+          if (!id || !prof || (fase !== 'Programado' && fase !== 'Admitido')) return
+
+          let fechaRaw = c[14]?.textContent?.trim() ?? ''
+          if (/^\d{2}\/\d{2}\/\d{4}$/.test(fechaRaw)) {
+            const [dd, mm, yyyy] = fechaRaw.split('/')
+            fechaRaw = `${yyyy}-${mm}-${dd}`
+          }
+
+          r.push({
+            id, identificacion: c[1]?.textContent?.trim() ?? '',
+            nombre_paciente: c[2]?.textContent?.trim() ?? '',
+            procedimiento: c[3]?.textContent?.trim() ?? '',
+            aseguradora: c[4]?.textContent?.trim() ?? '',
+            profesional_nombre: prof,
+            ubicacion: c[6]?.textContent?.trim() ?? '',
+            hora_inicial: (c[7]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''),
+            hora_final: (c[15]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''),
+            fase, fecha: fechaRaw,
+          })
+        })
+        return r
+      })
+
+      if (dayData) all.push(...dayData)
+
+      if (d < 3 || d % 10 === 0) {
+        const realDates = dayData ? [...new Set(dayData.map((a) => a.fecha))] : []
+        console.log(`[iSalud] Day ${d} (${fechaStr}): ${dayData?.length ?? 0} rows, dates in data: [${realDates.join(', ')}]`)
+      }
+    } catch (err) {
+      errors.push(`${fechaStr}: ${err instanceof Error ? err.message : String(err)}`)
+      if (d < 3) console.error(`[iSalud] Error day ${d}: ${err}`)
     }
-
-    console.log(`[iSalud] Batch ${Math.floor(b / BATCH_SIZE) + 1}/${Math.ceil(dates.length / BATCH_SIZE)}: ${all.length} total citas`)
   }
 
-  // Deduplicate — if iSalud ignores ?fecha= param, same IDs appear for every day
+  // Deduplicate by id+fecha
   const uniqueMap = new Map<string, ISaludAdmision>()
-  for (const adm of all) {
-    const key = `${adm.id}-${adm.fecha}`
-    uniqueMap.set(key, adm)
-  }
+  for (const adm of all) uniqueMap.set(`${adm.id}-${adm.fecha}`, adm)
   const deduped = Array.from(uniqueMap.values())
 
   if (deduped.length < all.length) {
-    console.log(`[iSalud] Deduplicated: ${all.length} → ${deduped.length} (${all.length - deduped.length} duplicates removed)`)
+    console.log(`[iSalud] Dedup: ${all.length} → ${deduped.length}`)
   }
 
-  // Check if all dates are the same (indicates ?fecha= is being ignored)
   const uniqueDates = new Set(deduped.map((a) => a.fecha))
-  if (uniqueDates.size === 1 && diasAdelante > 1) {
-    console.warn(`[iSalud] WARNING: All ${deduped.length} citas have the same date ${Array.from(uniqueDates)[0]} — ?fecha= param may be ignored`)
-  }
-
-  console.log(`[iSalud] Admision COMPLETE: ${deduped.length} unique citas, ${uniqueDates.size} unique dates, ${errors.length} errors`)
+  console.log(`[iSalud] Admision RESULT: ${deduped.length} citas, ${uniqueDates.size} unique dates, ${errors.length} errors`)
   return { admisiones: deduped, errors }
 }
 

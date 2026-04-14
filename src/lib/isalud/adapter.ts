@@ -32,15 +32,35 @@ export interface ScrapeResult {
 
 // --- Browser ---
 
+const CHROMIUM_REMOTE_URL = 'https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar'
+
 async function launchBrowser(): Promise<Browser> {
   console.log(`[iSalud] Launching browser (NODE_ENV=${process.env.NODE_ENV})`)
+
   if (process.env.NODE_ENV === 'development') {
     return playwrightChromium.launch({ headless: true })
   }
+
   const chromiumPkg = await import('@sparticuz/chromium')
-  const executablePath = await chromiumPkg.default.executablePath()
-  console.log(`[iSalud] Chromium path: ${executablePath}`)
-  return playwrightChromium.launch({ args: chromiumPkg.default.args, executablePath, headless: true })
+  chromiumPkg.default.setGraphicsMode = false
+
+  let executablePath: string
+  try {
+    // Try local bin first (works if outputFileTracingIncludes is correct)
+    executablePath = await chromiumPkg.default.executablePath()
+    console.log(`[iSalud] Chromium local path: ${executablePath}`)
+  } catch {
+    // Fallback: download chromium to /tmp on cold start
+    console.log('[iSalud] Local chromium not found — downloading from remote...')
+    executablePath = await chromiumPkg.default.executablePath(CHROMIUM_REMOTE_URL)
+    console.log(`[iSalud] Chromium downloaded to: ${executablePath}`)
+  }
+
+  return playwrightChromium.launch({
+    args: chromiumPkg.default.args,
+    executablePath,
+    headless: true,
+  })
 }
 
 // --- Login ---
@@ -301,15 +321,15 @@ export async function scrapeISalud(credentials: ISaludCredentials, options: { di
   console.log(`[iSalud] NODE_ENV: ${process.env.NODE_ENV}`)
   console.log(`[iSalud] subdomain: ${credentials.subdomain}, username: ${credentials.username}`)
 
-  // Pre-check: verify chromium is loadable
+  // Pre-check: verify chromium module is importable
   if (process.env.NODE_ENV !== 'development') {
     try {
       const chromiumPkg = await import('@sparticuz/chromium')
-      const execPath = await chromiumPkg.default.executablePath()
-      console.log(`[iSalud] @sparticuz/chromium OK, executablePath: ${execPath}`)
+      console.log(`[iSalud] @sparticuz/chromium module loaded OK`)
+      console.log(`[iSalud] chromium.args: ${chromiumPkg.default.args?.length ?? 0} args`)
     } catch (e) {
-      console.error(`[iSalud] @sparticuz/chromium FAILED:`, e)
-      return { profesionales: [], admisiones: [], errors: [`Chromium load failed: ${e instanceof Error ? e.message : String(e)}`] }
+      console.error(`[iSalud] @sparticuz/chromium IMPORT FAILED:`, e)
+      return { profesionales: [], admisiones: [], errors: [`Chromium import failed: ${e instanceof Error ? e.message : String(e)}`] }
     }
   }
 

@@ -297,12 +297,28 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
 // --- Main ---
 
 export async function scrapeISalud(credentials: ISaludCredentials, options: { diasAdelante?: number } = {}): Promise<ScrapeResult> {
+  console.log('[iSalud] START scrapeISalud')
+  console.log(`[iSalud] NODE_ENV: ${process.env.NODE_ENV}`)
+  console.log(`[iSalud] subdomain: ${credentials.subdomain}, username: ${credentials.username}`)
+
+  // Pre-check: verify chromium is loadable
+  if (process.env.NODE_ENV !== 'development') {
+    try {
+      const chromiumPkg = await import('@sparticuz/chromium')
+      const execPath = await chromiumPkg.default.executablePath()
+      console.log(`[iSalud] @sparticuz/chromium OK, executablePath: ${execPath}`)
+    } catch (e) {
+      console.error(`[iSalud] @sparticuz/chromium FAILED:`, e)
+      return { profesionales: [], admisiones: [], errors: [`Chromium load failed: ${e instanceof Error ? e.message : String(e)}`] }
+    }
+  }
+
   const dias = options.diasAdelante ?? 60
   const errors: string[] = []
   let browser: Browser | null = null
   try {
     browser = await launchBrowser()
-    console.log('[iSalud] Browser launched')
+    console.log('[iSalud] Browser launched OK')
     const page = await browser.newPage()
     await loginPage(page, credentials)
     let profesionales: ISaludProfesional[] = []
@@ -311,8 +327,11 @@ export async function scrapeISalud(credentials: ISaludCredentials, options: { di
     console.log(`[iSalud] FINAL: ${profesionales.length} profs, ${admResult.admisiones.length} admisiones, ${errors.length + admResult.errors.length} errors`)
     return { profesionales, admisiones: admResult.admisiones, errors: [...errors, ...admResult.errors] }
   } catch (err) {
-    console.error(`[iSalud] FATAL: ${err}`)
-    return { profesionales: [], admisiones: [], errors: [`Fatal: ${err instanceof Error ? err.message : String(err)}`] }
+    const msg = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? err.stack : ''
+    console.error(`[iSalud] FATAL ERROR: ${msg}`)
+    console.error(`[iSalud] STACK: ${stack}`)
+    return { profesionales: [], admisiones: [], errors: [`Fatal: ${msg}`] }
   } finally {
     if (browser) await browser.close().catch(() => {})
     console.log('[iSalud] Browser closed')

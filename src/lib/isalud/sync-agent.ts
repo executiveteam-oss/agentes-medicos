@@ -25,6 +25,8 @@ export interface ImportResult {
 // --- Import (initial setup from dashboard) ---
 
 export async function importISalud(credentials: ISaludCredentials, clinicId: string): Promise<ImportResult> {
+  console.log(`[iSalud importISalud] START for clinic ${clinicId}, subdomain: ${credentials.subdomain}`)
+
   // Save credentials
   await supabaseAdmin
     .from('sync_integrations')
@@ -37,10 +39,16 @@ export async function importISalud(credentials: ISaludCredentials, clinicId: str
     }, { onConflict: 'clinic_id,provider' })
 
   try {
+    console.log('[iSalud importISalud] Calling scrapeISalud...')
     const result = await scrapeISalud(credentials, { diasAdelante: 60 })
+    console.log(`[iSalud importISalud] Scrape returned: ${result.profesionales.length} profs, ${result.admisiones.length} admisiones, ${result.errors.length} errors`)
+    if (result.errors.length > 0) console.log(`[iSalud importISalud] Scrape errors: ${result.errors.slice(0, 3).join('; ')}`)
     return await ingestISaludData(clinicId, result.profesionales, result.admisiones, result.errors)
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? err.stack : ''
+    console.error(`[iSalud importISalud] FATAL ERROR: ${errMsg}`)
+    console.error(`[iSalud importISalud] STACK: ${stack}`)
     await supabaseAdmin
       .from('sync_integrations')
       .update({ sync_status: 'error', sync_error: errMsg, updated_at: new Date().toISOString() })
@@ -75,11 +83,16 @@ export async function syncAllISaludIntegrations(): Promise<{ synced: number; err
 
     try {
       const dias = integration.config?.dias_adelante ?? 60
+      console.log(`[iSalud syncAll] Syncing clinic ${integration.clinic_id}, subdomain: ${creds.subdomain}, dias: ${dias}`)
       const result = await scrapeISalud(creds, { diasAdelante: dias })
+      console.log(`[iSalud syncAll] Scrape result: ${result.profesionales.length} profs, ${result.admisiones.length} admisiones, ${result.errors.length} errors`)
+      if (result.errors.length > 0) console.log(`[iSalud syncAll] Errors: ${result.errors.slice(0, 3).join('; ')}`)
       await ingestISaludData(integration.clinic_id, result.profesionales, result.admisiones, result.errors)
       synced++
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[iSalud syncAll] FATAL for clinic ${integration.clinic_id}: ${errMsg}`)
+      console.error(`[iSalud syncAll] STACK: ${err instanceof Error ? err.stack : ''}`)
       errors.push(`Clinic ${integration.clinic_id}: ${errMsg}`)
       await supabaseAdmin.from('sync_integrations').update({ sync_status: 'error', sync_error: errMsg, updated_at: new Date().toISOString() }).eq('id', integration.id)
     }

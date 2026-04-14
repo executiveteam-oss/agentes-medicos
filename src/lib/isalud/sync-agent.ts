@@ -7,7 +7,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { scrapeISalud, type ISaludCredentials, type ISaludProfesional, type ISaludAdmision } from './adapter'
+import { scrapeISalud, type ISaludCredentials, type ISaludProfesional, type ISaludAdmision, type ISaludDisponibilidadSlot } from './adapter'
 
 // --- Types ---
 
@@ -251,23 +251,52 @@ async function getOrCreateDoctor(
     .maybeSingle()
 
   if (existing) {
-    return { doctorId: (existing as { doctor_id: string }).doctor_id, created: false }
+    const doctorId = (existing as { doctor_id: string }).doctor_id
+
+    // If doctor exists but has no working_hours, update with inferred schedule
+    const { data: doc } = await supabaseAdmin
+      .from('doctors')
+      .select('working_hours')
+      .eq('id', doctorId)
+      .maybeSingle()
+
+    if (doc && !(doc as { working_hours: unknown }).working_hours && prof.slots.length > 0) {
+      const workingHours = buildWorkingHours(prof.slots)
+      await supabaseAdmin
+        .from('doctors')
+        .update({ working_hours: workingHours as unknown as Record<string, unknown> })
+        .eq('id', doctorId)
+    }
+
+    return { doctorId, created: false }
   }
+
+  // Build working_hours from schedule slots (or use defaults)
+  const workingHours = buildWorkingHours(prof.slots)
 
   // Try to match by name (fuzzy — uppercase comparison)
   const { data: doctorByName } = await supabaseAdmin
     .from('doctors')
-    .select('id')
+    .select('id, working_hours')
     .eq('clinic_id', clinicId)
     .ilike('name', prof.nombre)
     .maybeSingle()
 
   let doctorId: string
+  let created = false
 
   if (doctorByName) {
     doctorId = (doctorByName as { id: string }).id
+
+    // Update working_hours only if currently null (don't overwrite admin config)
+    if (!(doctorByName as { working_hours: unknown }).working_hours) {
+      await supabaseAdmin
+        .from('doctors')
+        .update({ working_hours: workingHours as unknown as Record<string, unknown> })
+        .eq('id', doctorId)
+    }
   } else {
-    // Create new doctor
+    // Create new doctor with complete data
     const { data: newDoctor } = await supabaseAdmin
       .from('doctors')
       .insert({
@@ -275,12 +304,16 @@ async function getOrCreateDoctor(
         name: prof.nombre,
         specialty: null,
         is_active: true,
+        schedule_type: 'fixed',
+        agenda_closed: false,
+        working_hours: workingHours as unknown as Record<string, unknown>,
       })
       .select('id')
       .single()
 
     if (!newDoctor) throw new Error(`Failed to create doctor: ${prof.nombre}`)
     doctorId = (newDoctor as { id: string }).id
+    created = true
   }
 
   // Create mapping
@@ -294,7 +327,60 @@ async function getOrCreateDoctor(
       external_metadata: { puntos_atencion: prof.puntos_atencion } as unknown as Record<string, unknown>,
     })
 
-  return { doctorId, created: !doctorByName }
+  return { doctorId, created }
+}
+
+/**
+ * Build Omuwan working_hours JSONB from iSalud availability slots.
+ * Groups slots by day of week → finds min start and max end → sets active days.
+ * Falls back to L-V 08:00-18:00 if no slot data available.
+ */
+function buildWorkingHours(slots: ISaludDisponibilidadSlot[]): Record<string, { start: string; end: string; active: boolean }> {
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+  // Default: all inactive
+  const result: Record<string, { start: string; end: string; active: boolean }> = {}
+  for (const day of dayNames) {
+    result[day] = { start: '00:00', end: '00:00', active: false }
+  }
+
+  if (slots.length === 0) {
+    // No data — use sensible defaults (L-V 08:00-18:00)
+    for (const day of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']) {
+      result[day] = { start: '08:00', end: '18:00', active: true }
+    }
+    return result
+  }
+
+  // Group by day of week → find min start, max end
+  const byDay = new Map<number, { starts: string[]; ends: string[] }>()
+  for (const slot of slots) {
+    if (!byDay.has(slot.dia_semana)) {
+      byDay.set(slot.dia_semana, { starts: [], ends: [] })
+    }
+    const entry = byDay.get(slot.dia_semana)!
+    if (slot.hora_inicio) entry.starts.push(slot.hora_inicio)
+    if (slot.hora_fin) entry.ends.push(slot.hora_fin)
+  }
+
+  for (const [dayNum, { starts, ends }] of byDay) {
+    const dayName = dayNames[dayNum]
+    if (!dayName) continue
+
+    // Find earliest start and latest end
+    const sortedStarts = starts.sort()
+    const sortedEnds = ends.sort()
+    const earliest = sortedStarts[0] ?? '08:00'
+    const latest = sortedEnds[sortedEnds.length - 1] ?? '18:00'
+
+    result[dayName] = {
+      start: earliest,
+      end: latest,
+      active: true,
+    }
+  }
+
+  return result
 }
 
 async function upsertBlockedAppointments(
@@ -319,6 +405,7 @@ async function upsertBlockedAppointments(
       const result = await getOrCreateDoctor(clinicId, {
         nombre: adm.profesional_nombre,
         puntos_atencion: [adm.ubicacion],
+        slots: [],
       })
       if (!result.doctorId) {
         errors.push(`No mapping for: ${adm.profesional_nombre}`)

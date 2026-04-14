@@ -19,9 +19,17 @@ export interface ISaludCredentials {
   password: string
 }
 
+export interface ISaludDisponibilidadSlot {
+  dia_semana: number  // 0=dom, 1=lun, ..., 6=sab
+  hora_inicio: string // "HH:MM"
+  hora_fin: string    // "HH:MM"
+  fecha: string       // "YYYY-MM-DD"
+}
+
 export interface ISaludProfesional {
   nombre: string  // UPPERCASE, trimmed
   puntos_atencion: string[]
+  slots: ISaludDisponibilidadSlot[]  // Raw schedule slots from /disponibilidad
 }
 
 export interface ISaludAdmision {
@@ -121,36 +129,68 @@ export async function scrapeProfesionales(
   const html = await res.text()
   const $ = cheerio.load(html)
 
-  // Extract professionals from the availability table
-  const profMap = new Map<string, Set<string>>()
+  // Extract professionals + schedule slots from the availability table
+  // /disponibilidad table typically has: Profesional | Punto de atención | Fecha | Hora inicio | Hora fin | ...
+  const profMap = new Map<string, { puntos: Set<string>; slots: ISaludDisponibilidadSlot[] }>()
 
-  // Try table rows — iSalud availability table has "Profesional" column
   $('table tbody tr').each((_, row) => {
     const cells = $(row).find('td')
     if (cells.length < 3) return
 
-    // Try to find professional name and location columns
-    // iSalud tables vary — try common patterns
+    // Extract data from row — adapt column indices based on iSalud structure
     const profesional = $(cells[0]).text().trim().toUpperCase()
     const punto = cells.length > 1 ? $(cells[1]).text().trim() : ''
+    const fechaRaw = cells.length > 2 ? $(cells[2]).text().trim() : ''
+    const horaInicio = cells.length > 3 ? $(cells[3]).text().trim().replace(/:\d{2}$/, '') : ''
+    const horaFin = cells.length > 4 ? $(cells[4]).text().trim().replace(/:\d{2}$/, '') : ''
 
-    if (profesional && profesional.length > 2) {
-      if (!profMap.has(profesional)) profMap.set(profesional, new Set())
-      if (punto) profMap.get(profesional)!.add(punto)
+    if (!profesional || profesional.length < 3) return
+
+    if (!profMap.has(profesional)) {
+      profMap.set(profesional, { puntos: new Set(), slots: [] })
+    }
+    const entry = profMap.get(profesional)!
+    if (punto) entry.puntos.add(punto)
+
+    // Parse fecha to get day of week
+    if (fechaRaw && horaInicio) {
+      // Try YYYY-MM-DD or DD/MM/YYYY
+      let fecha = ''
+      let diaSemana = -1
+      if (/^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)) {
+        fecha = fechaRaw
+        diaSemana = new Date(fechaRaw + 'T12:00:00').getDay()
+      } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(fechaRaw)) {
+        const [dd, mm, yyyy] = fechaRaw.split('/')
+        fecha = `${yyyy}-${mm}-${dd}`
+        diaSemana = new Date(fecha + 'T12:00:00').getDay()
+      }
+
+      if (diaSemana >= 0) {
+        entry.slots.push({
+          dia_semana: diaSemana,
+          hora_inicio: horaInicio,
+          hora_fin: horaFin || addMinutesToTime(horaInicio, 30),
+          fecha,
+        })
+      }
     }
   })
 
-  // Also try select options — some iSalud pages have a professional dropdown
+  // Also try select options as fallback for professional names
   $('select option').each((_, opt) => {
     const name = $(opt).text().trim().toUpperCase()
     if (name && name.length > 3 && name !== 'TODOS' && name !== 'SELECCIONE') {
-      if (!profMap.has(name)) profMap.set(name, new Set())
+      if (!profMap.has(name)) {
+        profMap.set(name, { puntos: new Set(), slots: [] })
+      }
     }
   })
 
-  return Array.from(profMap.entries()).map(([nombre, puntos]) => ({
+  return Array.from(profMap.entries()).map(([nombre, data]) => ({
     nombre,
-    puntos_atencion: Array.from(puntos),
+    puntos_atencion: Array.from(data.puntos),
+    slots: data.slots,
   }))
 }
 
@@ -278,6 +318,14 @@ export async function testISaludConnection(credentials: ISaludCredentials): Prom
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Error de conexión' }
   }
+}
+
+// --- Time helpers ---
+
+function addMinutesToTime(time: string, minutes: number): string {
+  const [h, m] = time.split(':').map(Number)
+  const total = h * 60 + m + minutes
+  return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
 // --- Cookie helpers ---

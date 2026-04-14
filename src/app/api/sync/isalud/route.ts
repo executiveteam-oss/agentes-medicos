@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronSecret } from '@/lib/rate-limit'
 import { getUserSession } from '@/lib/session'
 import { importISalud, syncAllISaludIntegrations, syncOrganization } from '@/lib/isalud/sync-agent'
-import { testISaludConnection } from '@/lib/isalud/adapter'
+import { testISaludConnection, diagnoseISalud } from '@/lib/isalud/adapter'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const maxDuration = 300
@@ -34,11 +34,19 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json() as {
-    action: 'test' | 'import' | 'force_sync'
+    action: 'test' | 'import' | 'force_sync' | 'diagnose'
     credentials?: { subdomain: string; username: string; password: string }
   }
 
   const clinicId = session.clinicId
+
+  if (body.action === 'diagnose') {
+    if (!body.credentials) {
+      return NextResponse.json({ error: 'Credenciales requeridas' }, { status: 400 })
+    }
+    const diagnosis = await diagnoseISalud(body.credentials)
+    return NextResponse.json(diagnosis)
+  }
 
   if (body.action === 'test') {
     if (!body.credentials) {

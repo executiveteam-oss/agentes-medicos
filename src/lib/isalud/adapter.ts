@@ -69,12 +69,38 @@ async function login(credentials: ISaludCredentials): Promise<SessionCookies> {
 
   const initialCookies = extractSetCookies(loginPageRes)
   const loginPageHtml = await loginPageRes.text()
+  console.log(`[iSalud Login] GET /login → status ${loginPageRes.status}, HTML ${loginPageHtml.length} chars, cookies: ${initialCookies.slice(0, 80)}...`)
 
   // Extract CSRF token from the login page
   const $login = cheerio.load(loginPageHtml)
   const csrfToken = $login('input[name="_token"]').attr('value') ?? ''
 
-  // Step 2: POST login with email + password
+  // Detect the correct field name for the username input
+  const userFieldName = $login('input[type="text"][name]').attr('name')
+    ?? $login('input[name="user"]').length > 0 ? 'user'
+    : $login('input[name="usuario"]').length > 0 ? 'usuario'
+    : $login('input[name="login"]').length > 0 ? 'login'
+    : $login('input[name="email"]').length > 0 ? 'email'
+    : 'user'
+
+  console.log(`[iSalud Login] CSRF token: ${csrfToken ? csrfToken.slice(0, 10) + '...' : 'NOT FOUND'}, user field: "${userFieldName}"`)
+
+  // Log all input fields found on the login page for debugging
+  const inputFields: string[] = []
+  $login('input').each((_, el) => {
+    const name = $login(el).attr('name') ?? ''
+    const type = $login(el).attr('type') ?? ''
+    if (name) { inputFields.push(`${name}(${type})`) }
+  })
+  console.log(`[iSalud Login] Form fields found: ${inputFields.join(', ')}`)
+
+  // Step 2: POST login
+  const postBody: Record<string, string> = {
+    _token: csrfToken,
+    password: credentials.password,
+  }
+  postBody[userFieldName] = credentials.username
+
   const loginRes = await fetch(`${baseUrl}/login`, {
     method: 'POST',
     redirect: 'manual',
@@ -83,23 +109,25 @@ async function login(credentials: ISaludCredentials): Promise<SessionCookies> {
       'Cookie': initialCookies,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     },
-    body: new URLSearchParams({
-      _token: csrfToken,
-      user: credentials.username,
-      password: credentials.password,
-    }).toString(),
+    body: new URLSearchParams(postBody).toString(),
   })
 
   const sessionCookies = mergeSetCookies(initialCookies, loginRes)
+  const location = loginRes.headers.get('location') ?? ''
+  console.log(`[iSalud Login] POST /login → status ${loginRes.status}, redirect: "${location}", new cookies: ${extractSetCookies(loginRes).slice(0, 80)}`)
 
   // Verify login succeeded by checking redirect
-  const location = loginRes.headers.get('location') ?? ''
   if (location.includes('/login') || loginRes.status === 422) {
-    throw new Error('Login fallido — credenciales inválidas o formato de login inesperado')
+    const errorBody = await loginRes.text().catch(() => '')
+    console.error(`[iSalud Login] FAILED — status ${loginRes.status}, body preview: ${errorBody.slice(0, 300)}`)
+    throw new Error(`Login fallido — status ${loginRes.status}, redirect: ${location}`)
   }
 
-  // Follow redirect to get final session cookies
-  const homeRes = await fetch(location.startsWith('http') ? location : `${baseUrl}${location}`, {
+  // Follow redirect (may be home page or "cambiar centro de atención")
+  const redirectUrl = location.startsWith('http') ? location : `${baseUrl}${location}`
+  console.log(`[iSalud Login] Following redirect to: ${redirectUrl}`)
+
+  const homeRes = await fetch(redirectUrl, {
     method: 'GET',
     redirect: 'manual',
     headers: {
@@ -108,7 +136,27 @@ async function login(credentials: ISaludCredentials): Promise<SessionCookies> {
     },
   })
 
-  return { raw: mergeSetCookies(sessionCookies, homeRes) }
+  const finalCookies = mergeSetCookies(sessionCookies, homeRes)
+  const homeHtml = await homeRes.text()
+  console.log(`[iSalud Login] Home page → status ${homeRes.status}, HTML ${homeHtml.length} chars`)
+
+  // Check if we landed on "Cambiar Centro de atención" page
+  if (homeHtml.includes('Cambiar') && homeHtml.includes('Centro')) {
+    console.log(`[iSalud Login] Detected "Cambiar Centro" page — navigating past it`)
+    // Try to follow the redirect or click through — usually just navigating to /disponibilidad works
+    const homeRedirect = homeRes.headers.get('location')
+    if (homeRedirect) {
+      const r2 = await fetch(homeRedirect.startsWith('http') ? homeRedirect : `${baseUrl}${homeRedirect}`, {
+        method: 'GET',
+        redirect: 'manual',
+        headers: { 'Cookie': finalCookies, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      })
+      return { raw: mergeSetCookies(finalCookies, r2) }
+    }
+  }
+
+  console.log(`[iSalud Login] Login complete. Cookie count: ${finalCookies.split(';').length}`)
+  return { raw: finalCookies }
 }
 
 // --- Scraping functions ---
@@ -129,13 +177,30 @@ export async function scrapeProfesionales(
   const html = await res.text()
   const $ = cheerio.load(html)
 
+  console.log(`[iSalud Disponibilidad] HTML length: ${html.length}, tables: ${$('table').length}, tbody rows: ${$('table tbody tr').length}`)
+
+  // Log table headers to understand column structure
+  const headers: string[] = []
+  $('table thead th, table thead td').each((_, el) => { headers.push($(el).text().trim()) })
+  console.log(`[iSalud Disponibilidad] Table headers: ${headers.join(' | ') || 'NONE FOUND'}`)
+
+  // Check if page is a redirect or "Cambiar Centro" blocker
+  if (html.includes('/login') && html.length < 1000) {
+    console.error(`[iSalud Disponibilidad] Appears to be a login redirect — session may have expired`)
+  }
+
   // Extract professionals + schedule slots from the availability table
-  // /disponibilidad table typically has: Profesional | Punto de atención | Fecha | Hora inicio | Hora fin | ...
   const profMap = new Map<string, { puntos: Set<string>; slots: ISaludDisponibilidadSlot[] }>()
 
-  $('table tbody tr').each((_, row) => {
+  $('table tbody tr').each((i, row) => {
     const cells = $(row).find('td')
     if (cells.length < 3) return
+
+    // Log first 3 rows for debugging
+    if (i < 3) {
+      const cellTexts = Array.from({ length: Math.min(cells.length, 8) }, (_, j) => $(cells[j]).text().trim())
+      console.log(`[iSalud Disponibilidad] Row ${i}: [${cellTexts.join(' | ')}] (${cells.length} cols)`)
+    }
 
     // Extract data from row — adapt column indices based on iSalud structure
     const profesional = $(cells[0]).text().trim().toUpperCase()
@@ -220,6 +285,19 @@ export async function scrapeAdmisiones(
 
       const html = await res.text()
       const $ = cheerio.load(html)
+
+      if (d === 0) {
+        // Log details for first day only
+        console.log(`[iSalud Admision] ${fechaStr}: HTML ${html.length} chars, tables: ${$('table').length}, tbody rows: ${$('table tbody tr').length}`)
+        const headers: string[] = []
+        $('table thead th, table thead td').each((_, el) => { headers.push($(el).text().trim()) })
+        console.log(`[iSalud Admision] Headers: ${headers.join(' | ') || 'NONE'}`)
+        if ($('table tbody tr').length > 0) {
+          const firstCells: string[] = []
+          $('table tbody tr').first().find('td').each((_, el) => { firstCells.push($(el).text().trim()) })
+          console.log(`[iSalud Admision] First row: [${firstCells.join(' | ')}]`)
+        }
+      }
 
       // Parse DataTables table
       $('table tbody tr').each((_, row) => {
@@ -318,6 +396,84 @@ export async function testISaludConnection(credentials: ISaludCredentials): Prom
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Error de conexión' }
   }
+}
+
+// --- Diagnostic function ---
+
+export async function diagnoseISalud(credentials: ISaludCredentials): Promise<{
+  login: { ok: boolean; error?: string; cookies_count: number; redirect_location: string }
+  disponibilidad: { html_length: number; html_preview: string; has_table: boolean; tbody_rows: number; profesionales: ISaludProfesional[] }
+  admision_hoy: { html_length: number; html_preview: string; has_table: boolean; tbody_rows: number; admisiones: ISaludAdmision[] }
+  errors: string[]
+}> {
+  const baseUrl = `https://${credentials.subdomain}.isalud.co`
+  const errors: string[] = []
+  const result = {
+    login: { ok: false, cookies_count: 0, redirect_location: '', error: undefined as string | undefined },
+    disponibilidad: { html_length: 0, html_preview: '', has_table: false, tbody_rows: 0, profesionales: [] as ISaludProfesional[] },
+    admision_hoy: { html_length: 0, html_preview: '', has_table: false, tbody_rows: 0, admisiones: [] as ISaludAdmision[] },
+    errors,
+  }
+
+  // 1. Login
+  let session: SessionCookies
+  try {
+    session = await login(credentials)
+    result.login.ok = true
+    result.login.cookies_count = session.raw.split(';').length
+  } catch (err) {
+    result.login.error = err instanceof Error ? err.message : String(err)
+    errors.push(`Login: ${result.login.error}`)
+    return result
+  }
+
+  // 2. Disponibilidad
+  try {
+    const res = await fetch(`${baseUrl}/disponibilidad`, {
+      headers: { 'Cookie': session.raw, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    })
+    const html = await res.text()
+    result.disponibilidad.html_length = html.length
+    result.disponibilidad.html_preview = html.slice(0, 2000)
+    const $ = cheerio.load(html)
+    result.disponibilidad.has_table = $('table').length > 0
+    result.disponibilidad.tbody_rows = $('table tbody tr').length
+
+    // Try parsing
+    try {
+      result.disponibilidad.profesionales = await scrapeProfesionales(credentials, session)
+    } catch (e) {
+      errors.push(`Parsing profesionales: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  } catch (err) {
+    errors.push(`GET /disponibilidad: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // 3. Admisión hoy
+  try {
+    const hoy = new Date().toISOString().split('T')[0]
+    const res = await fetch(`${baseUrl}/admision?fecha=${hoy}`, {
+      headers: { 'Cookie': session.raw, 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+    })
+    const html = await res.text()
+    result.admision_hoy.html_length = html.length
+    result.admision_hoy.html_preview = html.slice(0, 2000)
+    const $ = cheerio.load(html)
+    result.admision_hoy.has_table = $('table').length > 0
+    result.admision_hoy.tbody_rows = $('table tbody tr').length
+
+    // Try parsing
+    try {
+      const admResult = await scrapeAdmisiones(credentials, session, 1)
+      result.admision_hoy.admisiones = admResult.admisiones
+    } catch (e) {
+      errors.push(`Parsing admisiones: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  } catch (err) {
+    errors.push(`GET /admision: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  return result
 }
 
 // --- Time helpers ---

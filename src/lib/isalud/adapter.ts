@@ -372,32 +372,36 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
 
     try {
       if (dateInputExists) {
-        // Clear + type date + trigger jQuery datepicker
-        await dateInput.click()
-        await dateInput.fill('')
-        await dateInput.type(fechaStr, { delay: 50 })
-        await page.keyboard.press('Enter')
-        await page.waitForTimeout(1500)
-
-        // Also try jQuery trigger as backup
-        await page.evaluate((fecha) => {
+        // Input is READONLY — can't use fill() or type()
+        // Set value via JS + trigger jQuery datepicker events
+        const setResult = await page.evaluate((fecha) => {
           const el = document.querySelector('#admision-date') as HTMLInputElement | null
-          if (!el) return
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const jq = (window as any).$ ?? (window as any).jQuery
-            if (jq) {
-              jq(el).val(fecha).trigger('change').trigger('changeDate')
-              try { jq(el).datepicker('update', fecha) } catch { /* */ }
-            }
-          } catch { /* jQuery not available */ }
-        }, fechaStr)
-        await page.waitForTimeout(1500)
-      }
+          if (!el) return { ok: false, reason: 'element not found' }
 
-      if (d === 0) {
-        const currentVal = dateInputExists ? await dateInput.inputValue().catch(() => 'N/A') : 'N/A'
-        console.log(`[iSalud] Day 0: input value="${currentVal}", requested="${fechaStr}"`)
+          // Set value directly (bypasses readonly)
+          el.value = fecha
+
+          // Try jQuery triggers (datepicker reloads table via AJAX)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const jq = (window as any).$ ?? (window as any).jQuery
+          if (jq) {
+            try { jq(el).datepicker('setDate', fecha) } catch { /* */ }
+            try { jq(el).datepicker('update', fecha) } catch { /* */ }
+            jq(el).trigger('change').trigger('changeDate').trigger('dp.change')
+          }
+
+          // Also try native events
+          el.dispatchEvent(new Event('change', { bubbles: true }))
+          el.dispatchEvent(new Event('input', { bubbles: true }))
+
+          return { ok: true, value: el.value, hasJquery: !!jq }
+        }, fechaStr)
+
+        if (d < 3) {
+          console.log(`[iSalud] Day ${d}: setDate result=${JSON.stringify(setResult)}`)
+        }
+
+        await page.waitForTimeout(2000)
       }
 
       // Extract rows

@@ -253,17 +253,24 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
   return count
 }
 
+// Orphan cleanup DISABLED — re-enable after confirming multi-day scraping works.
+// The scraper may only return today's citas, causing all future appointments
+// to be falsely identified as orphans and cancelled.
 async function cleanupOrphans(clinicId: string, currentAdmisiones: ISaludAdmision[]): Promise<number> {
   const currentIds = new Set(currentAdmisiones.map((a) => `isalud-${a.id}-${a.fecha}`))
   const { data: blocked } = await supabaseAdmin.from('appointments').select('id, external_his_id').eq('clinic_id', clinicId).eq('status', 'blocked_external').eq('external_source', 'isalud').gte('starts_at', new Date().toISOString())
-  if (!blocked) return 0
-  let cancelled = 0
-  for (const a of blocked) {
-    const extId = (a as { id: string; external_his_id: string | null }).external_his_id
-    if (extId && !currentIds.has(extId)) {
-      await supabaseAdmin.from('appointments').update({ status: 'cancelled', cancellation_reason: 'isalud_sync_orphan' }).eq('id', (a as { id: string }).id)
-      cancelled++
-    }
+
+  const dbCount = blocked?.length ?? 0
+  const scrapeCount = currentIds.size
+  console.log(`[iSalud] Orphan check: DB has ${dbCount} blocked_external, scrape has ${scrapeCount} IDs`)
+  if (dbCount > 0 && blocked) {
+    const sample = (blocked[0] as { external_his_id: string | null }).external_his_id
+    const sampleScrape = currentIds.size > 0 ? Array.from(currentIds)[0] : 'none'
+    console.log(`[iSalud] Sample DB id: ${sample}`)
+    console.log(`[iSalud] Sample scrape id: ${sampleScrape}`)
   }
-  return cancelled
+
+  // DISABLED: don't cancel anything until multi-day scraping is confirmed
+  console.log(`[iSalud] Orphan cleanup SKIPPED (disabled) — would have checked ${dbCount} appointments`)
+  return 0
 }

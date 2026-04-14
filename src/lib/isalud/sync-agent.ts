@@ -40,7 +40,7 @@ export async function importISalud(credentials: ISaludCredentials, clinicId: str
 
   try {
     console.log('[iSalud importISalud] Calling scrapeISalud...')
-    const result = await scrapeISalud(credentials, { diasAdelante: 60 })
+    const result = await scrapeISalud(credentials, { diasAdelante: 14 })
     console.log(`[iSalud importISalud] Scrape returned: ${result.profesionales.length} profs, ${result.admisiones.length} admisiones, ${result.errors.length} errors`)
     if (result.errors.length > 0) console.log(`[iSalud importISalud] Scrape errors: ${result.errors.slice(0, 3).join('; ')}`)
     return await ingestISaludData(clinicId, result.profesionales, result.admisiones, result.errors)

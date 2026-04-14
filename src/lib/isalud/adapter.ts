@@ -333,39 +333,39 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
   await page.goto(`${baseUrl}/admision`, { waitUntil: 'domcontentloaded', timeout: 30000 })
   console.log(`[iSalud] Admision URL: ${page.url()}, title: "${await page.title()}"`)
 
-  // Log initial page structure
+  // Log initial page structure + find visible date inputs
   const admInfo = await page.evaluate(() => {
     const tables = document.querySelectorAll('table')
     const rows = document.querySelectorAll('table tbody tr')
-    const dateInputs = document.querySelectorAll('input[type="date"]')
-    const allInputs: string[] = []
-    document.querySelectorAll('input').forEach((el) => { allInputs.push(`${el.name || el.id || '(anon)'}[${el.type}]`) })
-    return { tables: tables.length, rows: rows.length, dateInputs: dateInputs.length, allInputs }
+    const inputs: Array<{ name: string; id: string; type: string; visible: boolean; value: string }> = []
+    document.querySelectorAll('input').forEach((el) => {
+      const rect = el.getBoundingClientRect()
+      inputs.push({
+        name: el.name, id: el.id, type: el.type,
+        visible: rect.width > 0 && rect.height > 0 && el.offsetParent !== null,
+        value: el.value,
+      })
+    })
+    return { tables: tables.length, rows: rows.length, inputs }
   })
-  console.log(`[iSalud] Admision page: ${admInfo.tables} tables, ${admInfo.rows} rows, ${admInfo.dateInputs} date inputs`)
-  console.log(`[iSalud] Admision inputs: ${admInfo.allInputs.join(', ')}`)
+  console.log(`[iSalud] Admision page: ${admInfo.tables} tables, ${admInfo.rows} rows`)
+  console.log(`[iSalud] All inputs:`)
+  admInfo.inputs.forEach((inp) => console.log(`[iSalud]   ${inp.name || inp.id || '(anon)'} [${inp.type}] visible=${inp.visible} value="${inp.value}"`))
 
+  // Strategy: navigate via URL param for each day (most reliable — no form manipulation)
   for (let d = 0; d < diasAdelante; d++) {
     const date = new Date(today); date.setDate(date.getDate() + d)
     const fechaStr = date.toISOString().split('T')[0]
     try {
-      const dateInput = page.locator('input[type="date"], input[name*="fecha"], input[name*="Fecha"]')
-      const dateCount = await dateInput.count()
-
-      if (dateCount > 0) {
-        await dateInput.first().fill(fechaStr)
-        await page.waitForTimeout(1500)
-      } else if (d === 0) {
-        console.log(`[iSalud] No date input found — trying URL param`)
-        await page.goto(`${baseUrl}/admision?fecha=${fechaStr}`, { waitUntil: 'domcontentloaded', timeout: 15000 })
-        await page.waitForTimeout(1500)
-      }
+      // Navigate to admision with date param — avoids hidden input issues
+      await page.goto(`${baseUrl}/admision?fecha=${fechaStr}`, { waitUntil: 'domcontentloaded', timeout: 15000 })
+      await page.waitForTimeout(1500)
 
       if (d === 0) {
         try { await page.selectOption('.dataTables_length select', '-1') } catch {
           try { await page.selectOption('.dataTables_length select', '100') } catch {}
         }
-        await page.waitForTimeout(1000)
+        await page.waitForTimeout(800)
 
         // Log what we see for first day
         const firstDayInfo = await page.evaluate(() => {

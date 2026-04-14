@@ -96,7 +96,13 @@ export default async function DashboardPage() {
     aptsQuery = aptsQuery.eq('doctor_id', restrictDoctorId)
   }
 
-  const { data: rawAppointments } = await aptsQuery
+  const { data: rawAppointments, error: aptsError } = await aptsQuery
+  console.log(`[Dashboard] Raw query: ${rawAppointments?.length ?? 0} rows, error: ${aptsError?.message ?? 'none'}, range: ${rangeStartStr} → ${rangeEndStr}`)
+  if (rawAppointments && rawAppointments.length > 0) {
+    const rawStatusCounts: Record<string, number> = {}
+    rawAppointments.forEach((a) => { rawStatusCounts[String(a.status)] = (rawStatusCounts[String(a.status)] ?? 0) + 1 })
+    console.log(`[Dashboard] Raw status counts: ${JSON.stringify(rawStatusCounts)}`)
+  }
 
   // Mapear a la interfaz del calendario
   const appointments: CalendarAppointment[] = (rawAppointments ?? []).map((apt) => {

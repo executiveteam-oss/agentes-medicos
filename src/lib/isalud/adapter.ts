@@ -98,21 +98,29 @@ async function launchBrowserAndContext(): Promise<{ browser: Browser; context: B
 async function loginAndInjectCookies(context: BrowserContext, credentials: ISaludCredentials): Promise<Page> {
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
   console.log(`[iSalud] VERSION 3 - ${new Date().toISOString()}`)
-  console.log(`[iSalud] HTTP login to ${baseUrl}/login`)
+  console.log(`[iSalud] HTTP login to ${baseUrl}/`)
 
   // Step 1: GET login page to extract CSRF token + cookies
-  const loginPageRes = await fetch(`${baseUrl}/login`, {
+  const loginPageRes = await fetch(`${baseUrl}/`, {
     headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' },
   })
   const loginHtml = await loginPageRes.text()
   const initialCookies = extractAllSetCookies(loginPageRes)
   console.log(`[iSalud] GET /login: status ${loginPageRes.status}, HTML ${loginHtml.length} chars, cookies: ${initialCookies.length}`)
 
-  // Extract CSRF token
+  // Extract CSRF token (try multiple patterns)
   const csrfMatch = loginHtml.match(/name="login\[_csrf_token\]"\s+value="([^"]+)"/)
+    ?? loginHtml.match(/name="_csrf_token"\s+value="([^"]+)"/)
+    ?? loginHtml.match(/name="_token"\s+value="([^"]+)"/)
   const csrfToken = csrfMatch?.[1] ?? ''
+
+  // Extract form action
+  const actionMatch = loginHtml.match(/<form[^>]*action="([^"]*)"/)
+  const formAction = actionMatch?.[1] ?? '/'
   console.log(`[iSalud] CSRF token: ${csrfToken ? csrfToken.slice(0, 10) + '...' : 'NOT FOUND'}`)
-  console.log(`[iSalud] Has login[Usuario] in HTML: ${loginHtml.includes('login[Usuario]')}`)
+  console.log(`[iSalud] Form action: ${formAction}`)
+  console.log(`[iSalud] Has login[Usuario]: ${loginHtml.includes('login[Usuario]')}`)
+  console.log(`[iSalud] HTML preview: ${loginHtml.slice(0, 300)}`)
 
   // Step 2: POST login
   const cookieHeader = initialCookies.map((c) => `${c.name}=${c.value}`).join('; ')
@@ -122,13 +130,15 @@ async function loginAndInjectCookies(context: BrowserContext, credentials: ISalu
     'login[_csrf_token]': csrfToken,
   })
 
-  const loginRes = await fetch(`${baseUrl}/login`, {
+  const postUrl = formAction.startsWith('http') ? formAction : `${baseUrl}${formAction.startsWith('/') ? formAction : '/' + formAction}`
+  console.log(`[iSalud] POST to: ${postUrl}`)
+  const loginRes = await fetch(postUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       'Cookie': cookieHeader,
       'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Referer': `${baseUrl}/login`,
+      'Referer': `${baseUrl}/`,
     },
     body: formData.toString(),
     redirect: 'manual',
@@ -138,8 +148,10 @@ async function loginAndInjectCookies(context: BrowserContext, credentials: ISalu
   const location = loginRes.headers.get('location') ?? ''
   console.log(`[iSalud] POST /login: status ${loginRes.status}, redirect: "${location}", new cookies: ${postCookies.length}`)
 
-  if (loginRes.status === 422 || location.includes('/login')) {
-    console.error(`[iSalud] Login FAILED — status ${loginRes.status}`)
+  // Login success = 302 redirect to somewhere other than root
+  // Login fail = 422 or redirect back to / or no redirect at all
+  if (loginRes.status === 422 || (loginRes.status !== 302 && loginRes.status !== 301)) {
+    console.error(`[iSalud] Login FAILED — status ${loginRes.status}, no redirect`)
     throw new Error('Login fallido — credenciales inválidas')
   }
 
@@ -151,8 +163,8 @@ async function loginAndInjectCookies(context: BrowserContext, credentials: ISalu
   }
   console.log(`[iSalud] Total cookies to inject: ${allCookies.length} (${allCookies.map((c) => c.name).join(', ')})`)
 
-  // Step 3: Follow redirect if needed (to get more cookies)
-  if (location && !location.includes('/login')) {
+  // Step 3: Follow redirect (to get more cookies + confirm login)
+  if (location) {
     const redirectUrl = location.startsWith('http') ? location : `${baseUrl}${location}`
     const redirectRes = await fetch(redirectUrl, {
       headers: {
@@ -187,8 +199,9 @@ async function loginAndInjectCookies(context: BrowserContext, credentials: ISalu
   const finalUrl = page.url()
   console.log(`[iSalud] Playwright navigated to: ${finalUrl}, title: "${await page.title()}"`)
 
-  if (finalUrl.includes('/login')) {
-    console.error('[iSalud] Session cookies not working — redirected back to login')
+  // If we're back at root (login page) or the URL hasn't changed from baseUrl, cookies didn't work
+  if (finalUrl === `${baseUrl}/` || finalUrl === baseUrl) {
+    console.error(`[iSalud] Session cookies not working — still at root: ${finalUrl}`)
     throw new Error('Login HTTP exitoso pero las cookies no mantienen la sesión en Playwright')
   }
 

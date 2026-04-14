@@ -49,7 +49,7 @@ export function ISaludSyncButton({ integration }: { integration: SyncIntegration
                 body: JSON.stringify({ action: 'force_sync' }),
               })
               const data = await res.json()
-              setSyncMsg(data.ok ? 'Sync iniciado — resultados en minutos' : data.error ?? 'Error')
+              setSyncMsg(`+${data.doctors_created ?? 0} docs, ${data.appointments_blocked ?? 0} bloqueadas`)
             } catch {
               setSyncMsg('Error sincronizando')
             }
@@ -98,28 +98,33 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
     }
 
     setStep('importing')
-    setProgress('Guardando credenciales e iniciando sincronización...')
+    setProgress('Conectando con iSalud...')
     setError('')
 
     try {
-      const res = await fetch('/api/sync/isalud', {
+      // Test connection first
+      const testRes = await fetch('/api/sync/isalud', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'save_credentials',
-          credentials: { subdomain, username, password },
-        }),
+        body: JSON.stringify({ action: 'test', credentials: { subdomain, username, password } }),
       })
-      const data = await res.json()
+      const testData = await testRes.json()
+      if (!testData.ok) { setError(testData.error ?? 'No se pudo conectar'); setStep('error'); return }
 
-      if (!data.ok) {
-        setError(data.error ?? 'Error guardando credenciales')
-        setStep('error')
-        return
+      setProgress('Importando médicos y bloqueando citas (puede tomar unos minutos)...')
+
+      const importRes = await fetch('/api/sync/isalud', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'import', credentials: { subdomain, username, password } }),
+      })
+      const importData = await importRes.json() as ImportResult
+
+      if (importData.errors.length > 0 && importData.appointments_blocked === 0 && importData.doctors_created === 0) {
+        setError(importData.errors[0]); setStep('error'); return
       }
 
-      // Credentials saved + sync triggered via GitHub Actions
-      setResult({ doctors_created: 0, doctors_existing: 0, appointments_blocked: 0, errors: [] })
+      setResult(importData)
       setStep('done')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error inesperado')
@@ -212,20 +217,23 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-slate-900">¡Conexión configurada!</h3>
+              <h3 className="text-lg font-semibold text-slate-900">¡Importación completa!</h3>
             </div>
 
-            <div className="bg-[#028090]/5 border border-[#028090]/20 rounded-lg p-4 text-sm text-[#028090] space-y-2">
-              <p className="font-medium">La sincronización está en proceso.</p>
-              <p className="text-xs opacity-80">
-                Los médicos y citas de iSalud se importarán automáticamente en los próximos minutos.
-                Sincronización automática cada 30 minutos activada.
-              </p>
+            <div className="bg-slate-50 rounded-lg p-4 space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-slate-500">Médicos importados</span><span className="font-semibold">{result.doctors_created}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Médicos existentes</span><span className="font-semibold">{result.doctors_existing}</span></div>
+              <div className="flex justify-between"><span className="text-slate-500">Citas bloqueadas (60 días)</span><span className="font-semibold">{result.appointments_blocked}</span></div>
             </div>
 
-            <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500">
-              Los slots ocupados en iSalud no aparecerán como disponibles en el agente WhatsApp.
-              Recarga esta página en unos minutos para ver los resultados.
+            {result.errors.length > 0 && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
+                {result.errors.length} advertencias
+              </div>
+            )}
+
+            <div className="bg-[#028090]/5 border border-[#028090]/20 rounded-lg p-3 text-xs text-[#028090]">
+              Sincronización automática activada. Los slots de iSalud no aparecerán como disponibles en el agente WhatsApp.
             </div>
 
             <button onClick={() => window.location.reload()} className="w-full btn-primary">

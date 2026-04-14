@@ -40,7 +40,7 @@ export async function importISalud(credentials: ISaludCredentials, clinicId: str
 
   try {
     console.log('[iSalud importISalud] Calling scrapeISalud...')
-    const result = await scrapeISalud(credentials, { diasAdelante: 14 })
+    const result = await scrapeISalud(credentials, { diasAdelante: 60 })
     console.log(`[iSalud importISalud] Scrape returned: ${result.profesionales.length} profs, ${result.admisiones.length} admisiones, ${result.errors.length} errors`)
     if (result.errors.length > 0) console.log(`[iSalud importISalud] Scrape errors: ${result.errors.slice(0, 3).join('; ')}`)
     return await ingestISaludData(clinicId, result.profesionales, result.admisiones, result.errors)
@@ -147,12 +147,12 @@ async function getOrCreateDoctor(clinicId: string, prof: ISaludProfesional): Pro
     const doctorId = (existing as { doctor_id: string }).doctor_id
     const { data: doc } = await supabaseAdmin.from('doctors').select('working_hours').eq('id', doctorId).maybeSingle()
     if (doc && !(doc as { working_hours: unknown }).working_hours && prof.slots.length > 0) {
-      await supabaseAdmin.from('doctors').update({ working_hours: buildWorkingHours(prof.slots) as unknown as Record<string, unknown> }).eq('id', doctorId)
+      await supabaseAdmin.from('doctors').update({ working_hours: buildDefaultWorkingHours() as unknown as Record<string, unknown> }).eq('id', doctorId)
     }
     return { doctorId, created: false }
   }
 
-  const workingHours = buildWorkingHours(prof.slots)
+  const workingHours = buildDefaultWorkingHours()
   const { data: byName } = await supabaseAdmin.from('doctors').select('id, working_hours').eq('clinic_id', clinicId).ilike('name', prof.nombre).maybeSingle()
 
   let doctorId: string; let created = false
@@ -171,28 +171,21 @@ async function getOrCreateDoctor(clinicId: string, prof: ISaludProfesional): Pro
   return { doctorId, created }
 }
 
-function buildWorkingHours(slots: ISaludDisponibilidadSlot[]): Record<string, { start: string; end: string; active: boolean }> {
-  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-  const result: Record<string, { start: string; end: string; active: boolean }> = {}
-  for (const d of dayNames) result[d] = { start: '00:00', end: '00:00', active: false }
-
-  if (slots.length === 0) {
-    for (const d of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']) result[d] = { start: '08:00', end: '18:00', active: true }
-    return result
+/**
+ * Returns conservative default working hours for imported doctors.
+ * Does NOT infer from iSalud data — historical slots give unreliable ranges.
+ * The admin configures real hours manually in the Omuwan dashboard.
+ */
+function buildDefaultWorkingHours(): Record<string, { start: string; end: string; active: boolean }> {
+  return {
+    sunday:    { start: '00:00', end: '00:00', active: false },
+    monday:    { start: '08:00', end: '18:00', active: true },
+    tuesday:   { start: '08:00', end: '18:00', active: true },
+    wednesday: { start: '08:00', end: '18:00', active: true },
+    thursday:  { start: '08:00', end: '18:00', active: true },
+    friday:    { start: '08:00', end: '18:00', active: true },
+    saturday:  { start: '08:00', end: '13:00', active: true },
   }
-
-  const byDay = new Map<number, { starts: string[]; ends: string[] }>()
-  for (const s of slots) {
-    if (!byDay.has(s.dia_semana)) byDay.set(s.dia_semana, { starts: [], ends: [] })
-    const e = byDay.get(s.dia_semana)!
-    if (s.hora_inicio) e.starts.push(s.hora_inicio)
-    if (s.hora_fin) e.ends.push(s.hora_fin)
-  }
-  for (const [n, { starts, ends }] of byDay) {
-    const name = dayNames[n]; if (!name) continue
-    result[name] = { start: starts.sort()[0] ?? '08:00', end: ends.sort().reverse()[0] ?? '18:00', active: true }
-  }
-  return result
 }
 
 async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdmision[], errors: string[]): Promise<number> {

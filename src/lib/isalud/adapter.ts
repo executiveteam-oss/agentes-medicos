@@ -328,85 +328,62 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
   const all: ISaludAdmision[] = []
   const errors: string[] = []
   const today = new Date()
+  const context = page.context()
 
-  console.log(`[iSalud] Navigating to /admision`)
-  await page.goto(`${baseUrl}/admision`, { waitUntil: 'domcontentloaded', timeout: 30000 })
-  console.log(`[iSalud] Admision URL: ${page.url()}, title: "${await page.title()}"`)
-
-  // Log initial page structure + find visible date inputs
-  const admInfo = await page.evaluate(() => {
-    const tables = document.querySelectorAll('table')
-    const rows = document.querySelectorAll('table tbody tr')
-    const inputs: Array<{ name: string; id: string; type: string; visible: boolean; value: string }> = []
-    document.querySelectorAll('input').forEach((el) => {
-      const rect = el.getBoundingClientRect()
-      inputs.push({
-        name: el.name, id: el.id, type: el.type,
-        visible: rect.width > 0 && rect.height > 0 && el.offsetParent !== null,
-        value: el.value,
-      })
-    })
-    return { tables: tables.length, rows: rows.length, inputs }
-  })
-  console.log(`[iSalud] Admision page: ${admInfo.tables} tables, ${admInfo.rows} rows`)
-  console.log(`[iSalud] All inputs:`)
-  admInfo.inputs.forEach((inp) => console.log(`[iSalud]   ${inp.name || inp.id || '(anon)'} [${inp.type}] visible=${inp.visible} value="${inp.value}"`))
-
-  // Strategy: navigate via URL param for each day (most reliable — no form manipulation)
+  // Build date list
+  const dates: string[] = []
   for (let d = 0; d < diasAdelante; d++) {
     const date = new Date(today); date.setDate(date.getDate() + d)
-    const fechaStr = date.toISOString().split('T')[0]
-    try {
-      // Navigate to admision with date param — avoids hidden input issues
-      await page.goto(`${baseUrl}/admision?fecha=${fechaStr}`, { waitUntil: 'domcontentloaded', timeout: 15000 })
-      await page.waitForTimeout(1500)
-
-      if (d === 0) {
-        try { await page.selectOption('.dataTables_length select', '-1') } catch {
-          try { await page.selectOption('.dataTables_length select', '100') } catch {}
-        }
-        await page.waitForTimeout(800)
-
-        // Log what we see for first day
-        const firstDayInfo = await page.evaluate(() => {
-          const rows = document.querySelectorAll('table tbody tr')
-          const headers: string[] = []
-          document.querySelectorAll('table thead th').forEach((th) => { headers.push(th.textContent?.trim() ?? '') })
-          const sample: string[][] = []
-          for (let i = 0; i < Math.min(2, rows.length); i++) {
-            const cells: string[] = []
-            rows[i].querySelectorAll('td').forEach((td) => { cells.push(td.textContent?.trim()?.slice(0, 25) ?? '') })
-            sample.push(cells)
-          }
-          return { headers, rowCount: rows.length, sample }
-        })
-        console.log(`[iSalud] Admision ${fechaStr}: ${firstDayInfo.rowCount} rows`)
-        console.log(`[iSalud] Admision headers: [${firstDayInfo.headers.join(' | ')}]`)
-        firstDayInfo.sample.forEach((row, i) => console.log(`[iSalud] Admision row ${i}: [${row.join(' | ')}]`))
-      }
-
-      const dayData = await page.evaluate((fecha) => {
-        const r: Array<{ id: string; identificacion: string; nombre_paciente: string; procedimiento: string; aseguradora: string; profesional_nombre: string; ubicacion: string; hora_inicial: string; fase: string; fecha: string }> = []
-        document.querySelectorAll('table tbody tr').forEach((row) => {
-          const c = row.querySelectorAll('td'); if (c.length < 8) return
-          const id = c[0]?.textContent?.trim() ?? '', prof = (c[5]?.textContent?.trim() ?? '').toUpperCase(), fase = c[8]?.textContent?.trim() ?? 'Programado'
-          if (!id || !prof || (fase !== 'Programado' && fase !== 'Admitido')) return
-          r.push({ id, identificacion: c[1]?.textContent?.trim() ?? '', nombre_paciente: c[2]?.textContent?.trim() ?? '', procedimiento: c[3]?.textContent?.trim() ?? '', aseguradora: c[4]?.textContent?.trim() ?? '', profesional_nombre: prof, ubicacion: c[6]?.textContent?.trim() ?? '', hora_inicial: (c[7]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''), fase, fecha })
-        })
-        return r
-      }, fechaStr)
-
-      if (dayData) all.push(...dayData)
-
-      if (d === 0 || d % 10 === 0) {
-        console.log(`[iSalud] Admision day ${d} (${fechaStr}): ${dayData?.length ?? 0} citas, total: ${all.length}`)
-      }
-    } catch (err) {
-      const errMsg = `${fechaStr}: ${err instanceof Error ? err.message : String(err)}`
-      errors.push(errMsg)
-      if (d < 3) console.error(`[iSalud] Error: ${errMsg}`)
-    }
+    dates.push(date.toISOString().split('T')[0])
   }
+
+  console.log(`[iSalud] Scraping admisiones: ${dates.length} days in batches of 5`)
+
+  // Process in parallel batches of 5 pages
+  const BATCH_SIZE = 5
+  for (let b = 0; b < dates.length; b += BATCH_SIZE) {
+    const batch = dates.slice(b, b + BATCH_SIZE)
+
+    const results = await Promise.allSettled(batch.map(async (fechaStr, idx) => {
+      const p = await context.newPage()
+      try {
+        await p.goto(`${baseUrl}/admision?fecha=${fechaStr}`, { waitUntil: 'domcontentloaded', timeout: 15000 })
+        await p.waitForTimeout(1500)
+
+        // Log first day headers
+        if (b === 0 && idx === 0) {
+          const info = await p.evaluate(() => {
+            const headers: string[] = []; document.querySelectorAll('table thead th').forEach((th) => { headers.push(th.textContent?.trim() ?? '') })
+            return { rows: document.querySelectorAll('table tbody tr').length, headers }
+          })
+          console.log(`[iSalud] Admision headers: [${info.headers.join(' | ')}], ${info.rows} rows`)
+        }
+
+        const dayData = await p.evaluate((fecha) => {
+          const r: Array<{ id: string; identificacion: string; nombre_paciente: string; procedimiento: string; aseguradora: string; profesional_nombre: string; ubicacion: string; hora_inicial: string; fase: string; fecha: string }> = []
+          document.querySelectorAll('table tbody tr').forEach((row) => {
+            const c = row.querySelectorAll('td'); if (c.length < 8) return
+            const id = c[0]?.textContent?.trim() ?? '', prof = (c[5]?.textContent?.trim() ?? '').toUpperCase(), fase = c[8]?.textContent?.trim() ?? 'Programado'
+            if (!id || !prof || (fase !== 'Programado' && fase !== 'Admitido')) return
+            r.push({ id, identificacion: c[1]?.textContent?.trim() ?? '', nombre_paciente: c[2]?.textContent?.trim() ?? '', procedimiento: c[3]?.textContent?.trim() ?? '', aseguradora: c[4]?.textContent?.trim() ?? '', profesional_nombre: prof, ubicacion: c[6]?.textContent?.trim() ?? '', hora_inicial: (c[7]?.textContent?.trim() ?? '').replace(/:\d{2}$/, ''), fase, fecha })
+          })
+          return r
+        }, fechaStr)
+
+        return dayData ?? []
+      } finally {
+        await p.close()
+      }
+    }))
+
+    for (const r of results) {
+      if (r.status === 'fulfilled') all.push(...r.value)
+      else errors.push(r.reason?.message ?? 'Unknown error')
+    }
+
+    console.log(`[iSalud] Batch ${Math.floor(b / BATCH_SIZE) + 1}/${Math.ceil(dates.length / BATCH_SIZE)}: ${all.length} total citas`)
+  }
+
   console.log(`[iSalud] Admision COMPLETE: ${all.length} citas in ${diasAdelante} days, ${errors.length} errors`)
   return { admisiones: all, errors }
 }

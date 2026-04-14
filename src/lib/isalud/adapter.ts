@@ -2,7 +2,7 @@
 // iSalud Adapter — Playwright headless (Vercel Pro)
 // ============================================================
 
-import { chromium as playwrightChromium, type Browser, type Page } from 'playwright-core'
+import { chromium as playwrightChromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 
 // --- Types ---
 
@@ -34,33 +34,63 @@ export interface ScrapeResult {
 
 const CHROMIUM_REMOTE_URL = 'https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar'
 
-async function launchBrowser(): Promise<Browser> {
+async function launchBrowserAndContext(): Promise<{ browser: Browser; context: BrowserContext }> {
   console.log(`[iSalud] Launching browser (NODE_ENV=${process.env.NODE_ENV})`)
 
+  let browser: Browser
   if (process.env.NODE_ENV === 'development') {
-    return playwrightChromium.launch({ headless: true })
+    browser = await playwrightChromium.launch({ headless: true })
+  } else {
+    const chromiumPkg = await import('@sparticuz/chromium')
+    chromiumPkg.default.setGraphicsMode = false
+
+    let executablePath: string
+    try {
+      executablePath = await chromiumPkg.default.executablePath()
+      console.log(`[iSalud] Chromium local path: ${executablePath}`)
+    } catch {
+      console.log('[iSalud] Local chromium not found — downloading from remote...')
+      executablePath = await chromiumPkg.default.executablePath(CHROMIUM_REMOTE_URL)
+      console.log(`[iSalud] Chromium downloaded to: ${executablePath}`)
+    }
+
+    browser = await playwrightChromium.launch({
+      args: [
+        ...chromiumPkg.default.args,
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+      ],
+      executablePath,
+      headless: true,
+    })
   }
 
-  const chromiumPkg = await import('@sparticuz/chromium')
-  chromiumPkg.default.setGraphicsMode = false
-
-  let executablePath: string
-  try {
-    // Try local bin first (works if outputFileTracingIncludes is correct)
-    executablePath = await chromiumPkg.default.executablePath()
-    console.log(`[iSalud] Chromium local path: ${executablePath}`)
-  } catch {
-    // Fallback: download chromium to /tmp on cold start
-    console.log('[iSalud] Local chromium not found — downloading from remote...')
-    executablePath = await chromiumPkg.default.executablePath(CHROMIUM_REMOTE_URL)
-    console.log(`[iSalud] Chromium downloaded to: ${executablePath}`)
-  }
-
-  return playwrightChromium.launch({
-    args: chromiumPkg.default.args,
-    executablePath,
-    headless: true,
+  // Create context that looks like a real browser
+  const context = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    locale: 'es-CO',
+    timezoneId: 'America/Bogota',
+    viewport: { width: 1280, height: 800 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+    javaScriptEnabled: true,
+    extraHTTPHeaders: { 'Accept-Language': 'es-CO,es;q=0.9,en;q=0.8' },
   })
+
+  // Hide webdriver detection
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] })
+    Object.defineProperty(navigator, 'languages', { get: () => ['es-CO', 'es'] })
+    // @ts-ignore
+    window.chrome = { runtime: {} }
+  })
+
+  console.log('[iSalud] Browser + context created with anti-detection')
+  return { browser, context }
 }
 
 // --- Login ---
@@ -69,7 +99,15 @@ async function loginPage(page: Page, credentials: ISaludCredentials): Promise<vo
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
   console.log(`[iSalud] Navigating to ${baseUrl}/login`)
   await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 })
-  console.log(`[iSalud] Login page loaded: ${page.url()}, title: "${await page.title()}"`)
+  await page.waitForTimeout(2000) // Let JS render
+
+  const html = await page.content()
+  console.log(`[iSalud] Login page URL: ${page.url()}, title: "${await page.title()}"`)
+  console.log(`[iSalud] Login HTML length: ${html.length}`)
+  console.log(`[iSalud] Login HTML preview: ${html.slice(0, 500)}`)
+  console.log(`[iSalud] Has login[Usuario]: ${html.includes('login[Usuario]')}`)
+  console.log(`[iSalud] Has login[Clave]: ${html.includes('login[Clave]')}`)
+  console.log(`[iSalud] Has form tag: ${html.includes('<form')}`)
 
   // Log all form inputs for debugging
   const inputs = await page.evaluate(() => {
@@ -79,7 +117,7 @@ async function loginPage(page: Page, credentials: ISaludCredentials): Promise<vo
     })
     return result
   })
-  console.log(`[iSalud] Login form inputs: ${inputs.join(', ')}`)
+  console.log(`[iSalud] Login form inputs: ${inputs.join(', ') || 'NONE'}`)
 
   // Try exact selectors first, fall back to alternatives
   const userField = await page.locator('input[name="login[Usuario]"]').count()
@@ -362,9 +400,10 @@ export async function scrapeISalud(credentials: ISaludCredentials, options: { di
   const errors: string[] = []
   let browser: Browser | null = null
   try {
-    browser = await launchBrowser()
+    const launched = await launchBrowserAndContext()
+    browser = launched.browser
     console.log('[iSalud] Browser launched OK')
-    const page = await browser.newPage()
+    const page = await launched.context.newPage()
     await loginPage(page, credentials)
     let profesionales: ISaludProfesional[] = []
     try { profesionales = await scrapeProfesionales(page, credentials) } catch (e) { errors.push(`Profesionales: ${e instanceof Error ? e.message : String(e)}`); console.error(`[iSalud] Profesionales error: ${e}`) }
@@ -386,8 +425,9 @@ export async function scrapeISalud(credentials: ISaludCredentials, options: { di
 export async function testISaludConnection(credentials: ISaludCredentials): Promise<{ ok: boolean; error?: string }> {
   let browser: Browser | null = null
   try {
-    browser = await launchBrowser()
-    const page = await browser.newPage()
+    const launched = await launchBrowserAndContext()
+    browser = launched.browser
+    const page = await launched.context.newPage()
     await loginPage(page, credentials)
     return { ok: true }
   } catch (err) {

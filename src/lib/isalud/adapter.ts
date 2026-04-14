@@ -93,105 +93,126 @@ async function launchBrowserAndContext(): Promise<{ browser: Browser; context: B
   return { browser, context }
 }
 
-// --- Login ---
+// --- Login via HTTP, then inject cookies into Playwright context ---
 
-async function loginPage(page: Page, credentials: ISaludCredentials): Promise<void> {
+async function loginAndInjectCookies(context: BrowserContext, credentials: ISaludCredentials): Promise<Page> {
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
-  console.log(`[iSalud] Navigating to ${baseUrl}/login`)
-  await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded', timeout: 30000 })
-  await page.waitForTimeout(2000) // Let JS render
+  console.log(`[iSalud] VERSION 3 - ${new Date().toISOString()}`)
+  console.log(`[iSalud] HTTP login to ${baseUrl}/login`)
 
-  const html = await page.content()
-  console.log(`[iSalud] Login page URL: ${page.url()}, title: "${await page.title()}"`)
-  console.log(`[iSalud] Login HTML length: ${html.length}`)
-  console.log(`[iSalud] Login HTML preview: ${html.slice(0, 500)}`)
-  console.log(`[iSalud] Has login[Usuario]: ${html.includes('login[Usuario]')}`)
-  console.log(`[iSalud] Has login[Clave]: ${html.includes('login[Clave]')}`)
-  console.log(`[iSalud] Has form tag: ${html.includes('<form')}`)
+  // Step 1: GET login page to extract CSRF token + cookies
+  const loginPageRes = await fetch(`${baseUrl}/login`, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' },
+  })
+  const loginHtml = await loginPageRes.text()
+  const initialCookies = extractAllSetCookies(loginPageRes)
+  console.log(`[iSalud] GET /login: status ${loginPageRes.status}, HTML ${loginHtml.length} chars, cookies: ${initialCookies.length}`)
 
-  // Log all form inputs for debugging
-  const inputs = await page.evaluate(() => {
-    const result: string[] = []
-    document.querySelectorAll('input').forEach((el) => {
-      result.push(`${el.name || el.id || '(no-name)'}[${el.type}]`)
+  // Extract CSRF token
+  const csrfMatch = loginHtml.match(/name="login\[_csrf_token\]"\s+value="([^"]+)"/)
+  const csrfToken = csrfMatch?.[1] ?? ''
+  console.log(`[iSalud] CSRF token: ${csrfToken ? csrfToken.slice(0, 10) + '...' : 'NOT FOUND'}`)
+  console.log(`[iSalud] Has login[Usuario] in HTML: ${loginHtml.includes('login[Usuario]')}`)
+
+  // Step 2: POST login
+  const cookieHeader = initialCookies.map((c) => `${c.name}=${c.value}`).join('; ')
+  const formData = new URLSearchParams({
+    'login[Usuario]': credentials.username,
+    'login[Clave]': credentials.password,
+    'login[_csrf_token]': csrfToken,
+  })
+
+  const loginRes = await fetch(`${baseUrl}/login`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': cookieHeader,
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Referer': `${baseUrl}/login`,
+    },
+    body: formData.toString(),
+    redirect: 'manual',
+  })
+
+  const postCookies = extractAllSetCookies(loginRes)
+  const location = loginRes.headers.get('location') ?? ''
+  console.log(`[iSalud] POST /login: status ${loginRes.status}, redirect: "${location}", new cookies: ${postCookies.length}`)
+
+  if (loginRes.status === 422 || location.includes('/login')) {
+    console.error(`[iSalud] Login FAILED — status ${loginRes.status}`)
+    throw new Error('Login fallido — credenciales inválidas')
+  }
+
+  // Merge all cookies
+  const allCookies = [...initialCookies]
+  for (const nc of postCookies) {
+    const idx = allCookies.findIndex((c) => c.name === nc.name)
+    if (idx >= 0) allCookies[idx] = nc; else allCookies.push(nc)
+  }
+  console.log(`[iSalud] Total cookies to inject: ${allCookies.length} (${allCookies.map((c) => c.name).join(', ')})`)
+
+  // Step 3: Follow redirect if needed (to get more cookies)
+  if (location && !location.includes('/login')) {
+    const redirectUrl = location.startsWith('http') ? location : `${baseUrl}${location}`
+    const redirectRes = await fetch(redirectUrl, {
+      headers: {
+        'Cookie': allCookies.map((c) => `${c.name}=${c.value}`).join('; '),
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+      redirect: 'manual',
     })
-    return result
+    const redirectCookies = extractAllSetCookies(redirectRes)
+    for (const nc of redirectCookies) {
+      const idx = allCookies.findIndex((c) => c.name === nc.name)
+      if (idx >= 0) allCookies[idx] = nc; else allCookies.push(nc)
+    }
+    console.log(`[iSalud] Redirect ${redirectRes.status} → ${redirectRes.headers.get('location') ?? 'no further redirect'}, +${redirectCookies.length} cookies`)
+  }
+
+  // Step 4: Inject cookies into Playwright context
+  const domain = `${credentials.subdomain}.isalud.co`
+  await context.addCookies(allCookies.map((c) => ({
+    name: c.name,
+    value: c.value,
+    domain,
+    path: '/',
+  })))
+  console.log(`[iSalud] Cookies injected into Playwright context`)
+
+  // Step 5: Navigate Playwright to a post-login page to verify
+  const page = await context.newPage()
+  await page.goto(`${baseUrl}/disponibilidad`, { waitUntil: 'domcontentloaded', timeout: 30000 })
+  await page.waitForTimeout(2000)
+
+  const finalUrl = page.url()
+  console.log(`[iSalud] Playwright navigated to: ${finalUrl}, title: "${await page.title()}"`)
+
+  if (finalUrl.includes('/login')) {
+    console.error('[iSalud] Session cookies not working — redirected back to login')
+    throw new Error('Login HTTP exitoso pero las cookies no mantienen la sesión en Playwright')
+  }
+
+  console.log('[iSalud] Login complete via HTTP + cookie injection')
+  return page
+}
+
+// --- Cookie parser for fetch responses ---
+
+interface ParsedCookie { name: string; value: string }
+
+function extractAllSetCookies(res: Response): ParsedCookie[] {
+  const cookies: ParsedCookie[] = []
+  // Headers.forEach iterates all headers including duplicates
+  res.headers.forEach((value, key) => {
+    if (key.toLowerCase() === 'set-cookie') {
+      const nameValue = value.split(';')[0]
+      const eqIdx = nameValue.indexOf('=')
+      if (eqIdx > 0) {
+        cookies.push({ name: nameValue.slice(0, eqIdx), value: nameValue.slice(eqIdx + 1) })
+      }
+    }
   })
-  console.log(`[iSalud] Login form inputs: ${inputs.join(', ') || 'NONE'}`)
-
-  // Try exact selectors first, fall back to alternatives
-  const userField = await page.locator('input[name="login[Usuario]"]').count()
-  const claveField = await page.locator('input[name="login[Clave]"]').count()
-  console.log(`[iSalud] login[Usuario]: ${userField > 0 ? 'FOUND' : 'NOT FOUND'}, login[Clave]: ${claveField > 0 ? 'FOUND' : 'NOT FOUND'}`)
-
-  if (userField > 0 && claveField > 0) {
-    await page.fill('input[name="login[Usuario]"]', credentials.username)
-    await page.fill('input[name="login[Clave]"]', credentials.password)
-  } else {
-    // Fallback: try common alternatives
-    console.log('[iSalud] Trying fallback selectors...')
-    const textInputs = page.locator('input[type="text"], input:not([type])')
-    const passInputs = page.locator('input[type="password"]')
-    console.log(`[iSalud] Text inputs: ${await textInputs.count()}, Password inputs: ${await passInputs.count()}`)
-
-    if (await textInputs.count() > 0) await textInputs.first().fill(credentials.username)
-    if (await passInputs.count() > 0) await passInputs.first().fill(credentials.password)
-  }
-
-  // Log all clickable elements for debugging
-  const buttons = await page.evaluate(() => {
-    const els = document.querySelectorAll('button, input[type="submit"], a.btn, [type="submit"], .btn, .btn-primary')
-    return Array.from(els).map(el => ({
-      tag: el.tagName, type: el.getAttribute('type'),
-      text: el.textContent?.trim().slice(0, 50),
-      className: el.className, id: el.id,
-    }))
-  })
-  console.log(`[iSalud] Botones encontrados: ${JSON.stringify(buttons)}`)
-
-  const formHtml = await page.evaluate(() =>
-    document.querySelector('form')?.outerHTML?.slice(0, 1500) ?? 'NO FORM FOUND'
-  )
-  console.log(`[iSalud] Form HTML: ${formHtml}`)
-
-  // Submit — try multiple selectors, fallback to Enter key
-  const submitSelectors = 'button[type="submit"], input[type="submit"], button:has-text("Ingresar"), button:has-text("Entrar"), button:has-text("Iniciar"), .btn-primary, [type="submit"]'
-  const submitBtn = await page.$(submitSelectors)
-
-  await Promise.all([
-    page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 30000 }).catch(() => {}),
-    submitBtn
-      ? submitBtn.click().then(() => console.log('[iSalud] Clicked submit button'))
-      : page.locator('input[name="login[Clave]"]').press('Enter').then(() => console.log('[iSalud] Pressed Enter on password field')),
-  ])
-
-  // Wait for post-login page to settle
-  await Promise.race([
-    page.waitForSelector('.navbar, nav, .sidebar', { timeout: 20000 }),
-    page.waitForURL((url) => !url.toString().includes('/login'), { timeout: 20000 }),
-  ]).catch(() => {})
-
-  await page.waitForTimeout(3000)
-
-  const currentUrl = page.url()
-  console.log(`[iSalud] Post-login URL: ${currentUrl}, title: "${await page.title()}"`)
-
-  if (currentUrl.includes('/login')) {
-    const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 300))
-    console.error(`[iSalud] Login FAILED. Page text: ${bodyText}`)
-    throw new Error('Login fallido — sigue en /login después del submit')
-  }
-
-  // Handle "Cambiar Centro de atención"
-  const cambiarBtn = page.locator('button:has-text("Cambiar"), a:has-text("Cambiar")')
-  const cambiarCount = await cambiarBtn.count()
-  console.log(`[iSalud] "Cambiar" buttons: ${cambiarCount}`)
-  if (cambiarCount > 0) {
-    await cambiarBtn.first().click()
-    await page.waitForTimeout(3000)
-    console.log(`[iSalud] After Cambiar: ${page.url()}`)
-  }
-  console.log(`[iSalud] Login complete: ${page.url()}`)
+  return cookies
 }
 
 // --- Scrape profesionales ---
@@ -403,8 +424,7 @@ export async function scrapeISalud(credentials: ISaludCredentials, options: { di
     const launched = await launchBrowserAndContext()
     browser = launched.browser
     console.log('[iSalud] Browser launched OK')
-    const page = await launched.context.newPage()
-    await loginPage(page, credentials)
+    const page = await loginAndInjectCookies(launched.context, credentials)
     let profesionales: ISaludProfesional[] = []
     try { profesionales = await scrapeProfesionales(page, credentials) } catch (e) { errors.push(`Profesionales: ${e instanceof Error ? e.message : String(e)}`); console.error(`[iSalud] Profesionales error: ${e}`) }
     const admResult = await scrapeAdmisiones(page, credentials, dias)
@@ -427,8 +447,8 @@ export async function testISaludConnection(credentials: ISaludCredentials): Prom
   try {
     const launched = await launchBrowserAndContext()
     browser = launched.browser
-    const page = await launched.context.newPage()
-    await loginPage(page, credentials)
+    const page = await loginAndInjectCookies(launched.context, credentials)
+    await page.close()
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Error de conexión' }

@@ -248,7 +248,7 @@ function Step3({ onNext }: { onNext: () => void }) {
     const fd = new FormData(e.currentTarget)
     await updateWhatsappConfig({
       whatsapp_phone_id: fd.get('phone_id') as string,
-      whatsapp_token: fd.get('token') as string,
+      whatsapp_access_token: fd.get('token') as string,
     })
 
     onNext()

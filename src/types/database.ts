@@ -85,8 +85,8 @@ export interface Clinic {
   slug: string
   phone: string
   whatsapp_phone_id: string | null
-  whatsapp_token: string | null
-  whatsapp_access_token: string | null
+  whatsapp_token: string | null              // DEPRECATED — usar whatsapp_access_token
+  whatsapp_access_token: string | null       // Columna canónica para el token de WhatsApp
   whatsapp_app_secret: string | null
   whatsapp_verify_token: string | null
   whatsapp_connected: boolean

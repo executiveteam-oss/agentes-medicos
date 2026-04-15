@@ -186,12 +186,12 @@ export async function sendStaffMessage(
     // Credenciales WhatsApp de la clínica
     const { data: clinic } = await supabaseAdmin
       .from('clinics')
-      .select('whatsapp_phone_id, whatsapp_token')
+      .select('whatsapp_phone_id, whatsapp_access_token')
       .eq('id', clinicId)
       .single()
 
-    const clinicCreds = clinic?.whatsapp_phone_id && clinic?.whatsapp_token
-      ? { phoneNumberId: clinic.whatsapp_phone_id, accessToken: clinic.whatsapp_token }
+    const clinicCreds = clinic?.whatsapp_phone_id && clinic?.whatsapp_access_token
+      ? { phoneNumberId: clinic.whatsapp_phone_id, accessToken: clinic.whatsapp_access_token }
       : null
 
     // Enviar por WhatsApp

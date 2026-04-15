@@ -133,17 +133,17 @@ export async function inviteUser(data: {
 /** Paso 4: Actualizar configuración de WhatsApp (opcional) */
 export async function updateWhatsappConfig(data: {
   whatsapp_phone_id: string
-  whatsapp_token: string
+  whatsapp_access_token: string
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const clinicId = await getSessionClinicId()
 
-    // TODO SECURITY: whatsapp_token almacenado como texto plano — migrar a Supabase Vault (SEC-001)
+    // TODO SECURITY: whatsapp_access_token almacenado como texto plano — migrar a Supabase Vault (SEC-001)
     const { error } = await supabaseAdmin
       .from('clinics')
       .update({
         whatsapp_phone_id: data.whatsapp_phone_id || null,
-        whatsapp_token: data.whatsapp_token || null,
+        whatsapp_access_token: data.whatsapp_access_token || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', clinicId)

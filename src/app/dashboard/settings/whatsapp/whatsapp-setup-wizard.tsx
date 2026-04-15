@@ -20,7 +20,7 @@ interface Props {
 }
 
 const TOTAL_STEPS = 5
-const WEBHOOK_URL = 'https://agentes-medicos-ten.vercel.app/api/webhooks/whatsapp'
+const WEBHOOK_URL = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://agentes-medicos-ten.vercel.app'}/api/webhooks/whatsapp`
 
 // ============================================================
 // Iconos SVG por paso (sin emoji)

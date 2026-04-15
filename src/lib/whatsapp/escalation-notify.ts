@@ -69,7 +69,7 @@ export async function notifyEscalationContact({
       `Hora: ${timeStr}`,
       ``,
       `👉 Ver conversación:`,
-      `https://agentes-medicos-ten.vercel.app/dashboard/conversations`,
+      `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://agentes-medicos-ten.vercel.app'}/dashboard/conversations`,
     ].join('\n')
 
     await sendWhatsAppMessage(contactPhone, message, clinicCreds)
@@ -98,7 +98,7 @@ export async function notifyEscalationContact({
             <tr><td style="padding: 4px 12px 4px 0; color: #64748b;">Hora</td><td>${timeStr}</td></tr>
           </table>
           <p style="margin-top: 16px;">
-            <a href="https://agentes-medicos-ten.vercel.app/dashboard/conversations" style="color: #028090;">Ver conversación →</a>
+            <a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://agentes-medicos-ten.vercel.app'}/dashboard/conversations" style="color: #028090;">Ver conversación →</a>
           </p>
         </div>
       `,

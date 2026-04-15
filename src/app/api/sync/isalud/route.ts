@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json() as {
-    action: 'test' | 'import' | 'force_sync'
+    action: 'test' | 'import' | 'force_sync' | 'delete'
     credentials?: { subdomain: string; username: string; password: string }
   }
 
@@ -61,6 +61,13 @@ export async function POST(request: NextRequest) {
       clinicId
     )
     return NextResponse.json(result)
+  }
+
+  if (body.action === 'delete') {
+    await supabaseAdmin.from('appointments').delete().eq('clinic_id', clinicId).eq('external_source', 'isalud')
+    await supabaseAdmin.from('doctor_external_mappings').delete().eq('clinic_id', clinicId).eq('provider', 'isalud')
+    await supabaseAdmin.from('sync_integrations').delete().eq('clinic_id', clinicId).eq('provider', 'isalud')
+    return NextResponse.json({ ok: true })
   }
 
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 })

@@ -24,15 +24,16 @@ export function ISaludSyncButton({ integration }: { integration: SyncIntegration
   const [showModal, setShowModal] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   if (integration) {
-    // Already connected — show status + force sync button
     const lastSync = integration.last_synced_at
       ? new Date(integration.last_synced_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })
       : 'Nunca'
 
     return (
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-sm">
           <div className="w-2 h-2 rounded-full bg-emerald-500" />
           <span className="text-slate-600">iSalud</span>
@@ -40,27 +41,54 @@ export function ISaludSyncButton({ integration }: { integration: SyncIntegration
         </div>
         <button
           onClick={async () => {
-            setSyncing(true)
-            setSyncMsg('')
+            setSyncing(true); setSyncMsg('')
             try {
-              const res = await fetch('/api/sync/isalud', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'force_sync' }),
-              })
+              const res = await fetch('/api/sync/isalud', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'force_sync' }) })
               const data = await res.json()
               setSyncMsg(`+${data.doctors_created ?? 0} docs, ${data.appointments_blocked ?? 0} bloqueadas`)
-            } catch {
-              setSyncMsg('Error sincronizando')
-            }
+            } catch { setSyncMsg('Error') }
             setSyncing(false)
           }}
-          disabled={syncing}
+          disabled={syncing || deleting}
           className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
         >
           {syncing ? 'Sincronizando...' : 'Forzar sync'}
         </button>
+        <button
+          onClick={() => setShowModal(true)}
+          disabled={deleting}
+          className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          Cambiar credenciales
+        </button>
+        {!confirmDelete ? (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={deleting}
+            className="text-xs text-red-400 hover:text-red-600 transition-colors"
+          >
+            Eliminar
+          </button>
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <span className="text-xs text-red-600">¿Seguro?</span>
+            <button
+              onClick={async () => {
+                setDeleting(true)
+                await fetch('/api/sync/isalud', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete' }) })
+                window.location.reload()
+              }}
+              className="text-xs text-red-600 font-semibold hover:text-red-800"
+            >
+              Sí, eliminar
+            </button>
+            <button onClick={() => setConfirmDelete(false)} className="text-xs text-slate-400 hover:text-slate-600">
+              No
+            </button>
+          </span>
+        )}
         {syncMsg && <span className="text-xs text-emerald-600">{syncMsg}</span>}
+        {showModal && <ISaludImportModal onClose={() => setShowModal(false)} />}
       </div>
     )
   }

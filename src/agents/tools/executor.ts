@@ -256,11 +256,15 @@ async function checkAvailability(
   if (consultationTypeId) {
     const { data: ctData } = await supabaseAdmin
       .from('consultation_types')
-      .select('duration_minutes')
+      .select('duration_minutes, doctor_id')
       .eq('id', consultationTypeId)
       .eq('clinic_id', clinicId)
       .single()
     if (ctData) {
+      // Warn if consultation type doesn't match the doctor
+      if (ctData.doctor_id && ctData.doctor_id !== doctorId) {
+        return { success: false, error: 'Ese tipo de consulta no corresponde a este doctor. Pregunta al paciente qué tipo de consulta necesita con este doctor.' }
+      }
       duration = ctData.duration_minutes
     }
   }
@@ -370,13 +374,18 @@ async function createAppointment(
   if (consultationTypeId) {
     const { data: ctData } = await supabaseAdmin
       .from('consultation_types')
-      .select('duration_minutes')
+      .select('id, duration_minutes, doctor_id')
       .eq('id', consultationTypeId)
       .eq('clinic_id', clinicId)
       .single()
-    if (ctData) {
-      duration = ctData.duration_minutes
+
+    if (!ctData) {
+      return { success: false, error: 'Tipo de consulta no encontrado. Verifica el ID y ofrece las opciones disponibles al paciente.' }
     }
+    if (ctData.doctor_id && ctData.doctor_id !== doctorId) {
+      return { success: false, error: 'Ese tipo de consulta no corresponde al doctor seleccionado. Pregunta al paciente qué tipo de consulta necesita con este doctor.' }
+    }
+    duration = ctData.duration_minutes
   }
 
   const endsAt = calculateEndTime(startsAt, duration)

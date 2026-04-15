@@ -203,38 +203,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
           El agente usa el precio para responder preguntas de pacientes.
         </p>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
-              Precio de consulta (COP)
-            </label>
-            <input
-              type="number"
-              value={data.consultation_price ?? ''}
-              onChange={(e) => update('consultation_price', e.target.value ? Number(e.target.value) : null)}
-              placeholder="80000"
-              className="input-field w-full"
-            />
-            {data.consultation_price != null && data.consultation_price > 0 && (
-              <p className="text-xs text-slate-400 mt-1">
-                ${data.consultation_price.toLocaleString('es-CO')} COP
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
-              Meta diaria de citas
-            </label>
-            <input
-              type="number"
-              min={1}
-              max={50}
-              value={data.daily_goal_appointments}
-              onChange={(e) => update('daily_goal_appointments', Number(e.target.value) || 10)}
-              className="input-field w-full"
-            />
-          </div>
-        </div>
+        {/* Precio de consulta y meta diaria removidos — se configuran por tipo de consulta en cada médico */}
       </div>
 
       {/* --- Reglas de agendamiento --- */}

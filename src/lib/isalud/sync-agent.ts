@@ -245,8 +245,7 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
         continue
       }
     } else {
-      // Check for duplicate starts_at (unique index idx_appointments_no_double_booking)
-      const { error: insertErr } = await supabaseAdmin.from('appointments').insert({
+      const insertPayload = {
         clinic_id: clinicId, doctor_id: doctorId,
         starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
         status: 'blocked_external', source: 'isalud',
@@ -254,9 +253,11 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
         external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(),
         reason: reasonText, notes: notesText,
-      })
+      }
+      const { error: insertErr } = await supabaseAdmin.from('appointments').insert(insertPayload)
       if (insertErr) {
-        if (count < 3) console.error(`[iSalud] Insert failed: ${insertErr.message} | ${externalId} | ${startsAt.toISOString()} | doctor ${doctorId}`)
+        console.error(`[iSalud] INSERT FAILED #${errors.length}: ${insertErr.message} | code=${insertErr.code} | details=${insertErr.details} | hint=${insertErr.hint}`)
+        console.error(`[iSalud] Payload: extId=${externalId} starts=${startsAt.toISOString()} doctor=${doctorId} clinic=${clinicId}`)
         errors.push(`Insert ${externalId}: ${insertErr.message}`)
         continue
       }

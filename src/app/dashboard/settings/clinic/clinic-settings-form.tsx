@@ -426,6 +426,21 @@ export function ClinicSettingsForm({ initialData }: Props) {
         />
       </div>
 
+      {/* --- Mensaje de bienvenida --- */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Mensaje de bienvenida</h3>
+        <p className="text-xs text-slate-400 mb-4">
+          Este es el primer mensaje que reciben tus pacientes al escribirte por WhatsApp. Si lo dejas vacío, el agente genera uno automáticamente.
+        </p>
+        <textarea
+          value={data.welcome_message}
+          onChange={(e) => update('welcome_message', e.target.value)}
+          placeholder="Ej: ¡Hola! Soy el asistente virtual de Algia Clínica. Estoy aquí para ayudarte a agendar tu cita. ¿Con qué especialidad necesitas atención?"
+          className="input-field w-full"
+          rows={3}
+        />
+      </div>
+
       {/* --- Ubicación --- */}
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Ubicación</h3>

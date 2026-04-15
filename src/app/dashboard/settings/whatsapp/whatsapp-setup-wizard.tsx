@@ -309,6 +309,9 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
       {/* ==================== PASO 3 ==================== */}
       {step === 3 && (
         <StepCard num={3} title="Conecta tu numero de WhatsApp" icon={<IconPhone />}>
+          <p className="text-sm text-slate-500 mb-3">
+            Puedes usar el mismo numero que ya tienes en WhatsApp Business. Tu numero sigue funcionando normal en tu celular — Omuwan se conecta en paralelo.
+          </p>
           <div className="space-y-3">
             <Instruction num={1}>
               Dentro de tu app, ve a <strong>WhatsApp → Configuracion</strong>
@@ -334,9 +337,9 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
             <p className="text-xs text-slate-400 mt-1">Solo numeros, aproximadamente 15 digitos</p>
           </div>
 
-          <InfoBanner color="red">
-            Usa un numero que NO este registrado en WhatsApp personal.
-            Si ya esta registrado, primero debes eliminarlo de la app de WhatsApp.
+          <InfoBanner color="blue">
+            Tu numero sigue siendo tuyo. Puedes continuar usandolo en tu celular con WhatsApp Business como siempre.
+            Omuwan se conecta al mismo numero en paralelo — tus pacientes escriben al mismo numero de siempre y el agente responde automaticamente.
           </InfoBanner>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-6">
@@ -643,6 +646,9 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                     </p>
                     <p className="text-xs text-emerald-700 mt-0.5">
                       Los mensajes de pacientes serán respondidos automáticamente por el agente IA.
+                    </p>
+                    <p className="text-xs text-emerald-600 mt-2">
+                      ✓ Tu número no cambia &nbsp; ✓ Tus contactos se mantienen &nbsp; ✓ Puedes desconectar cuando quieras
                     </p>
                   </div>
                 </div>

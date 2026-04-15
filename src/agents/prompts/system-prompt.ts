@@ -18,6 +18,7 @@ interface ExistingPatientData {
   eps: string | null
   email: string | null
   total_appointments: number
+  no_show_count: number
 }
 
 interface SystemPromptParams {
@@ -259,7 +260,11 @@ CONFIRMACIÓN DE CITA (usar este formato EXACTO al confirmar):
 📍 ${fullLocationText}
 
 Te esperamos. Si necesitas cancelar o reagendar, escríbenos con anticipación.
-
+${clinic.cancellation_policy ? `
+POLÍTICA DE CANCELACIÓN DE LA CLÍNICA:
+${clinic.cancellation_policy}
+Cuando un paciente quiera cancelar, informa esta política con amabilidad antes de proceder con la cancelación.
+` : ''}
 ZONA HORARIA: America/Bogota (UTC-5). NO existe horario de verano en Colombia.
 FECHA Y HORA ACTUAL: ${currentDateTime}
 
@@ -466,6 +471,13 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
     lines.push(`- Correo: ${patient.email}`)
   }
   lines.push(`- Citas anteriores: ${patient.total_appointments}`)
+  if (patient.no_show_count > 0) {
+    const rate = patient.total_appointments > 0 ? Math.round((patient.no_show_count / patient.total_appointments) * 100) : 0
+    lines.push(`- Inasistencias (no-shows): ${patient.no_show_count} de ${patient.total_appointments} (${rate}%)`)
+    if (rate > 50) {
+      lines.push('⚠️ PACIENTE DE ALTO RIESGO DE INASISTENCIA — confirma que asistirá y recuérdale la importancia de avisar si no puede ir.')
+    }
+  }
 
   // Campos faltantes
   const missing: string[] = []

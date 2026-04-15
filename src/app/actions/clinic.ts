@@ -37,6 +37,7 @@ export interface ClinicSettingsData {
   logo_url: string
   virtual_config: VirtualConsultationConfig
   escalation_contact_phone: string
+  cancellation_policy: string
 }
 
 // --- Acciones ---
@@ -53,7 +54,7 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
         consultation_price, daily_goal_appointments,
         min_booking_advance_hours, max_booking_advance_days,
         address, city, department, building, floor, office, logo_url,
-        virtual_config, escalation_contact_phone
+        virtual_config, escalation_contact_phone, cancellation_policy
       `)
       .eq('id', clinicId)
       .single()
@@ -79,6 +80,7 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
       logo_url: data.logo_url ?? '',
       virtual_config: { ...DEFAULT_VIRTUAL_CONFIG, ...((data.virtual_config as Partial<VirtualConsultationConfig>) ?? {}) },
       escalation_contact_phone: (data as Record<string, unknown>).escalation_contact_phone as string ?? '',
+      cancellation_policy: (data as Record<string, unknown>).cancellation_policy as string ?? '',
     }
   } catch {
     return null
@@ -117,6 +119,7 @@ export async function saveClinicSettings(
         logo_url: input.logo_url.trim() || null,
         virtual_config: input.virtual_config as unknown as Record<string, unknown>,
         escalation_contact_phone: input.escalation_contact_phone.trim() || null,
+        cancellation_policy: input.cancellation_policy.trim() || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', clinicId)

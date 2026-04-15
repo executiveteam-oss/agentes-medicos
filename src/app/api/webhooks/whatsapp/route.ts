@@ -350,6 +350,7 @@ async function processWebhook(body: unknown): Promise<void> {
             eps: patient.eps,
             email: patient.email,
             total_appointments: patient.total_appointments ?? 0,
+            no_show_count: patient.no_show_count ?? 0,
           }
         : null
 

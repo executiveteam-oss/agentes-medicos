@@ -29,6 +29,7 @@ interface ExistingPatientData {
   eps: string | null
   email: string | null
   total_appointments: number
+  no_show_count: number
 }
 
 interface AgentParams {

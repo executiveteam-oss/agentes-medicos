@@ -442,6 +442,21 @@ export function ClinicSettingsForm({ initialData }: Props) {
         </div>
       </div>
 
+      {/* --- Política de cancelación --- */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Política de cancelación</h3>
+        <p className="text-xs text-slate-400 mb-4">
+          Si configuras una política, el agente la informará al paciente antes de cancelar una cita.
+        </p>
+        <textarea
+          value={data.cancellation_policy}
+          onChange={(e) => update('cancellation_policy', e.target.value)}
+          placeholder="Ej: Las cancelaciones deben realizarse con mínimo 24 horas de anticipación. Cancelaciones de último momento pueden generar un cobro."
+          className="input-field w-full"
+          rows={3}
+        />
+      </div>
+
       {/* --- Ubicación --- */}
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Ubicación</h3>

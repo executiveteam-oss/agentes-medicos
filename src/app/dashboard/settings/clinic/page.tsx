@@ -31,6 +31,7 @@ export default async function ClinicSettingsPage() {
         logo_url: '',
         virtual_config: { enabled: false, platform: 'custom', base_url: null, instructions: null },
         escalation_contact_phone: '',
+        cancellation_policy: '',
       }}
     />
   )

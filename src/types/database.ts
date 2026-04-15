@@ -130,6 +130,7 @@ export interface Clinic {
   invitation_code: string | null          // Código usado al registrarse (migración 00041)
   expected_monthly_appointments: number | null // Citas mensuales esperadas
   onboarded_at: string | null              // Null = no ha completado el wizard (migración 00007)
+  cancellation_policy: string | null       // Política de cancelación (migración 00048)
   created_at: string
   updated_at: string
 }

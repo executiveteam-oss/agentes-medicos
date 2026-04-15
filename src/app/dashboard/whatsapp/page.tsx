@@ -25,9 +25,11 @@ export default async function WhatsAppPage() {
   const [pageData, vacationMessage, clinicData] = await Promise.all([
     getWhatsAppPageData(),
     getVacationMessage(),
-    supabaseAdmin.from('clinics').select('escalation_contact_phone').eq('id', session.clinicId).single(),
+    supabaseAdmin.from('clinics').select('escalation_contact_phone, specialty').eq('id', session.clinicId).single(),
   ])
-  const hasEscalationContact = !!(clinicData.data as Record<string, unknown> | null)?.escalation_contact_phone
+  const clinicRow = clinicData.data as Record<string, unknown> | null
+  const hasEscalationContact = !!clinicRow?.escalation_contact_phone
+  const clinicSpecialties = (Array.isArray(clinicRow?.specialty) ? clinicRow.specialty : []) as string[]
   const { activeConversations, config, doctors, whatsappConnected, whatsappPhoneDisplay } = pageData
 
   return (
@@ -150,7 +152,7 @@ export default async function WhatsAppPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
           Configuración del agente
         </h2>
-        <WhatsAppConfigForm initialConfig={config} doctors={doctors} initialVacationMessage={vacationMessage} />
+        <WhatsAppConfigForm initialConfig={config} doctors={doctors} initialVacationMessage={vacationMessage} clinicSpecialties={clinicSpecialties} />
       </section>
     </div>
   )

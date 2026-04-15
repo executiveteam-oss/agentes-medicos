@@ -45,9 +45,10 @@ interface Props {
   initialConfig: WhatsAppConfig
   doctors: DoctorForConfig[]
   initialVacationMessage?: string | null
+  clinicSpecialties?: string[]
 }
 
-export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, initialVacationMessage }: Props) {
+export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, initialVacationMessage, clinicSpecialties = [] }: Props) {
   const [config, setConfig] = useState<WhatsAppConfig>(initialConfig)
   const [doctors, setDoctors] = useState<DoctorForConfig[]>(initialDoctors)
   const [isPending, startTransition] = useTransition()
@@ -316,6 +317,7 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
               showToast(`Doctor ${doc.name} creado`)
             }}
             onCancel={() => setShowAddDoctor(false)}
+            clinicSpecialties={clinicSpecialties}
           />
         )}
 
@@ -343,6 +345,7 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
                   docStart={docStart}
                   docEnd={docEnd}
                   docDuration={docDuration}
+                  clinicSpecialties={clinicSpecialties}
                   onToggleActive={(active) => {
                     setDoctors((prev) =>
                       prev.map((d) => (d.id === doc.id ? { ...d, is_active: active } : d))
@@ -555,9 +558,11 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
 function AddDoctorForm({
   onCreated,
   onCancel,
+  clinicSpecialties = [],
 }: {
   onCreated: (doc: DoctorForConfig) => void
   onCancel: () => void
+  clinicSpecialties: string[]
 }) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -627,12 +632,14 @@ function AddDoctorForm({
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
-          <input
-            name="specialty"
-            type="text"
-            placeholder="Medicina general"
-            className="input-field w-full"
-          />
+          {clinicSpecialties.length > 0 ? (
+            <select name="specialty" className="input-field w-full">
+              <option value="">Seleccionar...</option>
+              {clinicSpecialties.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          ) : (
+            <p className="text-xs text-amber-500 py-2">Configura especialidades en Configuración → Consultorio</p>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Teléfono</label>
@@ -677,6 +684,7 @@ function DoctorCard({
   docStart,
   docEnd,
   docDuration,
+  clinicSpecialties,
   onToggleActive,
   onAgendaChange,
   onStartEdit,
@@ -712,6 +720,7 @@ function DoctorCard({
   onChangeEnd: (v: string) => void
   onChangeDuration: (v: number) => void
   onScheduleTypeChange: (type: 'fixed' | 'manual', message: string | null) => void
+  clinicSpecialties: string[]
 }) {
   const agendaClosed = doc.agenda_closed ?? false
   const scheduleType = doc.schedule_type ?? 'fixed'
@@ -724,6 +733,7 @@ function DoctorCard({
           doc={doc}
           onSave={onSaveEdit}
           onCancel={onCancelEdit}
+          clinicSpecialties={clinicSpecialties}
         />
       ) : (
         <div className="flex items-center justify-between mb-3">
@@ -744,7 +754,7 @@ function DoctorCard({
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400">{doc.specialty ?? 'General'}</p>
+              <p className={`text-xs ${doc.specialty ? 'text-slate-400' : 'text-amber-500'}`}>{doc.specialty ?? 'Sin especialidad asignada'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -1515,10 +1525,12 @@ function EditDoctorInline({
   doc,
   onSave,
   onCancel,
+  clinicSpecialties = [],
 }: {
   doc: DoctorForConfig
   onSave: (name: string, specialty: string) => void
   onCancel: () => void
+  clinicSpecialties: string[]
 }) {
   const [name, setName] = useState(doc.name)
   const [specialty, setSpecialty] = useState(doc.specialty ?? '')
@@ -1570,11 +1582,14 @@ function EditDoctorInline({
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
-          <input
-            value={specialty}
-            onChange={(e) => setSpecialty(e.target.value)}
-            className="input-field w-full"
-          />
+          {clinicSpecialties.length > 0 ? (
+            <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-field w-full">
+              <option value="">Seleccionar...</option>
+              {clinicSpecialties.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          ) : (
+            <p className="text-xs text-amber-500 py-2">Configura especialidades en Configuración → Consultorio</p>
+          )}
         </div>
       </div>
       {error && <p className="text-red-600 text-xs mt-1">{error}</p>}

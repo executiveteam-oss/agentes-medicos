@@ -11,7 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import { calculateNoShowProbability } from '@/lib/utils/noshow'
 import { syncClinicSheet } from '@/lib/google-sheets'
@@ -164,7 +164,9 @@ async function send72hReminders(
       `Si necesitas cambiar tu cita responde CAMBIAR y te ayudamos de inmediato.`
 
     const whatsappNumber = patient.phone.replace('+', '')
-    const result = await sendWhatsAppMessage(whatsappNumber, message)
+    const creds = await getClinicCreds(apt.clinic_id)
+    if (!creds) { console.warn(`[Cron:72h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
+    const result = await sendWhatsAppMessage(whatsappNumber, message, creds)
 
     if (result) {
       sent++
@@ -270,7 +272,9 @@ async function send24hReminders(
     message += `\n\n¿Confirmas tu cita? Responde:\n✅ SÍ para confirmar\n❌ NO para cancelar\n📅 CAMBIAR para reagendar`
 
     const whatsappNumber = patient.phone.replace('+', '')
-    const result = await sendWhatsAppMessage(whatsappNumber, message)
+    const creds24 = await getClinicCreds(apt.clinic_id)
+    if (!creds24) { console.warn(`[Cron:24h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
+    const result = await sendWhatsAppMessage(whatsappNumber, message, creds24)
 
     if (result) {
       sent++
@@ -393,7 +397,9 @@ async function send2hReminders(
       `Hola ${patient.name}, te esperamos hoy a las ${timeText} con ${doctor.name}. ¡Hasta pronto! 🙂`
 
     const whatsappNumber = patient.phone.replace('+', '')
-    const result = await sendWhatsAppMessage(whatsappNumber, message)
+    const creds2h = await getClinicCreds(apt.clinic_id)
+    if (!creds2h) { console.warn(`[Cron:2h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
+    const result = await sendWhatsAppMessage(whatsappNumber, message, creds2h)
 
     if (result) {
       sent++
@@ -516,7 +522,9 @@ async function sendVirtualLinks(): Promise<{ sent: number; failed: number }> {
     message += '\n\nSi tienes problemas técnicos escríbenos de inmediato.'
 
     const whatsappNumber = patient.phone.replace('+', '')
-    const result = await sendWhatsAppMessage(whatsappNumber, message)
+    const credsVirtual = await getClinicCreds(apt.clinic_id)
+    if (!credsVirtual) continue
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsVirtual)
 
     if (result) {
       sent++
@@ -586,7 +594,9 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
       `Puedes enviarlos por este chat (foto o archivo). ¡Gracias!`
 
     const whatsappNumber = patient.phone.replace('+', '')
-    const result = await sendWhatsAppMessage(whatsappNumber, message)
+    const credsDocs = await getClinicCreds(apt.clinic_id)
+    if (!credsDocs) continue
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsDocs)
 
     if (result) {
       sent++

@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import type { WhatsAppConfig } from '@/types/database'
 
@@ -66,7 +66,7 @@ async function processClinicFollowups(clinicId: string): Promise<{ sent: number;
   const { data: appointments } = await supabaseAdmin
     .from('appointments')
     .select(`
-      id, starts_at, doctor_id,
+      id, starts_at, doctor_id, clinic_id,
       patients(name, phone),
       doctors(name)
     `)
@@ -94,7 +94,9 @@ async function processClinicFollowups(clinicId: string): Promise<{ sent: number;
       `Del 1 al 10, ¿cómo calificarías tu experiencia con nosotros? (responde solo con el número)`
 
     const whatsappNumber = patient.phone.replace('+', '')
-    const result = await sendWhatsAppMessage(whatsappNumber, message)
+    const credsPC = await getClinicCreds(apt.clinic_id)
+    if (!credsPC) continue
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsPC)
 
     if (result) {
       sent++

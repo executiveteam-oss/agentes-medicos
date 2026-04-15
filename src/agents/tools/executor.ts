@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { calculateEndTime, formatForPatient, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
-import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import type { Clinic, Doctor, WorkingDay, WhatsAppConfig, VirtualConsultationConfig } from '@/types/database'
@@ -1006,7 +1006,9 @@ async function notifyWaitlist(
 
     // Quitar el "+" del teléfono para WhatsApp API
     const whatsappNumber = patient.phone.replace('+', '')
-    await sendWhatsAppMessage(whatsappNumber, message)
+    const creds = await getClinicCreds(clinicId)
+    if (!creds) { console.warn(`[notifyWaitlist] Sin WhatsApp: ${clinicId}`); return }
+    await sendWhatsAppMessage(whatsappNumber, message, creds)
   } catch (error) {
     // No es crítico — la cita ya se canceló, el paciente simplemente no se entera
     console.error('[notifyWaitlist] Error:', error)

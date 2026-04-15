@@ -14,7 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import { formatFrequency } from '@/app/actions/reactivation'
 import type { WhatsAppConfig } from '@/types/database'
@@ -128,7 +128,9 @@ async function processClinicReactivation(
     }
 
     const whatsappNumber = patient.phone.replace('+', '')
-    const result = await sendWhatsAppMessage(whatsappNumber, message)
+    const credsReact = await getClinicCreds(clinicId)
+    if (!credsReact) continue
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsReact)
 
     if (result) {
       sent++

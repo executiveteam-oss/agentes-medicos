@@ -6,6 +6,7 @@
 // ============================================================
 
 import type { WhatsAppSendTextPayload } from '@/types/whatsapp'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 
 const WHATSAPP_API_URL = 'https://graph.facebook.com/v21.0'
 
@@ -15,19 +16,14 @@ export interface ClinicWhatsAppCredentials {
   accessToken: string
 }
 
-// Obtener variables de entorno (fallback global)
+// Obtener credenciales — SIEMPRE per-clínica, nunca fallback global
 function getConfig(clinicCreds?: ClinicWhatsAppCredentials | null) {
   if (clinicCreds?.phoneNumberId && clinicCreds?.accessToken) {
     return { phoneNumberId: clinicCreds.phoneNumberId, accessToken: clinicCreds.accessToken }
   }
 
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
-
-  if (!phoneNumberId) throw new Error('Falta WHATSAPP_PHONE_NUMBER_ID en .env.local')
-  if (!accessToken) throw new Error('Falta WHATSAPP_ACCESS_TOKEN en .env.local')
-
-  return { phoneNumberId, accessToken }
+  // Multi-tenant: no usar token global — cada clínica tiene su propio token
+  throw new Error('[WhatsApp] clinicCreds requerido — cada mensaje debe usar el token de la clínica específica')
 }
 
 /**
@@ -133,5 +129,24 @@ export async function markAsRead(
     )
   } catch (error) {
     console.error('[WhatsApp] Error marcando como leído:', error)
+  }
+}
+
+/**
+ * Carga las credenciales de WhatsApp de una clínica desde la DB.
+ * Retorna null si la clínica no tiene WhatsApp configurado.
+ */
+export async function getClinicCreds(clinicId: string): Promise<ClinicWhatsAppCredentials | null> {
+  const { data } = await supabaseAdmin
+    .from('clinics')
+    .select('whatsapp_phone_id, whatsapp_access_token')
+    .eq('id', clinicId)
+    .maybeSingle()
+
+  if (!data?.whatsapp_phone_id || !data?.whatsapp_access_token) return null
+
+  return {
+    phoneNumberId: data.whatsapp_phone_id as string,
+    accessToken: data.whatsapp_access_token as string,
   }
 }

@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { sendEmail } from '@/lib/email/client'
 import { formatTimeForPatient, nowColombia } from '@/lib/utils/dates'
 import { calculateDailyNoShowRisk, calculateNoShowProbability } from '@/lib/utils/noshow'
@@ -97,7 +97,9 @@ async function generateAndSendReport(clinicId: string, clinicName: string): Prom
     // No hay citas hoy, enviar mensaje corto
     const noAptsMessage = `☀️ Buenos días, ${doctor.name}.\n\nNo tienes citas agendadas para hoy. ¡Buen día!`
     const whatsappNumber = doctor.phone.replace('+', '')
-    await sendWhatsAppMessage(whatsappNumber, noAptsMessage)
+    const creds = await getClinicCreds(clinicId)
+    if (!creds) { console.warn(`[Cron:MorningReport] Sin WhatsApp: ${clinicId}`); return }
+    await sendWhatsAppMessage(whatsappNumber, noAptsMessage, creds)
     return
   }
 
@@ -171,7 +173,9 @@ async function generateAndSendReport(clinicId: string, clinicName: string): Prom
 
   // Enviar al doctor por WhatsApp
   const whatsappNumber = doctor.phone.replace('+', '')
-  await sendWhatsAppMessage(whatsappNumber, report)
+  const credsReport = await getClinicCreds(clinicId)
+  if (!credsReport) { console.warn(`[Cron:MorningReport] Sin WhatsApp: ${clinicId}`); return }
+  await sendWhatsAppMessage(whatsappNumber, report, credsReport)
 
   // También enviar por email si el doctor tiene email
   if (doctor.email) {

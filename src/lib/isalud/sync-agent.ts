@@ -129,7 +129,9 @@ export async function ingestISaludData(
       updated_at: new Date().toISOString(),
     }).eq('clinic_id', clinicId).eq('provider', 'isalud')
 
-    console.log(`[iSalud] Clinic ${clinicId}: +${doctorsCreated} docs, ${appointmentsBlocked} blocked`)
+    const insertErrors = errors.filter((e) => e.startsWith('Insert ')).length
+    console.log(`[iSalud] Clinic ${clinicId}: +${doctorsCreated} docs, ${appointmentsBlocked} blocked, ${insertErrors} insert errors, ${errors.length} total errors`)
+    if (insertErrors > 0) console.log(`[iSalud] Sample errors: ${errors.filter((e) => e.startsWith('Insert ')).slice(0, 3).join(' | ')}`)
     return { doctors_created: doctorsCreated, doctors_existing: doctorsExisting, appointments_blocked: appointmentsBlocked, errors }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
@@ -233,12 +235,18 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
 
     const { data: ex } = await supabaseAdmin.from('appointments').select('id').eq('external_his_id', externalId).maybeSingle()
     if (ex) {
-      await supabaseAdmin.from('appointments').update({
+      const { error: updateErr } = await supabaseAdmin.from('appointments').update({
         status: 'blocked_external', external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(), reason: reasonText, notes: notesText,
       }).eq('id', (ex as { id: string }).id)
+      if (updateErr) {
+        if (count < 3) console.error(`[iSalud] Update failed: ${updateErr.message}`)
+        errors.push(`Update ${externalId}: ${updateErr.message}`)
+        continue
+      }
     } else {
-      await supabaseAdmin.from('appointments').insert({
+      // Check for duplicate starts_at (unique index idx_appointments_no_double_booking)
+      const { error: insertErr } = await supabaseAdmin.from('appointments').insert({
         clinic_id: clinicId, doctor_id: doctorId,
         starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
         status: 'blocked_external', source: 'isalud',
@@ -247,6 +255,11 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
         synced_at: new Date().toISOString(),
         reason: reasonText, notes: notesText,
       })
+      if (insertErr) {
+        if (count < 3) console.error(`[iSalud] Insert failed: ${insertErr.message} | ${externalId} | ${startsAt.toISOString()} | doctor ${doctorId}`)
+        errors.push(`Insert ${externalId}: ${insertErr.message}`)
+        continue
+      }
     }
     count++
   }

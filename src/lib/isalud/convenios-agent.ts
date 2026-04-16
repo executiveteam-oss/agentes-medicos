@@ -346,27 +346,84 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       console.log(`[ConveniosAgent]   Tabs "tarifario" encontradas: ${initial.tabs.length}`)
       initial.tabs.slice(0, 5).forEach((t) => console.log(`[ConveniosAgent]     - <${t.tag}> "${t.text}" data-toggle="${t.dataToggle}" data-target/href="${t.dataTarget}"`))
 
-      // Click robusto en tab "Detalle Tarifario": múltiples estrategias
+      // Click EXACTO en tab "Detalle Tarifario" (no parcial — hay 3 tabs con "tarifario":
+      // "Manual tarifario", "Opciones detalle tarifario" y "Detalle Tarifario").
+      // Si el match es <LI>, hace click en su <A> hijo. Dispara también jQuery .tab('show').
       const clickResult = await page.evaluate(() => {
-        const candidates = Array.from(document.querySelectorAll('a, button, [role="tab"]'))
-        for (const el of candidates) {
-          const text = (el.textContent ?? '').trim().toLowerCase()
-          if (text === 'detalle tarifario' || text.includes('detalle tarifario')) {
-            // Bootstrap tab: dispatch en jQuery si está disponible
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const jq = (window as any).$ ?? (window as any).jQuery
-            if (jq) {
-              try { jq(el).tab('show') } catch { /* */ }
-            }
-            ;(el as HTMLElement).click()
-            return { clicked: true, text: (el.textContent ?? '').trim().slice(0, 50), tag: el.tagName }
+        const TARGET = 'detalle tarifario'
+        // Buscar entre cualquier elemento clickeable o navegable
+        const all = Array.from(document.querySelectorAll('a, button, li, [role="tab"]'))
+        let hit: Element | null = null
+        for (const el of all) {
+          // Solo consideramos texto del propio elemento, no descendientes anidados.
+          // Para LI con <A> dentro, textContent incluye el A — match igual funciona.
+          const text = (el.textContent ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+          if (text === TARGET) {
+            hit = el
+            break
           }
         }
-        return { clicked: false }
+        if (!hit) return { clicked: false, reason: 'no exact match' }
+
+        // Si es <LI>, preferir el <A> hijo (Bootstrap tabs usan <li><a data-toggle="tab">)
+        let clickEl: HTMLElement = hit as HTMLElement
+        if (hit.tagName === 'LI') {
+          const childA = hit.querySelector('a') as HTMLAnchorElement | null
+          if (childA) clickEl = childA
+        }
+
+        const tag = clickEl.tagName
+        const dataToggle = clickEl.getAttribute('data-toggle') ?? ''
+        const dataTarget = clickEl.getAttribute('data-target') ?? clickEl.getAttribute('href') ?? ''
+        const role = clickEl.getAttribute('role') ?? ''
+
+        // Estrategia 1: jQuery Bootstrap tab API
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const jq = (window as any).$ ?? (window as any).jQuery
+        let jqResult = 'no jq'
+        if (jq) {
+          try { jq(clickEl).tab('show'); jqResult = 'tab(show) called' } catch (e) { jqResult = `tab(show) err: ${e instanceof Error ? e.message : e}` }
+        }
+
+        // Estrategia 2: click nativo (con bubbles)
+        clickEl.click()
+
+        // Estrategia 3: dispatchEvent explícito
+        try {
+          clickEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
+        } catch { /* ignore */ }
+
+        return {
+          clicked: true,
+          text: (clickEl.textContent ?? '').trim().slice(0, 50),
+          tag, dataToggle, dataTarget, role, jqResult,
+        }
       })
       console.log(`[ConveniosAgent]   Click tab: ${JSON.stringify(clickResult)}`)
-      // Espera generosa para que Bootstrap tab dispare AJAX de DataTables
-      if (clickResult.clicked) await page.waitForTimeout(4000)
+
+      // Espera larga para AJAX de Bootstrap tab + DataTables init
+      if (clickResult.clicked) await page.waitForTimeout(5000)
+
+      // Confirmar qué pestaña quedó activa post-click
+      const activePanel = await page.evaluate(() => {
+        const activeTab = document.querySelector('.nav-tabs .active, .nav-pills .active, [role="tab"][aria-selected="true"]')
+        const activePane = document.querySelector('.tab-pane.active, [role="tabpanel"]:not([hidden])') as HTMLElement | null
+        return {
+          activeTabText: (activeTab?.textContent ?? '').trim().slice(0, 80),
+          activePaneId: activePane?.id ?? '',
+          activePaneTablesCount: activePane?.querySelectorAll('table').length ?? 0,
+          activePaneFirstHeaders: activePane
+            ? Array.from(activePane.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim()).slice(0, 12)
+            : [],
+          activePaneSnippet: (activePane?.innerText ?? '').slice(0, 250).replace(/\s+/g, ' '),
+        }
+      })
+      console.log(`[ConveniosAgent]   Tab activa post-click: "${activePanel.activeTabText}"`)
+      console.log(`[ConveniosAgent]   Panel activo id="${activePanel.activePaneId}", tablas=${activePanel.activePaneTablesCount}`)
+      console.log(`[ConveniosAgent]   Headers del panel activo: [${activePanel.activePaneFirstHeaders.join(' | ')}]`)
+      if (activePanel.activePaneTablesCount === 0) {
+        console.log(`[ConveniosAgent]   Snippet del panel activo: "${activePanel.activePaneSnippet}"`)
+      }
 
       // Buscar entre TODAS las tablas la que tenga columnas Producto + Tarifa
       const tableInfo = await page.evaluate(() => {

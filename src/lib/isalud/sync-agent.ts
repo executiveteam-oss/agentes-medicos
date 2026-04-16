@@ -227,30 +227,51 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
 
     const externalId = `isalud-${adm.id}-${adm.fecha}`
 
+    // Distinguir cita real (con paciente) vs bloqueo de agenda (slot sin paciente)
+    // Real → status='confirmed' (aparece como cita normal en el calendario y en stats)
+    // Bloqueo → status='blocked_external' (gris en calendario, no cuenta como cita)
+    const patientName = (adm.nombre_paciente ?? '').trim()
+    const hasPatient = patientName.length > 1
+    const status: 'confirmed' | 'blocked_external' = hasPatient ? 'confirmed' : 'blocked_external'
+
     if (count < 3) {
-      console.log(`[iSalud] Upsert: ${externalId} | ${adm.fecha} ${adm.hora_inicial}-${adm.hora_final} → ${startsAt.toISOString()} - ${endsAt.toISOString()} | ${adm.nombre_paciente}`)
+      console.log(`[iSalud] Upsert: ${externalId} | ${adm.fecha} ${adm.hora_inicial}-${adm.hora_final} → ${startsAt.toISOString()} - ${endsAt.toISOString()} | "${patientName}" → status=${status}`)
     }
 
     // Patient name for calendar display
-    const reasonText = adm.nombre_paciente || 'Cita iSalud'
-    const notesText = `[iSalud] ${adm.nombre_paciente} | ${adm.procedimiento} | ${adm.aseguradora} | ${adm.profesional_nombre}`
+    const reasonText = patientName || 'Bloqueo iSalud'
+    const notesText = `[iSalud] ${patientName} | ${adm.procedimiento} | ${adm.aseguradora} | ${adm.profesional_nombre}`
 
     const { data: ex } = await supabaseAdmin.from('appointments').select('id').eq('external_his_id', externalId).maybeSingle()
     if (ex) {
       const { error: updateErr } = await supabaseAdmin.from('appointments').update({
-        status: 'blocked_external', external_data: adm as unknown as Record<string, unknown>,
+        status, external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(), reason: reasonText, notes: notesText,
       }).eq('id', (ex as { id: string }).id)
       if (updateErr) {
-        if (count < 3) console.error(`[iSalud] Update failed: ${updateErr.message}`)
-        errors.push(`Update ${externalId}: ${updateErr.message}`)
-        continue
+        // Fallback: si el constraint de double-booking bloquea (iSalud permite double-book),
+        // dejar como blocked_external para no perder la cita
+        if (updateErr.code === '23505' && status === 'confirmed') {
+          const { error: retryErr } = await supabaseAdmin.from('appointments').update({
+            status: 'blocked_external', external_data: adm as unknown as Record<string, unknown>,
+            synced_at: new Date().toISOString(), reason: reasonText, notes: notesText,
+          }).eq('id', (ex as { id: string }).id)
+          if (retryErr) {
+            errors.push(`Update ${externalId}: ${retryErr.message}`)
+            continue
+          }
+          if (count < 3) console.log(`[iSalud] Double-book conflict for ${externalId} → kept as blocked_external`)
+        } else {
+          if (count < 3) console.error(`[iSalud] Update failed: ${updateErr.message}`)
+          errors.push(`Update ${externalId}: ${updateErr.message}`)
+          continue
+        }
       }
     } else {
       const insertPayload = {
         clinic_id: clinicId, doctor_id: doctorId,
         starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
-        status: 'blocked_external', source: 'isalud',
+        status, source: 'isalud',
         external_his_id: externalId, external_source: 'isalud',
         external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(),
@@ -258,10 +279,22 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
       }
       const { error: insertErr } = await supabaseAdmin.from('appointments').insert(insertPayload)
       if (insertErr) {
-        console.error(`[iSalud] INSERT FAILED #${errors.length}: ${insertErr.message} | code=${insertErr.code} | details=${insertErr.details} | hint=${insertErr.hint}`)
-        console.error(`[iSalud] Payload: extId=${externalId} starts=${startsAt.toISOString()} doctor=${doctorId} clinic=${clinicId}`)
-        errors.push(`Insert ${externalId}: ${insertErr.message}`)
-        continue
+        // Fallback: si choca con otra cita confirmed (iSalud permite double-book),
+        // insertar como blocked_external para no perder la cita
+        if (insertErr.code === '23505' && status === 'confirmed') {
+          const { error: retryErr } = await supabaseAdmin.from('appointments').insert({ ...insertPayload, status: 'blocked_external' })
+          if (retryErr) {
+            console.error(`[iSalud] INSERT FAILED #${errors.length} (after fallback): ${retryErr.message}`)
+            errors.push(`Insert ${externalId}: ${retryErr.message}`)
+            continue
+          }
+          if (count < 3) console.log(`[iSalud] Double-book conflict for ${externalId} → inserted as blocked_external`)
+        } else {
+          console.error(`[iSalud] INSERT FAILED #${errors.length}: ${insertErr.message} | code=${insertErr.code} | details=${insertErr.details} | hint=${insertErr.hint}`)
+          console.error(`[iSalud] Payload: extId=${externalId} starts=${startsAt.toISOString()} doctor=${doctorId} clinic=${clinicId}`)
+          errors.push(`Insert ${externalId}: ${insertErr.message}`)
+          continue
+        }
       }
     }
     count++
@@ -274,11 +307,12 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
 // to be falsely identified as orphans and cancelled.
 async function cleanupOrphans(clinicId: string, currentAdmisiones: ISaludAdmision[]): Promise<number> {
   const currentIds = new Set(currentAdmisiones.map((a) => `isalud-${a.id}-${a.fecha}`))
-  const { data: blocked } = await supabaseAdmin.from('appointments').select('id, external_his_id').eq('clinic_id', clinicId).eq('status', 'blocked_external').eq('external_source', 'isalud').gte('starts_at', new Date().toISOString())
+  // Filtrar por external_source para incluir tanto 'confirmed' (citas reales) como 'blocked_external'
+  const { data: blocked } = await supabaseAdmin.from('appointments').select('id, external_his_id').eq('clinic_id', clinicId).eq('external_source', 'isalud').in('status', ['confirmed', 'blocked_external']).gte('starts_at', new Date().toISOString())
 
   const dbCount = blocked?.length ?? 0
   const scrapeCount = currentIds.size
-  console.log(`[iSalud] Orphan check: DB has ${dbCount} blocked_external, scrape has ${scrapeCount} IDs`)
+  console.log(`[iSalud] Orphan check: DB has ${dbCount} iSalud-sourced appointments, scrape has ${scrapeCount} IDs`)
   if (dbCount > 0 && blocked) {
     const sample = (blocked[0] as { external_his_id: string | null }).external_his_id
     const sampleScrape = currentIds.size > 0 ? Array.from(currentIds)[0] : 'none'

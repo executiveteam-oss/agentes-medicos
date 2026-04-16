@@ -370,58 +370,32 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
         continue
       }
 
-      // Esperar a que el tbody del tarifario se llene vía AJAX (max 10s).
-      // Si hay un mensaje "No hay datos disponibles" o similar, también resolvemos
-      // (convenio sin productos, no es issue de timing).
+      // La tabla tiene ID fijo: #tabladetalletarifario.
+      // DataTables con scrollY la divide en DOS <table>: una para headers (scrollHead)
+      // y otra para datos (scrollBody con el ID). Esperar a que el tbody tenga filas.
       await page.waitForFunction(() => {
-        const tables = document.querySelectorAll('table')
-        for (const t of Array.from(tables)) {
-          const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim().toLowerCase())
-          if (headers.some((h) => h.includes('producto')) && headers.some((h) => h.includes('tarifa'))) {
-            // Hay filas reales, O hay el placeholder "No hay datos" (que también significa "ya cargó")
-            const rows = t.querySelectorAll('tbody tr')
-            if (rows.length === 0) return false
-            return true
-          }
-        }
-        return false
+        const t = document.querySelector('#tabladetalletarifario')
+        if (!t) return false
+        return t.querySelectorAll('tbody tr').length > 0
       }, { timeout: 10000 }).catch(() => null)
 
-      // Buscar entre TODAS las tablas la que tenga columnas Producto + Tarifa
-      const tableInfo = await page.evaluate(() => {
-        const allTables = Array.from(document.querySelectorAll('table'))
-        return allTables.map((t, idx) => {
-          const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
-          const visible = (t as HTMLElement).offsetParent !== null
-          const tbodyRows = t.querySelectorAll('tbody tr').length
-          const firstRow = t.querySelector('tbody tr')
-          const firstRowText = (firstRow?.textContent ?? '').trim().slice(0, 80)
-          // Intentar identificar la tabla por id/clase
-          const id = t.id || ''
-          const cls = t.className.slice(0, 60)
-          // ¿Está dentro de un panel/tab visible?
-          const inPanel = t.closest('.tab-pane.active, [role="tabpanel"]')
-          return { idx, id, cls, headers, tbodyRows, firstRowText, visible, inActiveTab: !!inPanel }
-        })
+      // Verificar que la tabla existe y tiene datos
+      const tableCheck = await page.evaluate(() => {
+        const t = document.querySelector('#tabladetalletarifario')
+        if (!t) return { found: false, rows: 0, firstRowText: '' }
+        const rows = t.querySelectorAll('tbody tr').length
+        const firstRow = t.querySelector('tbody tr')
+        const firstRowText = (firstRow?.textContent ?? '').trim().slice(0, 100)
+        return { found: true, rows, firstRowText }
       })
-      // Buscar la tabla del tarifario: tiene "producto" + "tarifa" en headers
-      const tarifarioIdx = tableInfo.findIndex((t) => {
-        const lower = t.headers.map((h) => h.toLowerCase())
-        return lower.some((h) => h.includes('producto')) && lower.some((h) => h.includes('tarifa'))
-      })
-      if (tarifarioIdx >= 0) {
-        const t = tableInfo[tarifarioIdx]
-        console.log(`[ConveniosAgent]   ✓ Tabla tarifario idx=${tarifarioIdx}, tbody rows=${t.tbodyRows}, firstRow="${t.firstRowText}"`)
+
+      if (tableCheck.found && tableCheck.rows > 0) {
+        console.log(`[ConveniosAgent]   ✓ #tabladetalletarifario: ${tableCheck.rows} filas, first="${tableCheck.firstRowText}"`)
         arrived = true
         arrivedUrl = url
-        // Stash idx para usar después
-        await page.evaluate((idx) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ;(window as any).__tarifarioIdx = idx
-        }, tarifarioIdx)
         break
       }
-      console.log(`[ConveniosAgent]   ✗ No se encontró tabla "producto"+"tarifa" (${tableInfo.length} tablas en página)`)
+      console.log(`[ConveniosAgent]   ✗ #tabladetalletarifario: found=${tableCheck.found}, rows=${tableCheck.rows}`)
     } catch (e) {
       console.log(`[ConveniosAgent] Detalle ${url} failed: ${e instanceof Error ? e.message : e}`)
     }
@@ -433,37 +407,33 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
   }
   console.log(`[ConveniosAgent] Detalle URL: ${arrivedUrl}`)
 
-  // Seleccionar la tabla específica del tarifario para todas las operaciones siguientes
-  const tarifarioIdx = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (window as any).__tarifarioIdx as number
-  })
+  // La tabla #tabladetalletarifario usa DataTables con scrollY. Esto causa:
+  //   dataTables_scrollHead > table > thead  (headers en una tabla separada)
+  //   dataTables_scrollBody > table#tabladetalletarifario > tbody  (datos en otra tabla)
+  // Los headers NO están en la misma <table> que el tbody.
 
-  // Maximizar DataTables: buscar el length-select asociado a la tabla del tarifario
-  await page.evaluate((idx) => {
-    const tables = document.querySelectorAll('table')
-    const t = tables[idx]
-    if (!t) return
-    // Buscar el .dataTables_length cercano (mismo wrapper)
-    const wrapper = t.closest('.dataTables_wrapper')
+  // Maximizar DataTables: seleccionar "mostrar todos" en el length-select del wrapper
+  await page.evaluate(() => {
+    const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
     if (!wrapper) return
     const sel = wrapper.querySelector('.dataTables_length select') as HTMLSelectElement | null
     if (!sel) return
-    // Intentar -1 (todas) o 100
-    const tryValues = ['-1', '100', '50']
-    for (const v of tryValues) {
+    for (const v of ['-1', '100', '50']) {
       const opt = Array.from(sel.options).find((o) => o.value === v)
       if (opt) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); return }
     }
-  }, tarifarioIdx)
+  })
   await page.waitForTimeout(1000)
 
-  // Mapear columnas por nombre, leyendo SOLO la tabla del tarifario
-  const cols = await page.evaluate((idx: number) => {
-    const tables = document.querySelectorAll('table')
-    const t = tables[idx]
-    if (!t) return { headers: [], producto: -1, tarifa: -1, opcion: -1, estado: -1, agendable: -1, duracion: -1, frecuencia: -1, agrupador: -1 }
-    const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
+  // Leer headers desde el scrollHead, columnas del tarifario
+  const cols = await page.evaluate(() => {
+    const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
+    if (!wrapper) return { headers: [], producto: -1, tarifa: -1, opcion: -1, estado: -1, agendable: -1, duracion: -1, frecuencia: -1, agrupador: -1 }
+    // Headers están en dataTables_scrollHead (tabla separada)
+    const headerTable = wrapper.querySelector('.dataTables_scrollHead table thead')
+    const headers = headerTable
+      ? Array.from(headerTable.querySelectorAll('th')).map((th) => (th.textContent ?? '').trim())
+      : []
     const lower = headers.map((h) => h.toLowerCase())
     const find = (...keys: string[]) => {
       for (let i = 0; i < lower.length; i++) {
@@ -484,32 +454,30 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       frecuencia: find('frecuencia'),
       agrupador:  find('agrupador'),
     }
-  }, tarifarioIdx)
-  console.log(`[ConveniosAgent] ${conv.nombre} headers: [${cols.headers.join(' | ')}], cols=${JSON.stringify({ producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion, frecuencia: cols.frecuencia, agrupador: cols.agrupador })}`)
+  })
+  console.log(`[ConveniosAgent] ${conv.nombre} headers: [${cols.headers.join(' | ')}]`)
 
   const allProducts: ConvenioProducto[] = []
 
-  // Extraer página actual + paginar si hay paginación. Lectura SIEMPRE de la tabla específica.
+  // Extraer filas de #tabladetalletarifario. Paginar usando el wrapper del DataTable.
   let pageNum = 1
   while (true) {
-    const pageData = await page.evaluate((args: { idx: number; c: { producto: number; tarifa: number; opcion: number; estado: number; agendable: number; duracion: number; frecuencia: number; agrupador: number } }) => {
-      const tables = document.querySelectorAll('table')
-      const t = tables[args.idx]
+    const pageData = await page.evaluate((c) => {
+      const t = document.querySelector('#tabladetalletarifario')
       if (!t) return { rows: [], emptyPlaceholder: false, tbodyCount: 0 }
       const trList = Array.from(t.querySelectorAll('tbody tr'))
       const tbodyCount = trList.length
 
-      // Detectar placeholder de DataTables "No hay datos disponibles" (1 sola fila con clase dataTables_empty)
+      // Placeholder "No hay datos disponibles"
       let emptyPlaceholder = false
-      if (trList.length === 1) {
+      if (trList.length <= 1) {
         const firstTr = trList[0]
-        const text = (firstTr.textContent ?? '').trim().toLowerCase()
+        const text = (firstTr?.textContent ?? '').trim().toLowerCase()
         if (
+          !firstTr ||
           firstTr.querySelector('.dataTables_empty') != null ||
           text.includes('no hay datos') ||
-          text.includes('no data') ||
-          text.includes('sin registros') ||
-          text.includes('ningún registro')
+          text.includes('no data')
         ) {
           emptyPlaceholder = true
         }
@@ -520,40 +488,35 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
         for (const tr of trList) {
           const tds = tr.querySelectorAll('td')
           if (tds.length === 0) continue
-          const cellText = (i: number): string => i >= 0 && i < tds.length ? (tds[i]?.textContent ?? '').trim() : ''
+          const cell = (i: number): string => i >= 0 && i < tds.length ? (tds[i]?.textContent ?? '').trim() : ''
           out.push({
-            producto: cellText(args.c.producto),
-            tarifa: cellText(args.c.tarifa),
-            opcion: cellText(args.c.opcion),
-            estado: cellText(args.c.estado),
-            agendable: cellText(args.c.agendable),
-            duracion: cellText(args.c.duracion),
+            producto: cell(c.producto),
+            tarifa: cell(c.tarifa),
+            opcion: cell(c.opcion),
+            estado: cell(c.estado),
+            agendable: cell(c.agendable),
+            duracion: cell(c.duracion),
           })
         }
       }
       return { rows: out, emptyPlaceholder, tbodyCount }
-    }, { idx: tarifarioIdx, c: { producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion, frecuencia: cols.frecuencia, agrupador: cols.agrupador } })
+    }, { producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion })
 
     if (pageNum === 1) {
-      console.log(`[ConveniosAgent] ${conv.nombre}: página 1 → tbody rows=${pageData.tbodyCount}, emptyPlaceholder=${pageData.emptyPlaceholder}, filas extraídas=${pageData.rows.length}`)
+      console.log(`[ConveniosAgent] ${conv.nombre}: pág 1 → tbody=${pageData.tbodyCount}, empty=${pageData.emptyPlaceholder}, extraídas=${pageData.rows.length}`)
     }
 
-    // Si es el placeholder "No hay datos", ni pagines más ni proceses filas
     if (pageData.emptyPlaceholder) break
 
     for (const r of pageData.rows) {
-      // Solo activos (si la columna existe)
       if (cols.estado >= 0 && r.estado && !r.estado.toLowerCase().includes('activo')) continue
       if (!r.producto) continue
-      // Tarifa: extraer entero de cualquier formato ("46.100", "$ 46100", "46,100")
       const tarifaNum = parseInt(r.tarifa.replace(/[^\d]/g, ''), 10) || 0
-      // Duración: extraer entero o null si "Sin duración"
       let duracionMin: number | null = null
       if (r.duracion) {
         const m = r.duracion.match(/\d+/)
         if (m && !r.duracion.toLowerCase().includes('sin')) duracionMin = parseInt(m[0], 10)
       }
-      // Agendable web: "tiene opción escogida" => true
       const agendable = (r.agendable ?? '').toLowerCase().includes('tiene opción escogida')
         || (r.agendable ?? '').toLowerCase() === 'sí'
         || (r.agendable ?? '').toLowerCase() === 'si'
@@ -570,20 +533,14 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       })
     }
 
-    // Paginación: buscar "next" en el wrapper de la tabla específica del tarifario
-    const paginated = await page.evaluate((idx: number) => {
-      const tables = document.querySelectorAll('table')
-      const t = tables[idx]
-      if (!t) return false
-      const wrapper = t.closest('.dataTables_wrapper')
-      const root: Document | Element = wrapper ?? document
-      const next = root.querySelector('.dataTables_paginate .paginate_button.next:not(.disabled)') as HTMLElement | null
-      if (next) {
-        next.click()
-        return true
-      }
+    // Paginación: "next" dentro de #tabladetalletarifario_wrapper
+    const paginated = await page.evaluate(() => {
+      const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
+      if (!wrapper) return false
+      const next = wrapper.querySelector('.dataTables_paginate .paginate_button.next:not(.disabled)') as HTMLElement | null
+      if (next) { next.click(); return true }
       return false
-    }, tarifarioIdx)
+    })
 
     if (!paginated) break
     await page.waitForTimeout(800)
@@ -593,7 +550,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       break
     }
   }
-  console.log(`[ConveniosAgent] ${conv.nombre}: ${pageNum} págs procesadas, ${allProducts.length} productos activos extraídos (antes de dedup)`)
+  console.log(`[ConveniosAgent] ${conv.nombre}: ${pageNum} págs, ${allProducts.length} productos activos (antes de dedup)`)
 
   // Deduplicar por producto (DataTables a veces re-renderiza)
   const dedup = new Map<string, ConvenioProducto>()

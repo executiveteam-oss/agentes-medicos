@@ -34,7 +34,7 @@ export interface ScrapeResult {
 
 const CHROMIUM_REMOTE_URL = 'https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar'
 
-async function launchBrowserAndContext(): Promise<{ browser: Browser; context: BrowserContext }> {
+export async function launchBrowserAndContext(): Promise<{ browser: Browser; context: BrowserContext }> {
   console.log(`[iSalud] Launching browser (NODE_ENV=${process.env.NODE_ENV})`)
 
   let browser: Browser
@@ -95,7 +95,7 @@ async function launchBrowserAndContext(): Promise<{ browser: Browser; context: B
 
 // --- Login via HTTP, then inject cookies into Playwright context ---
 
-async function loginAndInjectCookies(context: BrowserContext, credentials: ISaludCredentials): Promise<Page> {
+export async function loginAndInjectCookies(context: BrowserContext, credentials: ISaludCredentials): Promise<Page> {
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
   console.log(`[iSalud] VERSION 3 - ${new Date().toISOString()}`)
   console.log(`[iSalud] HTTP login to ${baseUrl}/`)

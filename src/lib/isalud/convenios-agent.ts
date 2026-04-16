@@ -139,18 +139,14 @@ export async function scrapeConvenios(clinicId: string): Promise<ConveniosScrape
 
 async function scrapeConvenioList(page: Page, creds: ISaludCredentials): Promise<ConvenioListItem[]> {
   const baseUrl = `https://${creds.subdomain}.isalud.co`
-  // Rutas candidatas. Patrón observado en iSalud: rutas raíz singulares
-  // (`/disponibilidad`, `/admision`). Los items del menú "Gestión de Agendas"
-  // NO usan namespace `/agenda/...`. Probamos `/convenio` primero, luego variantes.
+  // URL confirmada por logs reales (algia.isalud.co): la entidad se llama "aseguradora",
+  // NO "convenio". El menú "Convenios" del UI rutea a `/aseguradora`.
   const candidates = [
+    `${baseUrl}/aseguradora`,
+    `${baseUrl}/aseguradoras`,
+    // Fallbacks por si cambia en otra clínica
     `${baseUrl}/convenio`,
     `${baseUrl}/convenios`,
-    `${baseUrl}/admision/convenios`,
-    `${baseUrl}/admision/convenio`,
-    `${baseUrl}/agenda/convenio`,
-    `${baseUrl}/agenda/convenios`,
-    `${baseUrl}/maestros/convenio`,
-    `${baseUrl}/maestros/convenios`,
   ]
 
   let arrived = false
@@ -315,48 +311,98 @@ async function scrapeConvenioList(page: Page, creds: ISaludCredentials): Promise
 async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv: ConvenioListItem): Promise<ConvenioProducto[]> {
   const baseUrl = `https://${creds.subdomain}.isalud.co`
 
-  // Intentar varias URLs de detalle. Si tenemos detalle_url, esa es la primera opción.
+  // URL principal: la del listing → "Acciones" (ya capturada como detalle_url, ej. /aseguradora/{id}/edit).
+  // Las URLs `/convenio/*` no existen en iSalud — la entidad es `aseguradora`.
   const candidates: string[] = []
   if (conv.detalle_url) {
     const fullUrl = conv.detalle_url.startsWith('http') ? conv.detalle_url : `${baseUrl}${conv.detalle_url.startsWith('/') ? conv.detalle_url : '/' + conv.detalle_url}`
     candidates.push(fullUrl)
   }
-  if (conv.nit) {
-    candidates.push(`${baseUrl}/convenio/${encodeURIComponent(conv.nit)}/tarifario`)
-    candidates.push(`${baseUrl}/convenio/${encodeURIComponent(conv.nit)}`)
-    candidates.push(`${baseUrl}/convenio/detalle/${encodeURIComponent(conv.nit)}`)
-  }
 
   let arrived = false
+  let arrivedUrl = ''
   for (const url of candidates) {
     try {
-      console.log(`[ConveniosAgent] Detalle ${conv.nombre}: trying ${url}`)
+      console.log(`[ConveniosAgent] Detalle ${conv.nombre}: navegando a ${url}`)
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: CONVENIO_TIMEOUT_MS })
-      await page.waitForTimeout(1500)
-      // Si en esta página hay un tab "Detalle Tarifario" hacer click
-      const tabClicked = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a, button'))
-        for (const el of links) {
-          const t = (el.textContent ?? '').trim().toLowerCase()
-          if (t.includes('detalle tarifario') || t.includes('tarifario')) {
+      await page.waitForTimeout(2000)
+
+      // Diagnóstico: tabs presentes, tablas iniciales
+      const initial = await page.evaluate(() => {
+        const tabs = Array.from(document.querySelectorAll('a, button, li, .nav-link, [role="tab"]'))
+          .map((el) => ({
+            text: (el.textContent ?? '').trim().slice(0, 50),
+            tag: el.tagName,
+            href: (el as HTMLAnchorElement).href ?? '',
+            dataToggle: (el as HTMLElement).getAttribute('data-toggle') ?? '',
+            dataTarget: (el as HTMLElement).getAttribute('data-target') ?? (el as HTMLElement).getAttribute('href') ?? '',
+            role: (el as HTMLElement).getAttribute('role') ?? '',
+          }))
+          .filter((t) => /tarifario|tarifa/i.test(t.text) && t.text.length < 40)
+        const tableCount = document.querySelectorAll('table').length
+        return { tabs, tableCount, title: document.title, url: location.href }
+      })
+      console.log(`[ConveniosAgent]   Página cargada: ${initial.url}, ${initial.tableCount} tablas iniciales`)
+      console.log(`[ConveniosAgent]   Tabs "tarifario" encontradas: ${initial.tabs.length}`)
+      initial.tabs.slice(0, 5).forEach((t) => console.log(`[ConveniosAgent]     - <${t.tag}> "${t.text}" data-toggle="${t.dataToggle}" data-target/href="${t.dataTarget}"`))
+
+      // Click robusto en tab "Detalle Tarifario": múltiples estrategias
+      const clickResult = await page.evaluate(() => {
+        const candidates = Array.from(document.querySelectorAll('a, button, [role="tab"]'))
+        for (const el of candidates) {
+          const text = (el.textContent ?? '').trim().toLowerCase()
+          if (text === 'detalle tarifario' || text.includes('detalle tarifario')) {
+            // Bootstrap tab: dispatch en jQuery si está disponible
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const jq = (window as any).$ ?? (window as any).jQuery
+            if (jq) {
+              try { jq(el).tab('show') } catch { /* */ }
+            }
             ;(el as HTMLElement).click()
-            return true
+            return { clicked: true, text: (el.textContent ?? '').trim().slice(0, 50), tag: el.tagName }
           }
         }
-        return false
+        return { clicked: false }
       })
-      if (tabClicked) {
-        await page.waitForTimeout(1500)
-      }
-      // Verificar que la tabla actual tiene columnas tipo "Producto" / "Tarifa"
-      const ok = await page.evaluate(() => {
-        const headers = Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim().toLowerCase())
-        return headers.some((h) => h.includes('producto')) && headers.some((h) => h.includes('tarifa'))
+      console.log(`[ConveniosAgent]   Click tab: ${JSON.stringify(clickResult)}`)
+      // Espera generosa para que Bootstrap tab dispare AJAX de DataTables
+      if (clickResult.clicked) await page.waitForTimeout(4000)
+
+      // Buscar entre TODAS las tablas la que tenga columnas Producto + Tarifa
+      const tableInfo = await page.evaluate(() => {
+        const allTables = Array.from(document.querySelectorAll('table'))
+        return allTables.map((t, idx) => {
+          const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
+          const visible = (t as HTMLElement).offsetParent !== null
+          const tbodyRows = t.querySelectorAll('tbody tr').length
+          // Intentar identificar la tabla por id/clase
+          const id = t.id || ''
+          const cls = t.className.slice(0, 60)
+          // ¿Está dentro de un panel/tab visible?
+          const inPanel = t.closest('.tab-pane.active, [role="tabpanel"]')
+          return { idx, id, cls, headers, tbodyRows, visible, inActiveTab: !!inPanel }
+        })
       })
-      if (ok) {
+      console.log(`[ConveniosAgent]   Tablas encontradas tras click: ${tableInfo.length}`)
+      tableInfo.forEach((t) => console.log(`[ConveniosAgent]     [${t.idx}] id="${t.id}" cls="${t.cls}" visible=${t.visible} activeTab=${t.inActiveTab} rows=${t.tbodyRows} headers=[${t.headers.join(' | ')}]`))
+
+      // Buscar la tabla del tarifario: tiene "producto" + "tarifa" en headers
+      const tarifarioIdx = tableInfo.findIndex((t) => {
+        const lower = t.headers.map((h) => h.toLowerCase())
+        return lower.some((h) => h.includes('producto')) && lower.some((h) => h.includes('tarifa'))
+      })
+      if (tarifarioIdx >= 0) {
+        console.log(`[ConveniosAgent]   ✓ Tabla tarifario en índice ${tarifarioIdx}`)
         arrived = true
+        arrivedUrl = url
+        // Stash idx para usar después
+        await page.evaluate((idx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(window as any).__tarifarioIdx = idx
+        }, tarifarioIdx)
         break
       }
+      console.log(`[ConveniosAgent]   ✗ No se encontró tabla con "producto" + "tarifa" tras click`)
     } catch (e) {
       console.log(`[ConveniosAgent] Detalle ${url} failed: ${e instanceof Error ? e.message : e}`)
     }
@@ -366,58 +412,89 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
     console.log(`[ConveniosAgent] Detalle ${conv.nombre}: NO encontrada (saltando)`)
     return []
   }
+  console.log(`[ConveniosAgent] Detalle URL: ${arrivedUrl}`)
 
-  // Maximizar DataTables
-  try { await page.selectOption('.dataTables_length select', '-1') } catch {
-    try { await page.selectOption('.dataTables_length select', '100') } catch {}
-  }
-  await page.waitForTimeout(1500)
+  // Seleccionar la tabla específica del tarifario para todas las operaciones siguientes
+  const tarifarioIdx = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (window as any).__tarifarioIdx as number
+  })
 
-  // Mapear columnas por nombre
-  const cols = await page.evaluate(() => {
-    const headers = Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim().toLowerCase())
+  // Maximizar DataTables: buscar el length-select asociado a la tabla del tarifario
+  await page.evaluate((idx) => {
+    const tables = document.querySelectorAll('table')
+    const t = tables[idx]
+    if (!t) return
+    // Buscar el .dataTables_length cercano (mismo wrapper)
+    const wrapper = t.closest('.dataTables_wrapper')
+    if (!wrapper) return
+    const sel = wrapper.querySelector('.dataTables_length select') as HTMLSelectElement | null
+    if (!sel) return
+    // Intentar -1 (todas) o 100
+    const tryValues = ['-1', '100', '50']
+    for (const v of tryValues) {
+      const opt = Array.from(sel.options).find((o) => o.value === v)
+      if (opt) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); return }
+    }
+  }, tarifarioIdx)
+  await page.waitForTimeout(2000)
+
+  // Mapear columnas por nombre, leyendo SOLO la tabla del tarifario
+  const cols = await page.evaluate((idx: number) => {
+    const tables = document.querySelectorAll('table')
+    const t = tables[idx]
+    if (!t) return { headers: [], producto: -1, tarifa: -1, opcion: -1, estado: -1, agendable: -1, duracion: -1, frecuencia: -1, agrupador: -1 }
+    const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
+    const lower = headers.map((h) => h.toLowerCase())
     const find = (...keys: string[]) => {
-      for (let i = 0; i < headers.length; i++) {
+      for (let i = 0; i < lower.length; i++) {
         for (const k of keys) {
-          if (headers[i].includes(k)) return i
+          if (lower[i].includes(k)) return i
         }
       }
       return -1
     }
     return {
       headers,
-      producto: find('producto'),
-      tarifa: find('tarifa'),
-      opcion: find('opción detalle', 'opcion detalle', 'opcion'),
-      estado: find('estado'),
-      agendable: find('agendada web', 'agendable', 'web'),
-      duracion: find('duración', 'duracion'),
+      producto:   find('producto'),
+      tarifa:     find('tarifa'),
+      opcion:     find('opción detalle', 'opcion detalle', 'opción', 'opcion'),
+      estado:     find('estado'),
+      agendable:  find('agendada web', 'agendable web', 'agendable', 'web'),
+      duracion:   find('duración', 'duracion'),
+      frecuencia: find('frecuencia'),
+      agrupador:  find('agrupador'),
     }
-  })
-  console.log(`[ConveniosAgent] ${conv.nombre} headers: [${cols.headers.join(' | ')}], cols=${JSON.stringify({ producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion })}`)
+  }, tarifarioIdx)
+  console.log(`[ConveniosAgent] ${conv.nombre} headers: [${cols.headers.join(' | ')}], cols=${JSON.stringify({ producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion, frecuencia: cols.frecuencia, agrupador: cols.agrupador })}`)
 
   const allProducts: ConvenioProducto[] = []
 
-  // Extraer página actual + paginar si hay paginación
+  // Extraer página actual + paginar si hay paginación. Lectura SIEMPRE de la tabla específica.
   let pageNum = 1
   while (true) {
-    const pageData = await page.evaluate((c: { producto: number; tarifa: number; opcion: number; estado: number; agendable: number; duracion: number }) => {
+    const pageData = await page.evaluate((args: { idx: number; c: { producto: number; tarifa: number; opcion: number; estado: number; agendable: number; duracion: number; frecuencia: number; agrupador: number } }) => {
+      const tables = document.querySelectorAll('table')
+      const t = tables[args.idx]
+      if (!t) return []
       const out: Array<{ producto: string; tarifa: string; opcion: string; estado: string; agendable: string; duracion: string }> = []
-      document.querySelectorAll('table tbody tr').forEach((tr) => {
+      t.querySelectorAll('tbody tr').forEach((tr) => {
         const tds = tr.querySelectorAll('td')
         if (tds.length === 0) return
         const cellText = (i: number): string => i >= 0 && i < tds.length ? (tds[i]?.textContent ?? '').trim() : ''
         out.push({
-          producto: cellText(c.producto),
-          tarifa: cellText(c.tarifa),
-          opcion: cellText(c.opcion),
-          estado: cellText(c.estado),
-          agendable: cellText(c.agendable),
-          duracion: cellText(c.duracion),
+          producto: cellText(args.c.producto),
+          tarifa: cellText(args.c.tarifa),
+          opcion: cellText(args.c.opcion),
+          estado: cellText(args.c.estado),
+          agendable: cellText(args.c.agendable),
+          duracion: cellText(args.c.duracion),
         })
       })
       return out
-    }, { producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion })
+    }, { idx: tarifarioIdx, c: { producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion, frecuencia: cols.frecuencia, agrupador: cols.agrupador } })
+
+    if (pageNum === 1) console.log(`[ConveniosAgent] ${conv.nombre}: página 1 → ${pageData.length} filas raw`)
 
     for (const r of pageData) {
       // Solo activos (si la columna existe)
@@ -448,25 +525,30 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       })
     }
 
-    // Paginación: buscar "next" en DataTables
-    const paginated = await page.evaluate(() => {
-      // DataTables next button
-      const next = document.querySelector('.dataTables_paginate .paginate_button.next:not(.disabled), .paginate_button.next:not(.disabled)') as HTMLElement | null
+    // Paginación: buscar "next" en el wrapper de la tabla específica del tarifario
+    const paginated = await page.evaluate((idx: number) => {
+      const tables = document.querySelectorAll('table')
+      const t = tables[idx]
+      if (!t) return false
+      const wrapper = t.closest('.dataTables_wrapper')
+      const root: Document | Element = wrapper ?? document
+      const next = root.querySelector('.dataTables_paginate .paginate_button.next:not(.disabled)') as HTMLElement | null
       if (next) {
         next.click()
         return true
       }
       return false
-    })
+    }, tarifarioIdx)
 
     if (!paginated) break
-    await page.waitForTimeout(1000)
+    await page.waitForTimeout(1200)
     pageNum++
     if (pageNum > 50) {
       console.log(`[ConveniosAgent] ${conv.nombre}: stopping at page ${pageNum} (safeguard)`)
       break
     }
   }
+  console.log(`[ConveniosAgent] ${conv.nombre}: ${pageNum} págs procesadas, ${allProducts.length} productos activos extraídos (antes de dedup)`)
 
   // Deduplicar por producto (DataTables a veces re-renderiza)
   const dedup = new Map<string, ConvenioProducto>()

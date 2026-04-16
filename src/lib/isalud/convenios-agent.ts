@@ -368,66 +368,114 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       console.log(`[ConveniosAgent]   Tabs "tarifario" encontradas: ${initial.tabs.length}`)
       initial.tabs.slice(0, 5).forEach((t) => console.log(`[ConveniosAgent]     - <${t.tag}> "${t.text}" data-toggle="${t.dataToggle}" data-target/href="${t.dataTarget}"`))
 
-      // Click EXACTO en tab "Detalle Tarifario" (no parcial — hay 3 tabs con "tarifario":
-      // "Manual tarifario", "Opciones detalle tarifario" y "Detalle Tarifario").
-      // Si el match es <LI>, hace click en su <A> hijo. Dispara también jQuery .tab('show').
+      // Antes del click: loguear el HTML completo de .nav-tabs (o ul con clase nav)
+      // y los primeros 500 chars de .tab-content — para ver exactamente la estructura.
+      const navDump = await page.evaluate(() => {
+        const navTabs = document.querySelector('.nav-tabs, ul.nav')
+        const tabContent = document.querySelector('.tab-content')
+        return {
+          navOuterHTML: navTabs ? navTabs.outerHTML.slice(0, 2000) : '(no .nav-tabs encontrado)',
+          tabContentPreview: tabContent ? tabContent.innerHTML.slice(0, 500) : '(no .tab-content encontrado)',
+        }
+      })
+      console.log(`[ConveniosAgent]   NAV-TABS HTML:`)
+      console.log(navDump.navOuterHTML)
+      console.log(`[ConveniosAgent]   TAB-CONTENT PREVIEW:`)
+      console.log(navDump.tabContentPreview)
+
+      // Click en tab "Detalle Tarifario":
+      // - Match EXACTO + exclusión explícita de "opciones" (hay "Opciones detalle tarifario"
+      //   como <A> con href="/opcionesdetalletarifario" que navegaría fuera de la página).
+      // - Si el match es <LI>, click DIRECTO en el LI (no buscar <A> hijo, según HTML observado).
+      // - Intenta además jQuery .tab('show') y el <A> hijo si existe (sin href útil).
       const clickResult = await page.evaluate(() => {
         const TARGET = 'detalle tarifario'
-        // Buscar entre cualquier elemento clickeable o navegable
         const all = Array.from(document.querySelectorAll('a, button, li, [role="tab"]'))
+
+        // Filtro: texto EXACTO "detalle tarifario" y que NO contenga "opciones"
+        //         (para evitar el link "Opciones detalle tarifario" que navega fuera)
+        function textOf(el: Element): string {
+          return (el.textContent ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+        }
+
         let hit: Element | null = null
         for (const el of all) {
-          // Solo consideramos texto del propio elemento, no descendientes anidados.
-          // Para LI con <A> dentro, textContent incluye el A — match igual funciona.
-          const text = (el.textContent ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+          const text = textOf(el)
           if (text === TARGET) {
             hit = el
             break
           }
         }
-        if (!hit) return { clicked: false, reason: 'no exact match' }
 
-        // Si es <LI>, preferir el <A> hijo (Bootstrap tabs usan <li><a data-toggle="tab">)
-        let clickEl: HTMLElement = hit as HTMLElement
-        if (hit.tagName === 'LI') {
-          const childA = hit.querySelector('a') as HTMLAnchorElement | null
-          if (childA) clickEl = childA
+        // Fallback suave: startsWith("detalle tarifario") pero excluyendo "opciones"
+        if (!hit) {
+          for (const el of all) {
+            const text = textOf(el)
+            if (text.startsWith(TARGET) && !text.includes('opciones')) {
+              hit = el
+              break
+            }
+          }
         }
 
-        const tag = clickEl.tagName
-        const dataToggle = clickEl.getAttribute('data-toggle') ?? ''
-        const dataTarget = clickEl.getAttribute('data-target') ?? clickEl.getAttribute('href') ?? ''
-        const role = clickEl.getAttribute('role') ?? ''
+        if (!hit) {
+          // Log todos los elementos que contienen "tarifario" para diagnóstico
+          const similar = all
+            .map((el) => ({ tag: el.tagName, text: textOf(el), href: (el as HTMLAnchorElement).href ?? '' }))
+            .filter((x) => x.text.includes('tarifario') && x.text.length < 60)
+          return { clicked: false, reason: 'no match', similar }
+        }
 
-        // Estrategia 1: jQuery Bootstrap tab API
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const jq = (window as any).$ ?? (window as any).jQuery
-        let jqResult = 'no jq'
+
+        const targetTag = hit.tagName
+        const targetText = textOf(hit)
+        const hitHref = (hit as HTMLAnchorElement).getAttribute?.('href') ?? ''
+        const hitDataTarget = (hit as HTMLElement).getAttribute?.('data-target') ?? ''
+        const hitDataToggle = (hit as HTMLElement).getAttribute?.('data-toggle') ?? ''
+
+        // Disparar click en el HIT directamente (según HTML: "Detalle Tarifario" es <LI> sin <A> con href)
+        const strategies: string[] = []
+        try { (hit as HTMLElement).click(); strategies.push(`${targetTag}.click`) } catch (e) { strategies.push(`${targetTag}.click err:${e}`) }
+        try { hit.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); strategies.push(`${targetTag}.dispatch`) } catch { /* */ }
         if (jq) {
-          try { jq(clickEl).tab('show'); jqResult = 'tab(show) called' } catch (e) { jqResult = `tab(show) err: ${e instanceof Error ? e.message : e}` }
+          try { jq(hit).tab('show'); strategies.push(`jq(${targetTag}).tab(show)`) } catch (e) { strategies.push(`jq(${targetTag}).tab err:${e instanceof Error ? e.message : e}`) }
+          try { jq(hit).trigger('click'); strategies.push(`jq(${targetTag}).trigger(click)`) } catch { /* */ }
         }
 
-        // Estrategia 2: click nativo (con bubbles)
-        clickEl.click()
-
-        // Estrategia 3: dispatchEvent explícito
-        try {
-          clickEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }))
-        } catch { /* ignore */ }
+        // Si es <LI>, también probar el <A> hijo si existe (aunque no tenga href útil)
+        let childInfo = 'no child A'
+        if (hit.tagName === 'LI') {
+          const childA = hit.querySelector('a')
+          if (childA) {
+            childInfo = `child A href="${childA.getAttribute('href') ?? ''}" data-toggle="${childA.getAttribute('data-toggle') ?? ''}"`
+            try { (childA as HTMLElement).click(); strategies.push('childA.click') } catch { /* */ }
+            try { childA.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); strategies.push('childA.dispatch') } catch { /* */ }
+            if (jq) {
+              try { jq(childA).tab('show'); strategies.push('jq(childA).tab(show)') } catch { /* */ }
+            }
+          }
+        }
 
         return {
           clicked: true,
-          text: (clickEl.textContent ?? '').trim().slice(0, 50),
-          tag, dataToggle, dataTarget, role, jqResult,
+          text: targetText,
+          tag: targetTag,
+          href: hitHref,
+          dataTarget: hitDataTarget,
+          dataToggle: hitDataToggle,
+          childInfo,
+          strategies,
         }
       })
-      console.log(`[ConveniosAgent]   Click tab: ${JSON.stringify(clickResult)}`)
+      console.log(`[ConveniosAgent]   Click tab result: ${JSON.stringify(clickResult)}`)
 
       // Espera para AJAX de Bootstrap tab + DataTables init
       if (clickResult.clicked) await page.waitForTimeout(2500)
 
       // Confirmar qué pestaña quedó activa post-click
-      const activePanel = await page.evaluate(() => {
+      let activePanel = await page.evaluate(() => {
         const activeTab = document.querySelector('.nav-tabs .active, .nav-pills .active, [role="tab"][aria-selected="true"]')
         const activePane = document.querySelector('.tab-pane.active, [role="tabpanel"]:not([hidden])') as HTMLElement | null
         return {
@@ -443,6 +491,51 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       console.log(`[ConveniosAgent]   Tab activa post-click: "${activePanel.activeTabText}"`)
       console.log(`[ConveniosAgent]   Panel activo id="${activePanel.activePaneId}", tablas=${activePanel.activePaneTablesCount}`)
       console.log(`[ConveniosAgent]   Headers del panel activo: [${activePanel.activePaneFirstHeaders.join(' | ')}]`)
+
+      // Fallback de navegación por hash: si la tab activa NO es "Detalle Tarifario",
+      // intentar ir a la URL con fragment.
+      const isCorrectTab = /detalle\s*tarifario/i.test(activePanel.activeTabText) && !/opciones/i.test(activePanel.activeTabText)
+      if (!isCorrectTab) {
+        console.log(`[ConveniosAgent]   Tab activa NO es Detalle Tarifario — probando URL fragment fallback`)
+        for (const frag of ['detalle-tarifario', 'detalletarifario', 'detalle_tarifario', 'tab-detalle-tarifario', 'tab_detalle_tarifario']) {
+          const fragUrl = `${url.split('#')[0]}#${frag}`
+          try {
+            await page.goto(fragUrl, { waitUntil: 'domcontentloaded', timeout: CONVENIO_TIMEOUT_MS })
+            await page.waitForTimeout(2000)
+            // Re-disparar jQuery tab show si existe un tab con ese target
+            await page.evaluate((targetFrag) => {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const jq = (window as any).$ ?? (window as any).jQuery
+              const sel = `a[href="#${targetFrag}"], a[data-target="#${targetFrag}"]`
+              const el = document.querySelector(sel) as HTMLElement | null
+              if (el && jq) { try { jq(el).tab('show') } catch { /* */ } el.click() }
+            }, frag)
+            await page.waitForTimeout(2000)
+
+            activePanel = await page.evaluate(() => {
+              const activeTab = document.querySelector('.nav-tabs .active, .nav-pills .active, [role="tab"][aria-selected="true"]')
+              const activePane = document.querySelector('.tab-pane.active, [role="tabpanel"]:not([hidden])') as HTMLElement | null
+              return {
+                activeTabText: (activeTab?.textContent ?? '').trim().slice(0, 80),
+                activePaneId: activePane?.id ?? '',
+                activePaneTablesCount: activePane?.querySelectorAll('table').length ?? 0,
+                activePaneFirstHeaders: activePane
+                  ? Array.from(activePane.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim()).slice(0, 12)
+                  : [],
+                activePaneSnippet: (activePane?.innerText ?? '').slice(0, 250).replace(/\s+/g, ' '),
+              }
+            })
+            console.log(`[ConveniosAgent]   Fragment "#${frag}" → tab activa: "${activePanel.activeTabText}", tablas=${activePanel.activePaneTablesCount}`)
+            if (/detalle\s*tarifario/i.test(activePanel.activeTabText) && !/opciones/i.test(activePanel.activeTabText)) {
+              console.log(`[ConveniosAgent]   ✓ Fragment "#${frag}" activó la pestaña correcta`)
+              break
+            }
+          } catch (e) {
+            console.log(`[ConveniosAgent]   Fragment "#${frag}" failed: ${e instanceof Error ? e.message : e}`)
+          }
+        }
+      }
+
       if (activePanel.activePaneTablesCount === 0) {
         console.log(`[ConveniosAgent]   Snippet del panel activo: "${activePanel.activePaneSnippet}"`)
       }

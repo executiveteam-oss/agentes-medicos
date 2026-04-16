@@ -78,7 +78,7 @@ export async function scrapeConvenios(clinicId: string): Promise<ConveniosScrape
     browser = br
     const page = await loginAndInjectCookies(context, creds)
 
-    // 4. Lista de convenios
+    // 4. Lista de convenios (en la página principal de login)
     const convenios = await scrapeConvenioList(page, creds)
     totalConvenios = convenios.length
     console.log(`[ConveniosAgent] Found ${convenios.length} convenios`)
@@ -87,16 +87,41 @@ export async function scrapeConvenios(clinicId: string): Promise<ConveniosScrape
       errors.push('No se encontraron convenios en iSalud (revisar selectores)')
     }
 
-    // 5. Por cada convenio: traer su detalle tarifario
-    for (const conv of convenios) {
-      try {
-        const productos = await scrapeDetalleTarifario(page, creds, conv)
-        if (productos.length === 0) {
-          console.log(`[ConveniosAgent] Convenio ${conv.nombre}: 0 productos activos`)
+    // 5. Por cada convenio: traer su detalle tarifario en BATCHES PARALELOS.
+    //    Reusa el browser context (cookies de auth compartidas), abre una página
+    //    nueva por convenio, las cierra al terminar. CONCURRENCY = 3 para no
+    //    saturar memoria de Vercel (250MB) ni la sesión de iSalud.
+    const CONCURRENCY = 3
+    const startedAt = Date.now()
+    for (let i = 0; i < convenios.length; i += CONCURRENCY) {
+      const batch = convenios.slice(i, i + CONCURRENCY)
+      console.log(`[ConveniosAgent] Batch ${Math.floor(i / CONCURRENCY) + 1}: convenios ${i + 1}-${i + batch.length} de ${convenios.length}`)
+
+      const batchResults = await Promise.all(batch.map(async (conv) => {
+        const tabPage = await context.newPage()
+        try {
+          const productos = await scrapeDetalleTarifario(tabPage, creds, conv)
+          return { conv, productos, error: null as string | null }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          return { conv, productos: [], error: msg }
+        } finally {
+          await tabPage.close().catch(() => {})
+        }
+      }))
+
+      // Procesar resultados (UPSERT secuencial — DB ops son rápidas)
+      for (const r of batchResults) {
+        if (r.error) {
+          errors.push(`${r.conv.nombre}: ${r.error}`)
+          console.error(`[ConveniosAgent] Convenio ${r.conv.nombre} error: ${r.error}`)
           continue
         }
-        // UPSERT en staging
-        const rows = productos.map((p) => ({
+        if (r.productos.length === 0) {
+          console.log(`[ConveniosAgent] Convenio ${r.conv.nombre}: 0 productos activos`)
+          continue
+        }
+        const rows = r.productos.map((p) => ({
           clinic_id: clinicId,
           convenio_nit: p.convenio_nit,
           convenio_nombre: p.convenio_nombre,
@@ -111,20 +136,17 @@ export async function scrapeConvenios(clinicId: string): Promise<ConveniosScrape
           .from('isalud_import_staging')
           .upsert(rows, { onConflict: 'clinic_id,convenio_nit,producto_nombre' })
         if (insErr) {
-          errors.push(`Insert ${conv.nombre}: ${insErr.message}`)
+          errors.push(`Insert ${r.conv.nombre}: ${insErr.message}`)
           console.error(`[ConveniosAgent] Insert error: ${insErr.message}`)
         } else {
-          totalProductos += productos.length
-          console.log(`[ConveniosAgent] Convenio ${conv.nombre}: +${productos.length} productos`)
+          totalProductos += r.productos.length
+          console.log(`[ConveniosAgent] Convenio ${r.conv.nombre}: +${r.productos.length} productos`)
         }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        errors.push(`${conv.nombre}: ${msg}`)
-        console.error(`[ConveniosAgent] Convenio ${conv.nombre} error: ${msg}`)
       }
     }
 
-    console.log(`[ConveniosAgent] DONE: ${totalConvenios} convenios, ${totalProductos} productos, ${errors.length} errors`)
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000)
+    console.log(`[ConveniosAgent] DONE in ${elapsedSec}s: ${totalConvenios} convenios, ${totalProductos} productos, ${errors.length} errors`)
     return { convenios: totalConvenios, productos: totalProductos, errors }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -325,7 +347,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
     try {
       console.log(`[ConveniosAgent] Detalle ${conv.nombre}: navegando a ${url}`)
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: CONVENIO_TIMEOUT_MS })
-      await page.waitForTimeout(2000)
+      await page.waitForTimeout(1500)
 
       // Diagnóstico: tabs presentes, tablas iniciales
       const initial = await page.evaluate(() => {
@@ -401,8 +423,8 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       })
       console.log(`[ConveniosAgent]   Click tab: ${JSON.stringify(clickResult)}`)
 
-      // Espera larga para AJAX de Bootstrap tab + DataTables init
-      if (clickResult.clicked) await page.waitForTimeout(5000)
+      // Espera para AJAX de Bootstrap tab + DataTables init
+      if (clickResult.clicked) await page.waitForTimeout(2500)
 
       // Confirmar qué pestaña quedó activa post-click
       const activePanel = await page.evaluate(() => {
@@ -494,7 +516,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
       if (opt) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); return }
     }
   }, tarifarioIdx)
-  await page.waitForTimeout(2000)
+  await page.waitForTimeout(1000)
 
   // Mapear columnas por nombre, leyendo SOLO la tabla del tarifario
   const cols = await page.evaluate((idx: number) => {
@@ -598,7 +620,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
     }, tarifarioIdx)
 
     if (!paginated) break
-    await page.waitForTimeout(1200)
+    await page.waitForTimeout(800)
     pageNum++
     if (pageNum > 50) {
       console.log(`[ConveniosAgent] ${conv.nombre}: stopping at page ${pageNum} (safeguard)`)

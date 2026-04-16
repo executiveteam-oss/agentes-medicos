@@ -139,29 +139,62 @@ export async function scrapeConvenios(clinicId: string): Promise<ConveniosScrape
 
 async function scrapeConvenioList(page: Page, creds: ISaludCredentials): Promise<ConvenioListItem[]> {
   const baseUrl = `https://${creds.subdomain}.isalud.co`
-  // Rutas conocidas para llegar a Convenios. Probamos varias por si la URL cambió.
+  // Rutas candidatas. Patrón observado en iSalud: rutas raíz singulares
+  // (`/disponibilidad`, `/admision`). Los items del menú "Gestión de Agendas"
+  // NO usan namespace `/agenda/...`. Probamos `/convenio` primero, luego variantes.
   const candidates = [
     `${baseUrl}/convenio`,
     `${baseUrl}/convenios`,
+    `${baseUrl}/admision/convenios`,
+    `${baseUrl}/admision/convenio`,
     `${baseUrl}/agenda/convenio`,
     `${baseUrl}/agenda/convenios`,
-    `${baseUrl}/admision/convenio`,
+    `${baseUrl}/maestros/convenio`,
+    `${baseUrl}/maestros/convenios`,
   ]
 
   let arrived = false
+  let arrivedUrl = ''
   for (const url of candidates) {
     try {
       console.log(`[ConveniosAgent] Trying ${url}`)
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      await page.waitForTimeout(2000)
-      // Si la página tiene una tabla con encabezados como "NIT" o "Convenio", asumimos llegada
-      const headersOk = await page.evaluate(() => {
-        const headers = Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim().toLowerCase())
-        return headers.some((h) => h.includes('nit')) || headers.some((h) => h.includes('convenio')) || headers.some((h) => h.includes('aseguradora'))
+      const resp = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      const httpStatus = resp?.status() ?? 0
+      // Esperar a que cargue AJAX/DataTables
+      await page.waitForTimeout(3500)
+
+      const diag = await page.evaluate(() => {
+        const headers = Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim())
+        const tableCount = document.querySelectorAll('table').length
+        const tbodyRows = document.querySelectorAll('table tbody tr').length
+        const title = document.title
+        const h1 = (document.querySelector('h1, h2, .page-title')?.textContent ?? '').trim().slice(0, 80)
+        const bodyPreview = (document.body.innerText ?? '').slice(0, 250).replace(/\s+/g, ' ')
+        return { headers, tableCount, tbodyRows, title, h1, bodyPreview }
       })
+
+      const finalUrl = page.url()
+      const lower = diag.headers.map((h) => h.toLowerCase())
+      const hasNit = lower.some((h) => h.includes('nit'))
+      const hasNombre = lower.some((h) => h.includes('nombre'))
+      const hasAbreviado = lower.some((h) => h.includes('abreviad'))
+      const hasAcciones = lower.some((h) => h.includes('accion'))
+      // Match firme: NIT + Nombre (las dos columnas obligatorias en la pantalla de Convenios)
+      // Match suave: NIT + Abreviado o NIT + Acciones
+      const headersOk = (hasNit && hasNombre) || (hasNit && hasAbreviado) || (hasNit && hasAcciones)
+
+      console.log(`[ConveniosAgent]   → status=${httpStatus} finalUrl=${finalUrl}`)
+      console.log(`[ConveniosAgent]   → title="${diag.title}" h1="${diag.h1}"`)
+      console.log(`[ConveniosAgent]   → tables=${diag.tableCount} tbodyRows=${diag.tbodyRows}`)
+      console.log(`[ConveniosAgent]   → headers=[${diag.headers.join(' | ')}] match=${headersOk}`)
+      if (!headersOk) {
+        console.log(`[ConveniosAgent]   → bodyPreview="${diag.bodyPreview}"`)
+      }
+
       if (headersOk) {
-        console.log(`[ConveniosAgent] Arrived at ${url}`)
+        console.log(`[ConveniosAgent] ✓ Arrived at ${url}`)
         arrived = true
+        arrivedUrl = finalUrl
         break
       }
     } catch (e) {
@@ -170,8 +203,51 @@ async function scrapeConvenioList(page: Page, creds: ISaludCredentials): Promise
   }
 
   if (!arrived) {
-    throw new Error('No pude llegar a la pantalla de Convenios — revisar URL en iSalud')
+    // Fallback: intentar descubrir la URL real navegando al menú principal y buscando un link
+    // que diga "Convenio" o "Convenios"
+    console.log(`[ConveniosAgent] Fallback: scanning home for "Convenio" link...`)
+    try {
+      await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      await page.waitForTimeout(2000)
+      const links = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll('a[href]')).map((a) => ({
+          text: (a.textContent ?? '').trim(),
+          href: (a as HTMLAnchorElement).href,
+        })).filter((l) => l.text.length > 0)
+      })
+      const conveniosLinks = links.filter((l) => /convenio/i.test(l.text) || /convenio/i.test(l.href))
+      console.log(`[ConveniosAgent] Found ${conveniosLinks.length} links mentioning "convenio"`)
+      conveniosLinks.slice(0, 10).forEach((l) => console.log(`[ConveniosAgent]   - "${l.text}" → ${l.href}`))
+
+      if (conveniosLinks.length > 0) {
+        const target = conveniosLinks[0]
+        console.log(`[ConveniosAgent] Trying discovered link: ${target.href}`)
+        await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        await page.waitForTimeout(3500)
+        const finalUrl = page.url()
+        const diag = await page.evaluate(() => {
+          const headers = Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim())
+          const tableCount = document.querySelectorAll('table').length
+          const tbodyRows = document.querySelectorAll('table tbody tr').length
+          return { headers, tableCount, tbodyRows }
+        })
+        console.log(`[ConveniosAgent] Discovered finalUrl=${finalUrl}, tables=${diag.tableCount}, headers=[${diag.headers.join(' | ')}]`)
+        const lower = diag.headers.map((h) => h.toLowerCase())
+        if (lower.some((h) => h.includes('nit')) && (lower.some((h) => h.includes('nombre')) || lower.some((h) => h.includes('abreviad')))) {
+          arrived = true
+          arrivedUrl = finalUrl
+          console.log(`[ConveniosAgent] ✓ Arrived via discovered link`)
+        }
+      }
+    } catch (e) {
+      console.log(`[ConveniosAgent] Discovery fallback failed: ${e instanceof Error ? e.message : e}`)
+    }
   }
+
+  if (!arrived) {
+    throw new Error('No pude llegar a la pantalla de Convenios — revisar URL en iSalud (revisa logs de Vercel para ver qué URLs se probaron)')
+  }
+  console.log(`[ConveniosAgent] Using URL: ${arrivedUrl}`)
 
   // Maximizar registros visibles (DataTables)
   try { await page.selectOption('.dataTables_length select', '-1') } catch {

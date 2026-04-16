@@ -4,10 +4,30 @@
 // ============================================================
 
 // --- Horarios de trabajo (usado por clínicas y doctores) ---
+
+/**
+ * Bloque horario individual dentro de un día.
+ * Permite horarios partidos (ej. "8:30-11:45" + "13:15-16:15").
+ */
+export interface WorkingBlock {
+  start: string   // "08:30"
+  end: string     // "11:45"
+}
+
+/**
+ * Configuración de un día.
+ * Soporta dos formatos por backward compatibility:
+ * - Nuevo: { active, blocks: [{start, end}, ...] }
+ * - Viejo: { active, start, end }   (un solo bloque)
+ *
+ * SIEMPRE leer pasando por `normalizeWorkingDay()` (en src/lib/utils/working-hours.ts)
+ * para obtener `{ active, blocks }` de forma uniforme.
+ */
 export interface WorkingDay {
-  start: string   // "08:00"
-  end: string     // "18:00"
-  active: boolean // true = atiende ese día
+  active: boolean
+  blocks?: WorkingBlock[]   // Nuevo formato (multi-bloque)
+  start?: string             // Viejo formato (compat)
+  end?: string               // Viejo formato (compat)
 }
 
 export interface WorkingHours {
@@ -19,6 +39,14 @@ export interface WorkingHours {
   saturday: WorkingDay
   sunday: WorkingDay
 }
+
+/** Día normalizado con `blocks` siempre presente (nunca usar legacy start/end). */
+export interface NormalizedWorkingDay {
+  active: boolean
+  blocks: WorkingBlock[]
+}
+
+export type NormalizedWorkingHours = Record<keyof WorkingHours, NormalizedWorkingDay>
 
 // --- FAQ personalizada de cada clínica ---
 export interface FaqItem {

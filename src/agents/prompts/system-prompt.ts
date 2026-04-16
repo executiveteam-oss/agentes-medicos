@@ -6,6 +6,7 @@
 
 import type { Clinic, ConsultationType, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
 import { formatCOP, nowColombia } from '@/lib/utils/dates'
+import { normalizeWorkingHours } from '@/lib/utils/working-hours'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -333,12 +334,15 @@ function formatWorkingHours(clinic: Clinic): string {
   }
 
   const lines: string[] = []
-  const hours = clinic.working_hours
+  const hours = normalizeWorkingHours(clinic.working_hours)
 
   for (const [day, config] of Object.entries(hours)) {
     const name = dayNames[day] ?? day
-    if (config.active) {
-      lines.push(`  ${name}: ${formatHour(config.start)} - ${formatHour(config.end)}`)
+    if (config.active && config.blocks.length > 0) {
+      const ranges = config.blocks
+        .map((b) => `${formatHour(b.start)} - ${formatHour(b.end)}`)
+        .join(' y ')
+      lines.push(`  ${name}: ${ranges}`)
     } else {
       lines.push(`  ${name}: Cerrado`)
     }

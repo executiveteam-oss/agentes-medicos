@@ -177,16 +177,18 @@ async function getOrCreateDoctor(clinicId: string, prof: ISaludProfesional): Pro
  * Returns conservative default working hours for imported doctors.
  * Does NOT infer from iSalud data — historical slots give unreliable ranges.
  * The admin configures real hours manually in the Omuwan dashboard.
+ *
+ * Formato nuevo: { active, blocks: [{start, end}] }
  */
-function buildDefaultWorkingHours(): Record<string, { start: string; end: string; active: boolean }> {
+function buildDefaultWorkingHours(): Record<string, { active: boolean; blocks: Array<{ start: string; end: string }> }> {
   return {
-    sunday:    { start: '00:00', end: '00:00', active: false },
-    monday:    { start: '08:00', end: '18:00', active: true },
-    tuesday:   { start: '08:00', end: '18:00', active: true },
-    wednesday: { start: '08:00', end: '18:00', active: true },
-    thursday:  { start: '08:00', end: '18:00', active: true },
-    friday:    { start: '08:00', end: '18:00', active: true },
-    saturday:  { start: '08:00', end: '13:00', active: true },
+    sunday:    { active: false, blocks: [] },
+    monday:    { active: true,  blocks: [{ start: '08:00', end: '18:00' }] },
+    tuesday:   { active: true,  blocks: [{ start: '08:00', end: '18:00' }] },
+    wednesday: { active: true,  blocks: [{ start: '08:00', end: '18:00' }] },
+    thursday:  { active: true,  blocks: [{ start: '08:00', end: '18:00' }] },
+    friday:    { active: true,  blocks: [{ start: '08:00', end: '18:00' }] },
+    saturday:  { active: true,  blocks: [{ start: '08:00', end: '13:00' }] },
   }
 }
 

@@ -6,7 +6,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
-import type { WhatsAppConfig } from '@/types/database'
+import type { WhatsAppConfig, WorkingHours } from '@/types/database'
 
 // --- Tipos ---
 
@@ -30,6 +30,7 @@ export interface DoctorForConfig {
   agenda_closed_until: string | null
   schedule_type: 'fixed' | 'manual'
   manual_availability_message: string | null
+  working_hours: WorkingHours | null
 }
 
 export interface WhatsAppPageData {
@@ -92,7 +93,7 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
     // Doctores de la clínica
     supabaseAdmin
       .from('doctors')
-      .select('id, name, specialty, phone, is_active, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message')
+      .select('id, name, specialty, phone, is_active, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message, working_hours')
       .eq('clinic_id', clinicId)
       .order('created_at', { ascending: true }),
   ])

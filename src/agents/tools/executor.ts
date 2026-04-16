@@ -14,7 +14,8 @@ import { calculateEndTime, formatForPatient, formatTimeForPatient, normalizePhon
 import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
-import type { Clinic, Doctor, WorkingDay, WhatsAppConfig, VirtualConsultationConfig } from '@/types/database'
+import { normalizeWorkingHours } from '@/lib/utils/working-hours'
+import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, WorkingBlock } from '@/types/database'
 import { parseISO, addMinutes, format, startOfDay, endOfDay, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toZonedTime } from 'date-fns-tz'
@@ -198,28 +199,47 @@ async function checkAvailability(
   const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
   const docConfig = waConfig?.doctors[doctorId]
 
-  // Determinar horario: per-doctor config > doctor.working_hours > clinic.working_hours
+  // Determinar bloques horarios del día.
+  // Precedencia: doctor.working_hours (per-day blocks) > whatsapp_config.doctors[id] > clinic.working_hours
   const dayOfWeek = getDayOfWeek(date)
-  let startTime: string
-  let endTime: string
-  let isDayActive: boolean
+  const dayKey = dayOfWeek as keyof typeof clinic.working_hours
+  let isDayActive = false
+  let dayBlocks: WorkingBlock[] = []
 
-  if (docConfig) {
-    // Usar config de WhatsApp para este doctor
-    const dayNum = date.getDay() // 0=dom
-    isDayActive = docConfig.days.includes(dayNum)
-    startTime = docConfig.start
-    endTime = docConfig.end
-  } else {
-    // Fallback a working_hours del doctor o la clínica
-    const workingHours = doctor.working_hours ?? clinic.working_hours
-    const dayConfig: WorkingDay = workingHours[dayOfWeek as keyof typeof workingHours]
-    isDayActive = dayConfig?.active ?? false
-    startTime = dayConfig?.start ?? '08:00'
-    endTime = dayConfig?.end ?? '18:00'
+  // 1) doctor.working_hours per-day (formato nuevo o viejo, ambos normalizados)
+  if (doctor.working_hours) {
+    const docHours = normalizeWorkingHours(doctor.working_hours)
+    const dayCfg = docHours[dayKey]
+    if (dayCfg.active && dayCfg.blocks.length > 0) {
+      isDayActive = true
+      dayBlocks = dayCfg.blocks
+    } else if (!dayCfg.active) {
+      // El doctor explícitamente marcó este día como inactivo
+      isDayActive = false
+      dayBlocks = []
+    }
   }
 
-  if (!isDayActive) {
+  // 2) Fallback a whatsapp_config.doctors[id] (formato global single window)
+  if (!isDayActive && dayBlocks.length === 0 && docConfig) {
+    const dayNum = date.getDay()
+    if (docConfig.days.includes(dayNum)) {
+      isDayActive = true
+      dayBlocks = [{ start: docConfig.start, end: docConfig.end }]
+    }
+  }
+
+  // 3) Fallback a clinic.working_hours
+  if (!isDayActive && dayBlocks.length === 0) {
+    const clinicHours = normalizeWorkingHours(clinic.working_hours)
+    const dayCfg = clinicHours[dayKey]
+    if (dayCfg.active && dayCfg.blocks.length > 0) {
+      isDayActive = true
+      dayBlocks = dayCfg.blocks
+    }
+  }
+
+  if (!isDayActive || dayBlocks.length === 0) {
     return {
       success: true,
       data: {
@@ -230,9 +250,11 @@ async function checkAvailability(
     }
   }
 
-  // Buscar citas existentes para ese día y doctor
-  const dayStart = `${dateStr}T${startTime}:00-05:00`
-  const dayEnd = `${dateStr}T${endTime}:00-05:00`
+  // Para acotar el query a citas existentes, usar el rango total del día (primer start ↔ último end)
+  const dayStartTime = dayBlocks[0].start
+  const dayEndTime = dayBlocks[dayBlocks.length - 1].end
+  const dayStart = `${dateStr}T${dayStartTime}:00-05:00`
+  const dayEnd = `${dateStr}T${dayEndTime}:00-05:00`
 
   const { data: existingAppointments, error } = await supabaseAdmin
     .from('appointments')
@@ -269,7 +291,8 @@ async function checkAvailability(
     }
   }
 
-  const allSlots = generateTimeSlots(dateStr, startTime, endTime, duration)
+  // Generar slots iterando sobre TODOS los bloques del día (soporta horarios partidos)
+  const allSlots = dayBlocks.flatMap((b) => generateTimeSlots(dateStr, b.start, b.end, duration))
 
   // Filtrar los que ya están ocupados
   const occupiedTimes = new Set(

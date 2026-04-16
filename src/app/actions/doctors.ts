@@ -7,6 +7,8 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkWritePermission } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
+import { normalizeWorkingHours, validateBlocks, WORKING_HOURS_DAY_KEYS } from '@/lib/utils/working-hours'
+import type { WorkingHours } from '@/types/database'
 
 export interface CreateDoctorInput {
   name: string
@@ -240,6 +242,63 @@ export async function updateDoctorScheduleType(
       target_type: 'doctor',
       target_id: doctorId,
       details: { schedule_type: scheduleType },
+    })
+
+    revalidatePath('/dashboard/whatsapp')
+    revalidatePath('/dashboard')
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
+/**
+ * Actualizar working_hours de un doctor (formato nuevo con blocks por día).
+ * Valida que los bloques no se solapen y que start < end.
+ */
+export async function updateDoctorWorkingHours(
+  doctorId: string,
+  workingHours: WorkingHours
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('whatsapp')
+
+    // Normalizar y validar
+    const normalized = normalizeWorkingHours(workingHours)
+    for (const dayKey of WORKING_HOURS_DAY_KEYS) {
+      const day = normalized[dayKey]
+      if (!day.active) continue
+      if (day.blocks.length === 0) {
+        return { ok: false, error: `${dayKey}: día activo debe tener al menos un bloque` }
+      }
+      const err = validateBlocks(day.blocks)
+      if (err) return { ok: false, error: `${dayKey}: ${err}` }
+    }
+
+    // Persistir SIEMPRE en formato nuevo (active + blocks)
+    const toSave: Record<string, { active: boolean; blocks: Array<{ start: string; end: string }> }> = {}
+    for (const dayKey of WORKING_HOURS_DAY_KEYS) {
+      toSave[dayKey] = {
+        active: normalized[dayKey].active,
+        blocks: normalized[dayKey].blocks.map((b) => ({ start: b.start, end: b.end })),
+      }
+    }
+
+    const { error } = await supabaseAdmin
+      .from('doctors')
+      .update({ working_hours: toSave as unknown as Record<string, unknown> })
+      .eq('id', doctorId)
+      .eq('clinic_id', clinicId)
+
+    if (error) return { ok: false, error: 'Error guardando horario' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'doctor_working_hours_updated',
+      actor_type: 'staff',
+      target_type: 'doctor',
+      target_id: doctorId,
+      details: { working_hours: toSave } as unknown as Record<string, unknown>,
     })
 
     revalidatePath('/dashboard/whatsapp')

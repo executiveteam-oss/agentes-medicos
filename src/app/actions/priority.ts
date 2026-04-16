@@ -9,6 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { revalidatePath } from 'next/cache'
 import { getSessionClinicId } from '@/lib/actions-helpers'
+import { normalizeWorkingHours, dayTotalMinutes } from '@/lib/utils/working-hours'
 
 export interface PriorityScore {
   patientId: string
@@ -202,20 +203,15 @@ export async function calculateWaitlistPriorities(clinicId: string): Promise<Wai
     })
   }
 
-  // Estimar slots disponibles esta semana
-  const wh = clinicRes.data?.working_hours as Record<string, { start: string; end: string; active: boolean }> | null
+  // Estimar slots disponibles esta semana (sumando todos los bloques de cada día activo)
+  const whRaw = clinicRes.data?.working_hours as Record<string, unknown> | null
   const duration = clinicRes.data?.consultation_duration_minutes ?? 30
   let totalSlots = 0
-  if (wh) {
-    const dayKeys = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-    for (const key of dayKeys) {
-      const day = wh[key]
-      if (!day?.active) continue
-      const [sh, sm] = day.start.split(':').map(Number)
-      const [eh, em] = day.end.split(':').map(Number)
-      const startMin = sh * 60 + sm
-      const endMin = eh * 60 + em
-      totalSlots += Math.floor((endMin - startMin) / duration)
+  if (whRaw) {
+    const wh = normalizeWorkingHours(whRaw)
+    for (const day of Object.values(wh)) {
+      const minutes = dayTotalMinutes(day)
+      if (minutes > 0) totalSlots += Math.floor(minutes / duration)
     }
   }
   const bookedThisWeek = weekApptsRes.count ?? 0

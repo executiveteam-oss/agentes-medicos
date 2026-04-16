@@ -15,7 +15,15 @@ import {
   closeDoctorAgenda,
   reopenDoctorAgenda,
   updateDoctorScheduleType,
+  updateDoctorWorkingHours,
 } from '@/app/actions/doctors'
+import {
+  normalizeWorkingHours,
+  validateBlocks,
+  defaultBlock,
+  WORKING_HOURS_DAY_KEYS,
+} from '@/lib/utils/working-hours'
+import type { WorkingHours, NormalizedWorkingHours, WorkingBlock } from '@/types/database'
 import {
   getConsultationTypes,
   createConsultationType,
@@ -329,9 +337,6 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
             {doctors.map((doc) => {
               const dc = config.doctors[doc.id]
               const isActive = dc?.active ?? doc.is_active
-              const docDays = dc?.days ?? config.schedule.days
-              const docStart = dc?.start ?? config.schedule.start
-              const docEnd = dc?.end ?? config.schedule.end
               const docDuration = dc?.duration ?? config.appointment.default_duration
 
               return (
@@ -341,11 +346,14 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
                   isActive={isActive}
                   isEditing={editingDoctorId === doc.id}
                   isConfirmingDelete={confirmDeleteId === doc.id}
-                  docDays={docDays}
-                  docStart={docStart}
-                  docEnd={docEnd}
                   docDuration={docDuration}
                   clinicSpecialties={clinicSpecialties}
+                  onWorkingHoursSaved={(wh) => {
+                    setDoctors((prev) =>
+                      prev.map((d) => (d.id === doc.id ? { ...d, working_hours: wh } : d))
+                    )
+                    showToast(`Horario de ${doc.name} actualizado`)
+                  }}
                   onToggleActive={(active) => {
                     setDoctors((prev) =>
                       prev.map((d) => (d.id === doc.id ? { ...d, is_active: active } : d))
@@ -403,9 +411,6 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
                     setConfirmDeleteId(null)
                     showToast(`Doctor ${doc.name} eliminado`)
                   }}
-                  onToggleDay={(day) => toggleDoctorDay(doc.id, day)}
-                  onChangeStart={(v) => updateDoctorConfig(doc.id, { start: v })}
-                  onChangeEnd={(v) => updateDoctorConfig(doc.id, { end: v })}
                   onChangeDuration={(v) => updateDoctorConfig(doc.id, { duration: v })}
                 />
               )
@@ -600,6 +605,7 @@ function AddDoctorForm({
           agenda_closed_until: null,
           schedule_type: 'fixed',
           manual_availability_message: null,
+          working_hours: null,
         })
       } else {
         setError(result.error ?? 'Error desconocido')
@@ -680,9 +686,6 @@ function DoctorCard({
   isActive,
   isEditing,
   isConfirmingDelete,
-  docDays,
-  docStart,
-  docEnd,
   docDuration,
   clinicSpecialties,
   onToggleActive,
@@ -693,19 +696,14 @@ function DoctorCard({
   onStartDelete,
   onCancelDelete,
   onConfirmDelete,
-  onToggleDay,
-  onChangeStart,
-  onChangeEnd,
   onChangeDuration,
   onScheduleTypeChange,
+  onWorkingHoursSaved,
 }: {
   doc: DoctorForConfig
   isActive: boolean
   isEditing: boolean
   isConfirmingDelete: boolean
-  docDays: number[]
-  docStart: string
-  docEnd: string
   docDuration: number
   onToggleActive: (active: boolean) => void
   onAgendaChange: (closed: boolean, reason?: string | null, until?: string | null) => void
@@ -715,11 +713,9 @@ function DoctorCard({
   onStartDelete: () => void
   onCancelDelete: () => void
   onConfirmDelete: () => void
-  onToggleDay: (day: number) => void
-  onChangeStart: (v: string) => void
-  onChangeEnd: (v: string) => void
   onChangeDuration: (v: number) => void
   onScheduleTypeChange: (type: 'fixed' | 'manual', message: string | null) => void
+  onWorkingHoursSaved: (wh: WorkingHours) => void
   clinicSpecialties: string[]
 }) {
   const agendaClosed = doc.agenda_closed ?? false
@@ -817,64 +813,27 @@ function DoctorCard({
             onChange={onScheduleTypeChange}
           />
 
-          {/* Fixed schedule: Days / Hours / Duration */}
+          {/* Fixed schedule: per-day blocks editor + duration */}
           {scheduleType === 'fixed' && (
             <>
-              {/* Days */}
-              <div>
-                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1.5 block">
-                  Días disponibles
-                </label>
-                <div className="flex gap-1.5">
-                  {DAY_LABELS.map((d) => (
-                    <button
-                      key={d.value}
-                      type="button"
-                      onClick={() => onToggleDay(d.value)}
-                      className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors ${
-                        docDays.includes(d.value)
-                          ? 'bg-blue-700 text-white border-blue-700'
-                          : 'border-slate-200 text-slate-400 hover:bg-slate-50'
-                      }`}
-                    >
-                      {d.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <DoctorScheduleEditor
+                doctorId={doc.id}
+                initialWorkingHours={doc.working_hours}
+                onSaved={onWorkingHoursSaved}
+              />
 
-              {/* Time + Duration */}
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Inicio</label>
-                  <input
-                    type="time"
-                    value={docStart}
-                    onChange={(e) => onChangeStart(e.target.value)}
-                    className="input-field mt-1 w-full"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Fin</label>
-                  <input
-                    type="time"
-                    value={docEnd}
-                    onChange={(e) => onChangeEnd(e.target.value)}
-                    className="input-field mt-1 w-full"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Duración</label>
-                  <select
-                    value={docDuration}
-                    onChange={(e) => onChangeDuration(Number(e.target.value))}
-                    className="input-field mt-1 w-full"
-                  >
-                    {DURATION_OPTIONS.map((m) => (
-                      <option key={m} value={m}>{m} min</option>
-                    ))}
-                  </select>
-                </div>
+              {/* Duration */}
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">Duración por defecto</label>
+                <select
+                  value={docDuration}
+                  onChange={(e) => onChangeDuration(Number(e.target.value))}
+                  className="input-field mt-1 w-full max-w-[160px]"
+                >
+                  {DURATION_OPTIONS.map((m) => (
+                    <option key={m} value={m}>{m} min</option>
+                  ))}
+                </select>
               </div>
             </>
           )}
@@ -1681,6 +1640,223 @@ function DeleteConfirmation({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ============================================================
+// DoctorScheduleEditor — Editor de horarios por día con multi-bloque
+// Lee y escribe doctors.working_hours en formato { active, blocks: [{start,end}] }
+// ============================================================
+
+const DAY_LABEL_LONG: Record<keyof WorkingHours, string> = {
+  monday: 'Lunes',
+  tuesday: 'Martes',
+  wednesday: 'Miércoles',
+  thursday: 'Jueves',
+  friday: 'Viernes',
+  saturday: 'Sábado',
+  sunday: 'Domingo',
+}
+
+function DoctorScheduleEditor({
+  doctorId,
+  initialWorkingHours,
+  onSaved,
+}: {
+  doctorId: string
+  initialWorkingHours: WorkingHours | null
+  onSaved: (wh: WorkingHours) => void
+}) {
+  // Estado local: hidratamos desde initialWorkingHours (normalizado)
+  const initial = normalizeWorkingHours(initialWorkingHours)
+  // Si el doctor no tiene horario configurado, default razonable: L-V 08:00-17:00
+  const isEmpty = WORKING_HOURS_DAY_KEYS.every((k) => initial[k].blocks.length === 0)
+  const seed: NormalizedWorkingHours = isEmpty
+    ? {
+        monday:    { active: true,  blocks: [{ start: '08:00', end: '17:00' }] },
+        tuesday:   { active: true,  blocks: [{ start: '08:00', end: '17:00' }] },
+        wednesday: { active: true,  blocks: [{ start: '08:00', end: '17:00' }] },
+        thursday:  { active: true,  blocks: [{ start: '08:00', end: '17:00' }] },
+        friday:    { active: true,  blocks: [{ start: '08:00', end: '17:00' }] },
+        saturday:  { active: false, blocks: [] },
+        sunday:    { active: false, blocks: [] },
+      }
+    : initial
+
+  const [hours, setHours] = useState<NormalizedWorkingHours>(seed)
+  const [errors, setErrors] = useState<Partial<Record<keyof WorkingHours, string>>>({})
+  const [isPending, startTransition] = useTransition()
+  const [saved, setSaved] = useState(false)
+  const [globalError, setGlobalError] = useState<string | null>(null)
+
+  function setDay(key: keyof WorkingHours, updater: (prev: { active: boolean; blocks: WorkingBlock[] }) => { active: boolean; blocks: WorkingBlock[] }) {
+    setHours((prev) => ({ ...prev, [key]: updater(prev[key]) }))
+    setSaved(false)
+  }
+
+  function toggleDayActive(key: keyof WorkingHours) {
+    setDay(key, (prev) => {
+      if (prev.active) {
+        // Desactivar (mantener blocks por si reactiva)
+        return { ...prev, active: false }
+      }
+      // Activar — si no tiene blocks, agregar un default
+      return {
+        active: true,
+        blocks: prev.blocks.length > 0 ? prev.blocks : [defaultBlock()],
+      }
+    })
+  }
+
+  function addBlock(key: keyof WorkingHours) {
+    setDay(key, (prev) => ({ ...prev, blocks: [...prev.blocks, defaultBlock()] }))
+  }
+
+  function removeBlock(key: keyof WorkingHours, idx: number) {
+    setDay(key, (prev) => {
+      const next = prev.blocks.filter((_, i) => i !== idx)
+      // Si se queda sin bloques y el día estaba activo → desactivarlo
+      return { active: next.length === 0 ? false : prev.active, blocks: next }
+    })
+  }
+
+  function updateBlock(key: keyof WorkingHours, idx: number, field: 'start' | 'end', value: string) {
+    setDay(key, (prev) => ({
+      ...prev,
+      blocks: prev.blocks.map((b, i) => (i === idx ? { ...b, [field]: value } : b)),
+    }))
+  }
+
+  function handleSave() {
+    // Validar todos los días activos
+    const newErrors: Partial<Record<keyof WorkingHours, string>> = {}
+    for (const key of WORKING_HOURS_DAY_KEYS) {
+      const day = hours[key]
+      if (!day.active) continue
+      if (day.blocks.length === 0) {
+        newErrors[key] = 'Día activo requiere al menos un bloque'
+        continue
+      }
+      const err = validateBlocks(day.blocks)
+      if (err) newErrors[key] = err
+    }
+    setErrors(newErrors)
+    if (Object.keys(newErrors).length > 0) {
+      setGlobalError('Corrige los errores antes de guardar')
+      return
+    }
+
+    setGlobalError(null)
+    startTransition(async () => {
+      // Convertir a formato WorkingHours (con blocks)
+      const payload: WorkingHours = {} as WorkingHours
+      for (const key of WORKING_HOURS_DAY_KEYS) {
+        payload[key] = {
+          active: hours[key].active,
+          blocks: hours[key].blocks.map((b) => ({ start: b.start, end: b.end })),
+        }
+      }
+      const result = await updateDoctorWorkingHours(doctorId, payload)
+      if (result.ok) {
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2500)
+        onSaved(payload)
+      } else {
+        setGlobalError(result.error ?? 'Error guardando horario')
+      }
+    })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+          Horario por día
+        </label>
+        <p className="text-[10px] text-slate-400">
+          Soporta horarios partidos (ej. 8:30-11:45 y 13:15-16:15)
+        </p>
+      </div>
+      <div className="space-y-2 border border-slate-100 rounded-lg p-3">
+        {WORKING_HOURS_DAY_KEYS.map((key) => {
+          const day = hours[key]
+          const err = errors[key]
+          return (
+            <div key={key} className="flex items-start gap-3">
+              {/* Toggle día */}
+              <button
+                type="button"
+                onClick={() => toggleDayActive(key)}
+                className={`mt-1 w-20 shrink-0 px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors ${
+                  day.active
+                    ? 'bg-blue-700 text-white border-blue-700'
+                    : 'border-slate-200 text-slate-400 hover:bg-slate-50'
+                }`}
+              >
+                {DAY_LABEL_LONG[key].slice(0, 3)}
+              </button>
+
+              {/* Bloques o "Cerrado" */}
+              <div className="flex-1 min-w-0">
+                {!day.active ? (
+                  <p className="text-xs text-slate-400 mt-1.5">Cerrado</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {day.blocks.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="time"
+                          value={b.start}
+                          onChange={(e) => updateBlock(key, i, 'start', e.target.value)}
+                          className="input-field py-1 px-2 text-xs w-24"
+                        />
+                        <span className="text-xs text-slate-400">a</span>
+                        <input
+                          type="time"
+                          value={b.end}
+                          onChange={(e) => updateBlock(key, i, 'end', e.target.value)}
+                          className="input-field py-1 px-2 text-xs w-24"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeBlock(key, i)}
+                          className="text-slate-300 hover:text-red-500 text-base leading-none px-1"
+                          title="Eliminar bloque"
+                          aria-label="Eliminar bloque"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addBlock(key)}
+                      className="text-[11px] text-blue-700 hover:text-blue-800 font-medium"
+                    >
+                      + Agregar bloque
+                    </button>
+                  </div>
+                )}
+                {err && <p className="text-[10px] text-red-600 mt-1">{err}</p>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="flex items-center gap-3 mt-3">
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={isPending}
+          className="bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-medium py-1.5 px-3 rounded-lg transition-colors"
+        >
+          {isPending ? 'Guardando...' : 'Guardar horario'}
+        </button>
+        {saved && <span className="text-xs text-emerald-600 font-medium">Guardado</span>}
+        {globalError && <span className="text-xs text-red-600">{globalError}</span>}
+      </div>
     </div>
   )
 }

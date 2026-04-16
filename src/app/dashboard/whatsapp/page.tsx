@@ -30,7 +30,7 @@ export default async function WhatsAppPage() {
   const clinicRow = clinicData.data as Record<string, unknown> | null
   const hasEscalationContact = !!clinicRow?.escalation_contact_phone
   const clinicSpecialties = (Array.isArray(clinicRow?.specialty) ? clinicRow.specialty : []) as string[]
-  const { activeConversations, config, doctors, whatsappConnected, whatsappPhoneDisplay } = pageData
+  const { activeConversations, config, doctors, whatsappConnected, whatsappPhoneDisplay, hasIsalud } = pageData
 
   return (
     <div className="p-6 lg:p-8 space-y-8">
@@ -152,7 +152,7 @@ export default async function WhatsAppPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">
           Configuración del agente
         </h2>
-        <WhatsAppConfigForm initialConfig={config} doctors={doctors} initialVacationMessage={vacationMessage} clinicSpecialties={clinicSpecialties} />
+        <WhatsAppConfigForm initialConfig={config} doctors={doctors} initialVacationMessage={vacationMessage} clinicSpecialties={clinicSpecialties} hasIsalud={hasIsalud} />
       </section>
     </div>
   )

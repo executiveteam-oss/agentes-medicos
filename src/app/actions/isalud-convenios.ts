@@ -46,6 +46,13 @@ export interface ConfirmItem {
   precio: number                       // COP
 }
 
+export interface ConfirmItemForDoctor {
+  productoId: string
+  nombre: string
+  duracion: number
+  precio: number
+}
+
 export interface ImportRunResult {
   ok: boolean
   convenios?: number
@@ -301,4 +308,132 @@ export async function getStagingCount(): Promise<{ count: number; hasIsalud: boo
   } catch {
     return { count: 0, hasIsalud: false }
   }
+}
+
+// --- 6. Helper simple: ¿la clínica tiene iSalud conectado? ---
+//   Usado por la UI para decidir si mostrar el botón "Importar desde iSalud"
+
+export async function hasIsaludConnected(): Promise<boolean> {
+  try {
+    const clinicId = await checkReadPermission('whatsapp')
+    const { count } = await supabaseAdmin
+      .from('sync_integrations')
+      .select('id', { count: 'exact', head: true })
+      .eq('clinic_id', clinicId)
+      .eq('provider', 'isalud')
+    return (count ?? 0) > 0
+  } catch {
+    return false
+  }
+}
+
+// --- 7. Confirm para un doctor específico (sin selector por item) ---
+//   Crea consultation_types asignados al doctorId fijo.
+//   También limpia el staging de la clínica al finalizar.
+
+export async function confirmImportForDoctor(
+  doctorId: string,
+  items: ConfirmItemForDoctor[]
+): Promise<ConfirmResult> {
+  let clinicId: string
+  try {
+    clinicId = await checkWritePermission('whatsapp')
+  } catch {
+    return { ok: false, error: 'Sin permisos' }
+  }
+
+  if (!doctorId || !Array.isArray(items) || items.length === 0) {
+    return { ok: false, error: 'Faltan datos: doctor o productos' }
+  }
+
+  // Validar que el doctor pertenece a la clínica
+  const { data: doc } = await supabaseAdmin
+    .from('doctors')
+    .select('id')
+    .eq('id', doctorId)
+    .eq('clinic_id', clinicId)
+    .maybeSingle()
+  if (!doc) return { ok: false, error: 'Doctor no encontrado en esta clínica' }
+
+  // Validar items
+  for (const it of items) {
+    if (!it.productoId || !it.nombre?.trim()) {
+      return { ok: false, error: 'Faltan datos en uno de los productos' }
+    }
+    if (typeof it.duracion !== 'number' || it.duracion < 5) {
+      return { ok: false, error: `Duración inválida para "${it.nombre}"` }
+    }
+    if (typeof it.precio !== 'number' || it.precio < 0) {
+      return { ok: false, error: `Precio inválido para "${it.nombre}"` }
+    }
+  }
+
+  // Verificar que todos los staging IDs pertenecen a la clínica
+  const stagingIds = items.map((it) => it.productoId)
+  const { data: validStaging } = await supabaseAdmin
+    .from('isalud_import_staging')
+    .select('id')
+    .eq('clinic_id', clinicId)
+    .in('id', stagingIds)
+  const validIds = new Set((validStaging ?? []).map((r) => r.id))
+  if (validIds.size !== items.length) {
+    return { ok: false, error: 'Algunos productos no pertenecen a esta clínica' }
+  }
+
+  let created = 0
+  let skipped = 0
+
+  for (const it of items) {
+    // Detectar duplicados por (clinic_id, doctor_id, name) — case insensitive
+    const { data: existing } = await supabaseAdmin
+      .from('consultation_types')
+      .select('id')
+      .eq('clinic_id', clinicId)
+      .eq('doctor_id', doctorId)
+      .ilike('name', it.nombre.trim())
+      .maybeSingle()
+
+    if (existing) {
+      skipped++
+      continue
+    }
+
+    const { error: insErr } = await supabaseAdmin
+      .from('consultation_types')
+      .insert({
+        clinic_id: clinicId,
+        doctor_id: doctorId,
+        name: it.nombre.trim(),
+        duration_minutes: it.duracion,
+        price: it.precio || null,
+        is_active: true,
+        bookable_via_whatsapp: true,
+        modality: 'presencial',
+      })
+
+    if (insErr) {
+      console.error(`[confirmImportForDoctor] insert error:`, insErr.message)
+    } else {
+      created++
+    }
+  }
+
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: clinicId,
+    action: 'isalud_convenios_imported_for_doctor',
+    actor_type: 'staff',
+    target_type: 'doctor',
+    target_id: doctorId,
+    details: { selected: items.length, created, skipped },
+  })
+
+  // Limpiar staging completo de la clínica (idempotencia)
+  await supabaseAdmin
+    .from('isalud_import_staging')
+    .delete()
+    .eq('clinic_id', clinicId)
+
+  revalidatePath('/dashboard/whatsapp')
+
+  return { ok: true, created, skipped }
 }

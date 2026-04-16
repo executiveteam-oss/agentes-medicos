@@ -39,6 +39,7 @@ export interface WhatsAppPageData {
   doctors: DoctorForConfig[]
   whatsappConnected: boolean
   whatsappPhoneDisplay: string | null
+  hasIsalud: boolean
 }
 
 const DEFAULT_CONFIG: WhatsAppConfig = {
@@ -73,7 +74,7 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
   const todayStart = new Date(colombiaOffset.getFullYear(), colombiaOffset.getMonth(), colombiaOffset.getDate())
   const todayStartUTC = new Date(todayStart.getTime() + 5 * 60 * 60 * 1000)
 
-  const [convRes, clinicRes, doctorsRes] = await Promise.all([
+  const [convRes, clinicRes, doctorsRes, isaludRes] = await Promise.all([
     // Conversaciones activas con último mensaje hoy
     supabaseAdmin
       .from('conversations')
@@ -96,6 +97,13 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
       .select('id, name, specialty, phone, is_active, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message, working_hours')
       .eq('clinic_id', clinicId)
       .order('created_at', { ascending: true }),
+
+    // ¿La clínica tiene iSalud conectado? (controla visibilidad del botón "Importar desde iSalud")
+    supabaseAdmin
+      .from('sync_integrations')
+      .select('id', { count: 'exact', head: true })
+      .eq('clinic_id', clinicId)
+      .eq('provider', 'isalud'),
   ])
 
   // Obtener último mensaje y conteo por conversación
@@ -149,6 +157,7 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
     doctors: (doctorsRes.data ?? []) as DoctorForConfig[],
     whatsappConnected: !!(clinicRes.data?.whatsapp_phone_id && clinicRes.data?.whatsapp_connected),
     whatsappPhoneDisplay: (clinicRes.data as Record<string, unknown>)?.whatsapp_phone_display as string | null ?? null,
+    hasIsalud: (isaludRes.count ?? 0) > 0,
   }
 }
 

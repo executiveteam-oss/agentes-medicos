@@ -25,6 +25,12 @@ import {
 } from '@/lib/utils/working-hours'
 import type { WorkingHours, NormalizedWorkingHours, WorkingBlock } from '@/types/database'
 import {
+  getStagingProducts,
+  confirmImportForDoctor,
+  cancelImport,
+  type StagingDataResponse,
+} from '@/app/actions/isalud-convenios'
+import {
   getConsultationTypes,
   createConsultationType,
   updateConsultationType,
@@ -54,9 +60,10 @@ interface Props {
   doctors: DoctorForConfig[]
   initialVacationMessage?: string | null
   clinicSpecialties?: string[]
+  hasIsalud?: boolean
 }
 
-export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, initialVacationMessage, clinicSpecialties = [] }: Props) {
+export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, initialVacationMessage, clinicSpecialties = [], hasIsalud = false }: Props) {
   const [config, setConfig] = useState<WhatsAppConfig>(initialConfig)
   const [doctors, setDoctors] = useState<DoctorForConfig[]>(initialDoctors)
   const [isPending, startTransition] = useTransition()
@@ -348,6 +355,7 @@ export function WhatsAppConfigForm({ initialConfig, doctors: initialDoctors, ini
                   isConfirmingDelete={confirmDeleteId === doc.id}
                   docDuration={docDuration}
                   clinicSpecialties={clinicSpecialties}
+                  hasIsalud={hasIsalud}
                   onWorkingHoursSaved={(wh) => {
                     setDoctors((prev) =>
                       prev.map((d) => (d.id === doc.id ? { ...d, working_hours: wh } : d))
@@ -688,6 +696,7 @@ function DoctorCard({
   isConfirmingDelete,
   docDuration,
   clinicSpecialties,
+  hasIsalud,
   onToggleActive,
   onAgendaChange,
   onStartEdit,
@@ -705,6 +714,7 @@ function DoctorCard({
   isEditing: boolean
   isConfirmingDelete: boolean
   docDuration: number
+  hasIsalud: boolean
   onToggleActive: (active: boolean) => void
   onAgendaChange: (closed: boolean, reason?: string | null, until?: string | null) => void
   onStartEdit: () => void
@@ -839,7 +849,7 @@ function DoctorCard({
           )}
 
           {/* Tipos de consulta */}
-          <ConsultationTypesSection doctorId={doc.id} doctorName={doc.name} />
+          <ConsultationTypesSection doctorId={doc.id} doctorName={doc.name} hasIsalud={hasIsalud} />
         </div>
       )}
     </div>
@@ -1048,13 +1058,14 @@ function ScheduleTypeToggle({
 
 const CT_DURATION_OPTIONS = [15, 20, 30, 45, 60, 90]
 
-function ConsultationTypesSection({ doctorId, doctorName }: { doctorId: string; doctorName: string }) {
+function ConsultationTypesSection({ doctorId, doctorName, hasIsalud }: { doctorId: string; doctorName: string; hasIsalud: boolean }) {
   const [types, setTypes] = useState<ConsultationType[]>([])
   const [loaded, setLoaded] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [showIsaludModal, setShowIsaludModal] = useState(false)
 
   const loadTypes = useCallback(async () => {
     const data = await getConsultationTypes(doctorId)
@@ -1196,13 +1207,40 @@ function ConsultationTypesSection({ doctorId, doctorName }: { doctorId: string; 
               onCancel={() => setShowAdd(false)}
             />
           ) : (
-            <button
-              type="button"
-              onClick={() => setShowAdd(true)}
-              className="text-xs text-blue-700 hover:text-blue-800 font-medium py-1.5"
-            >
-              + Agregar tipo de consulta
-            </button>
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                className="text-xs text-blue-700 hover:text-blue-800 font-medium py-1.5"
+              >
+                + Agregar tipo de consulta
+              </button>
+              {hasIsalud && (
+                <button
+                  type="button"
+                  onClick={() => setShowIsaludModal(true)}
+                  className="text-xs text-[#028090] hover:text-[#026d7a] font-medium py-1.5 inline-flex items-center gap-1"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                  </svg>
+                  Importar desde iSalud
+                </button>
+              )}
+            </div>
+          )}
+
+          {showIsaludModal && (
+            <ImportIsaludModal
+              doctorId={doctorId}
+              doctorName={doctorName}
+              onClose={() => setShowIsaludModal(false)}
+              onImported={async () => {
+                // Refrescar tipos del doctor para que aparezcan los recién creados
+                const fresh = await getConsultationTypes(doctorId)
+                setTypes(fresh)
+              }}
+            />
           )}
         </div>
       )}
@@ -1856,6 +1894,350 @@ function DoctorScheduleEditor({
         </button>
         {saved && <span className="text-xs text-emerald-600 font-medium">Guardado</span>}
         {globalError && <span className="text-xs text-red-600">{globalError}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// ImportIsaludModal — Modal para importar productos de iSalud
+// para un doctor específico (sin selector de médico).
+// ============================================================
+
+function ImportIsaludModal({
+  doctorId,
+  doctorName,
+  onClose,
+  onImported,
+}: {
+  doctorId: string
+  doctorName: string
+  onClose: () => void
+  onImported: () => void | Promise<void>
+}) {
+  type Step = 'loading' | 'scraping' | 'selection' | 'confirming' | 'done' | 'error'
+  const [step, setStep] = useState<Step>('loading')
+  const [data, setData] = useState<StagingDataResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [selection, setSelection] = useState<Record<string, { selected: boolean; nombre: string; duracion: number; precio: number }>>({})
+  const [onlyAgendable, setOnlyAgendable] = useState(false)
+  const [confirmResult, setConfirmResult] = useState<{ created: number; skipped: number } | null>(null)
+
+  // Bloquear scroll del body
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  // Inicial: chequear si ya hay staging; si no, ejecutar scraping
+  useEffect(() => {
+    let cancelled = false
+    async function init() {
+      try {
+        // 1) Verificar si hay staging cargado
+        const existing = await getStagingProducts()
+        if (cancelled) return
+        if (existing.totalProducts > 0) {
+          setData(existing)
+          setSelection(buildSelection(existing))
+          setStep('selection')
+          return
+        }
+        // 2) Si no hay, scrapear
+        setStep('scraping')
+        const res = await fetch('/api/isalud/convenios', { method: 'POST' })
+        const result = await res.json() as { ok: boolean; convenios?: number; productos?: number; errors?: string[]; error?: string }
+        if (cancelled) return
+        if (!result.ok && (!result.productos || result.productos === 0)) {
+          setError(result.error ?? (result.errors && result.errors[0]) ?? 'No se pudieron importar productos')
+          setStep('error')
+          return
+        }
+        // Cargar staging fresco
+        const fresh = await getStagingProducts()
+        if (cancelled) return
+        if (fresh.totalProducts === 0) {
+          setError('iSalud no devolvió productos. Verifica que tengas convenios con productos activos.')
+          setStep('error')
+          return
+        }
+        setData(fresh)
+        setSelection(buildSelection(fresh))
+        setStep('selection')
+      } catch (e) {
+        if (cancelled) return
+        setError(e instanceof Error ? e.message : 'Error inesperado')
+        setStep('error')
+      }
+    }
+    init()
+    return () => { cancelled = true }
+  }, [])
+
+  function buildSelection(d: StagingDataResponse) {
+    const sel: Record<string, { selected: boolean; nombre: string; duracion: number; precio: number }> = {}
+    for (const g of d.groups) {
+      for (const p of g.productos) {
+        sel[p.id] = {
+          selected: false,
+          nombre: p.producto_nombre,
+          duracion: p.duracion_minutos ?? 30,
+          precio: p.tarifa,
+        }
+      }
+    }
+    return sel
+  }
+
+  function toggle(id: string) {
+    setSelection((prev) => ({ ...prev, [id]: { ...prev[id], selected: !prev[id].selected } }))
+  }
+
+  function update(id: string, field: 'nombre' | 'duracion' | 'precio', value: string | number) {
+    setSelection((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
+  }
+
+  function selectAllInGroup(ids: string[], select: boolean) {
+    setSelection((prev) => {
+      const next = { ...prev }
+      for (const id of ids) next[id] = { ...next[id], selected: select }
+      return next
+    })
+  }
+
+  async function handleConfirm() {
+    setError(null)
+    const items = Object.entries(selection)
+      .filter(([, s]) => s.selected)
+      .map(([productoId, s]) => ({
+        productoId,
+        nombre: s.nombre.trim(),
+        duracion: s.duracion,
+        precio: s.precio,
+      }))
+    if (items.length === 0) {
+      setError('Selecciona al menos un producto')
+      return
+    }
+    setStep('confirming')
+    const result = await confirmImportForDoctor(doctorId, items)
+    if (result.ok) {
+      setConfirmResult({ created: result.created ?? 0, skipped: result.skipped ?? 0 })
+      setStep('done')
+      await onImported()
+    } else {
+      setError(result.error ?? 'Error al importar')
+      setStep('selection')
+    }
+  }
+
+  async function handleCancel() {
+    await cancelImport()
+    onClose()
+  }
+
+  const selectedCount = Object.values(selection).filter((s) => s.selected).length
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Importar desde iSalud</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Para {doctorName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1" aria-label="Cerrar">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {(step === 'loading' || step === 'scraping') && (
+            <div className="py-16 px-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-[#028090]/10 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-6 h-6 text-[#028090] animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              </div>
+              <p className="text-sm text-slate-700 font-medium">
+                {step === 'loading' ? 'Cargando productos...' : 'Trayendo convenios desde iSalud...'}
+              </p>
+              <p className="text-xs text-slate-400 mt-2">
+                {step === 'scraping' ? 'Puede tomar 1-2 minutos. No cierres esta ventana.' : ''}
+              </p>
+            </div>
+          )}
+
+          {step === 'error' && (
+            <div className="py-12 px-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">⚠️</span>
+              </div>
+              <h3 className="text-sm font-semibold text-slate-900">No se pudo importar</h3>
+              <p className="text-xs text-slate-500 mt-2 max-w-sm mx-auto break-words">{error}</p>
+              <button
+                onClick={onClose}
+                className="mt-5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+
+          {step === 'done' && confirmResult && (
+            <div className="py-12 px-6 text-center">
+              <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="text-base font-semibold text-slate-900">¡Listo!</h3>
+              <div className="mt-4 inline-block bg-slate-50 rounded-lg px-5 py-3 text-left space-y-1">
+                <p className="text-sm"><strong>{confirmResult.created}</strong> tipos de consulta creados</p>
+                {confirmResult.skipped > 0 && (
+                  <p className="text-xs text-slate-400">{confirmResult.skipped} omitidos (ya existían)</p>
+                )}
+              </div>
+              <div className="mt-5">
+                <button onClick={onClose} className="bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium py-2 px-5 rounded-lg transition-colors">
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(step === 'selection' || step === 'confirming') && data && (
+            <div className="px-6 py-4 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={onlyAgendable}
+                    onChange={(e) => setOnlyAgendable(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  Solo agendables web
+                </label>
+                <p className="text-xs text-slate-500">
+                  <strong className="text-slate-900">{selectedCount}</strong> seleccionados de <strong>{data.totalProducts}</strong>
+                </p>
+              </div>
+
+              {data.groups.map((group) => {
+                const visible = onlyAgendable ? group.productos.filter((p) => p.agendable_web) : group.productos
+                if (visible.length === 0) return null
+                const allSel = visible.every((p) => selection[p.id]?.selected)
+                return (
+                  <div key={`${group.convenio_nit}|${group.convenio_nombre}`} className="border border-slate-100 rounded-lg overflow-hidden">
+                    <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-900 truncate">{group.convenio_nombre}</p>
+                        <p className="text-[10px] text-slate-400 truncate">
+                          {group.convenio_nit && <>NIT: {group.convenio_nit} · </>}
+                          {visible.length} productos
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => selectAllInGroup(visible.map((p) => p.id), !allSel)}
+                        className="text-[11px] text-blue-700 hover:text-blue-800 font-medium shrink-0"
+                      >
+                        {allSel ? 'Deseleccionar' : 'Seleccionar todos'}
+                      </button>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {visible.map((p) => {
+                        const s = selection[p.id]
+                        if (!s) return null
+                        return (
+                          <div key={p.id} className="px-4 py-2 grid grid-cols-12 gap-2 items-center">
+                            <div className="col-span-1 flex justify-center">
+                              <input
+                                type="checkbox"
+                                checked={s.selected}
+                                onChange={() => toggle(p.id)}
+                                className="rounded border-slate-300"
+                              />
+                            </div>
+                            <div className="col-span-6">
+                              <input
+                                type="text"
+                                value={s.nombre}
+                                onChange={(e) => update(p.id, 'nombre', e.target.value)}
+                                disabled={!s.selected}
+                                className="input-field text-xs py-1 w-full"
+                              />
+                              {p.agendable_web && (
+                                <span className="inline-block mt-1 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5">
+                                  Agendable web
+                                </span>
+                              )}
+                            </div>
+                            <div className="col-span-2">
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="number"
+                                  min={5}
+                                  max={240}
+                                  value={s.duracion}
+                                  onChange={(e) => update(p.id, 'duracion', Number(e.target.value) || 30)}
+                                  disabled={!s.selected}
+                                  className="input-field text-xs py-1 w-14"
+                                />
+                                <span className="text-[10px] text-slate-400">min</span>
+                              </div>
+                            </div>
+                            <div className="col-span-3">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[11px] text-slate-400">$</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={s.precio}
+                                  onChange={(e) => update(p.id, 'precio', Number(e.target.value) || 0)}
+                                  disabled={!s.selected}
+                                  className="input-field text-xs py-1 w-full"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {(step === 'selection' || step === 'confirming') && (
+          <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between gap-3">
+            {error && <span className="text-xs text-red-600 truncate flex-1">{error}</span>}
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={handleCancel}
+                disabled={step === 'confirming'}
+                className="text-xs text-slate-500 hover:text-slate-700 px-3 py-2 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={selectedCount === 0 || step === 'confirming'}
+                className="bg-blue-700 hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+              >
+                {step === 'confirming' ? 'Importando...' : `Importar seleccionados${selectedCount > 0 ? ` (${selectedCount})` : ''}`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

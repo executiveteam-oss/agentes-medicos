@@ -9,7 +9,7 @@ const ALL_TABS = [
   { href: '/dashboard/whatsapp#doctores', label: 'Médicos', doctorVisible: false, superAdminOnly: false, external: true },
   { href: '/dashboard/settings/whatsapp', label: 'WhatsApp', doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/integrations', label: 'Integraciones', doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/import-isalud', label: 'Importar de iSalud', doctorVisible: false, superAdminOnly: false, external: false },
+  // Importación de iSalud movida a WhatsApp → Doctores → cada médico → "Importar desde iSalud"
   { href: '/dashboard/settings/users', label: 'Usuarios', doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/roles', label: 'Roles y permisos', doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/notifications', label: 'Notificaciones', doctorVisible: false, superAdminOnly: false, external: false },

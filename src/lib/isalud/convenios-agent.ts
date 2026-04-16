@@ -370,8 +370,22 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
         continue
       }
 
-      // Esperar que cargue el panel + AJAX de DataTables
-      await page.waitForTimeout(3000)
+      // Esperar a que el tbody del tarifario se llene vía AJAX (max 10s).
+      // Si hay un mensaje "No hay datos disponibles" o similar, también resolvemos
+      // (convenio sin productos, no es issue de timing).
+      await page.waitForFunction(() => {
+        const tables = document.querySelectorAll('table')
+        for (const t of Array.from(tables)) {
+          const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim().toLowerCase())
+          if (headers.some((h) => h.includes('producto')) && headers.some((h) => h.includes('tarifa'))) {
+            // Hay filas reales, O hay el placeholder "No hay datos" (que también significa "ya cargó")
+            const rows = t.querySelectorAll('tbody tr')
+            if (rows.length === 0) return false
+            return true
+          }
+        }
+        return false
+      }, { timeout: 10000 }).catch(() => null)
 
       // Buscar entre TODAS las tablas la que tenga columnas Producto + Tarifa
       const tableInfo = await page.evaluate(() => {
@@ -380,12 +394,14 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
           const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
           const visible = (t as HTMLElement).offsetParent !== null
           const tbodyRows = t.querySelectorAll('tbody tr').length
+          const firstRow = t.querySelector('tbody tr')
+          const firstRowText = (firstRow?.textContent ?? '').trim().slice(0, 80)
           // Intentar identificar la tabla por id/clase
           const id = t.id || ''
           const cls = t.className.slice(0, 60)
           // ¿Está dentro de un panel/tab visible?
           const inPanel = t.closest('.tab-pane.active, [role="tabpanel"]')
-          return { idx, id, cls, headers, tbodyRows, visible, inActiveTab: !!inPanel }
+          return { idx, id, cls, headers, tbodyRows, firstRowText, visible, inActiveTab: !!inPanel }
         })
       })
       // Buscar la tabla del tarifario: tiene "producto" + "tarifa" en headers
@@ -394,7 +410,8 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
         return lower.some((h) => h.includes('producto')) && lower.some((h) => h.includes('tarifa'))
       })
       if (tarifarioIdx >= 0) {
-        console.log(`[ConveniosAgent]   ✓ Tabla tarifario en índice ${tarifarioIdx}`)
+        const t = tableInfo[tarifarioIdx]
+        console.log(`[ConveniosAgent]   ✓ Tabla tarifario idx=${tarifarioIdx}, tbody rows=${t.tbodyRows}, firstRow="${t.firstRowText}"`)
         arrived = true
         arrivedUrl = url
         // Stash idx para usar después
@@ -478,27 +495,53 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
     const pageData = await page.evaluate((args: { idx: number; c: { producto: number; tarifa: number; opcion: number; estado: number; agendable: number; duracion: number; frecuencia: number; agrupador: number } }) => {
       const tables = document.querySelectorAll('table')
       const t = tables[args.idx]
-      if (!t) return []
+      if (!t) return { rows: [], emptyPlaceholder: false, tbodyCount: 0 }
+      const trList = Array.from(t.querySelectorAll('tbody tr'))
+      const tbodyCount = trList.length
+
+      // Detectar placeholder de DataTables "No hay datos disponibles" (1 sola fila con clase dataTables_empty)
+      let emptyPlaceholder = false
+      if (trList.length === 1) {
+        const firstTr = trList[0]
+        const text = (firstTr.textContent ?? '').trim().toLowerCase()
+        if (
+          firstTr.querySelector('.dataTables_empty') != null ||
+          text.includes('no hay datos') ||
+          text.includes('no data') ||
+          text.includes('sin registros') ||
+          text.includes('ningún registro')
+        ) {
+          emptyPlaceholder = true
+        }
+      }
+
       const out: Array<{ producto: string; tarifa: string; opcion: string; estado: string; agendable: string; duracion: string }> = []
-      t.querySelectorAll('tbody tr').forEach((tr) => {
-        const tds = tr.querySelectorAll('td')
-        if (tds.length === 0) return
-        const cellText = (i: number): string => i >= 0 && i < tds.length ? (tds[i]?.textContent ?? '').trim() : ''
-        out.push({
-          producto: cellText(args.c.producto),
-          tarifa: cellText(args.c.tarifa),
-          opcion: cellText(args.c.opcion),
-          estado: cellText(args.c.estado),
-          agendable: cellText(args.c.agendable),
-          duracion: cellText(args.c.duracion),
-        })
-      })
-      return out
+      if (!emptyPlaceholder) {
+        for (const tr of trList) {
+          const tds = tr.querySelectorAll('td')
+          if (tds.length === 0) continue
+          const cellText = (i: number): string => i >= 0 && i < tds.length ? (tds[i]?.textContent ?? '').trim() : ''
+          out.push({
+            producto: cellText(args.c.producto),
+            tarifa: cellText(args.c.tarifa),
+            opcion: cellText(args.c.opcion),
+            estado: cellText(args.c.estado),
+            agendable: cellText(args.c.agendable),
+            duracion: cellText(args.c.duracion),
+          })
+        }
+      }
+      return { rows: out, emptyPlaceholder, tbodyCount }
     }, { idx: tarifarioIdx, c: { producto: cols.producto, tarifa: cols.tarifa, opcion: cols.opcion, estado: cols.estado, agendable: cols.agendable, duracion: cols.duracion, frecuencia: cols.frecuencia, agrupador: cols.agrupador } })
 
-    if (pageNum === 1) console.log(`[ConveniosAgent] ${conv.nombre}: página 1 → ${pageData.length} filas raw`)
+    if (pageNum === 1) {
+      console.log(`[ConveniosAgent] ${conv.nombre}: página 1 → tbody rows=${pageData.tbodyCount}, emptyPlaceholder=${pageData.emptyPlaceholder}, filas extraídas=${pageData.rows.length}`)
+    }
 
-    for (const r of pageData) {
+    // Si es el placeholder "No hay datos", ni pagines más ni proceses filas
+    if (pageData.emptyPlaceholder) break
+
+    for (const r of pageData.rows) {
       // Solo activos (si la columna existe)
       if (cols.estado >= 0 && r.estado && !r.estado.toLowerCase().includes('activo')) continue
       if (!r.producto) continue

@@ -134,7 +134,7 @@ export async function scrapeConvenios(clinicId: string): Promise<ConveniosScrape
         }))
         const { error: insErr } = await supabaseAdmin
           .from('isalud_import_staging')
-          .upsert(rows, { onConflict: 'clinic_id,convenio_nit,producto_nombre' })
+          .upsert(rows, { onConflict: 'clinic_id,convenio_nit,convenio_nombre_abreviado,producto_nombre' })
         if (insErr) {
           errors.push(`Insert ${r.conv.nombre}: ${insErr.message}`)
           console.error(`[ConveniosAgent] Insert error: ${insErr.message}`)

@@ -74,7 +74,7 @@ export interface ConfirmResult {
 export async function runConveniosImport(): Promise<ImportRunResult> {
   let clinicId: string
   try {
-    clinicId = await checkWritePermission('settings')
+    clinicId = await checkWritePermission('whatsapp')
   } catch {
     return { ok: false, error: 'Sin permisos para ejecutar importación' }
   }
@@ -112,7 +112,7 @@ export async function runConveniosImport(): Promise<ImportRunResult> {
 // --- 2. Obtener staging agrupado por convenio ---
 
 export async function getStagingProducts(): Promise<StagingDataResponse> {
-  const clinicId = await checkReadPermission('settings')
+  const clinicId = await checkReadPermission('whatsapp')
 
   const [stagingRes, doctorsRes] = await Promise.all([
     supabaseAdmin
@@ -166,7 +166,7 @@ export async function getStagingProducts(): Promise<StagingDataResponse> {
 export async function confirmImport(items: ConfirmItem[]): Promise<ConfirmResult> {
   let clinicId: string
   try {
-    clinicId = await checkWritePermission('settings')
+    clinicId = await checkWritePermission('whatsapp')
   } catch {
     return { ok: false, error: 'Sin permisos' }
   }
@@ -278,7 +278,7 @@ export async function confirmImport(items: ConfirmItem[]): Promise<ConfirmResult
 
 export async function cancelImport(): Promise<{ ok: boolean }> {
   try {
-    const clinicId = await checkWritePermission('settings')
+    const clinicId = await checkWritePermission('whatsapp')
     await supabaseAdmin.from('isalud_import_staging').delete().eq('clinic_id', clinicId)
     return { ok: true }
   } catch {
@@ -290,7 +290,7 @@ export async function cancelImport(): Promise<{ ok: boolean }> {
 
 export async function getStagingCount(): Promise<{ count: number; hasIsalud: boolean }> {
   try {
-    const clinicId = await checkReadPermission('settings')
+    const clinicId = await checkReadPermission('whatsapp')
     const [stagingRes, integRes] = await Promise.all([
       supabaseAdmin
         .from('isalud_import_staging')

@@ -45,7 +45,6 @@ const ALL_NAV_ITEMS: Array<{
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', featureKey: 'waitlist' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations' },
-  { href: '/dashboard/asistente', label: 'Asistente IA', iconName: 'Bot', module: 'asistente', featureKey: 'ai_assistant' },
   { href: '/dashboard/whatsapp', label: 'WhatsApp', iconName: 'Phone', module: 'whatsapp' },
   { href: '/dashboard/stradmed', label: 'Finanzas', iconName: 'CreditCard', module: 'settings' },
   { href: '/dashboard/legal', label: 'Legal', iconName: 'Shield', module: 'settings' },
@@ -108,20 +107,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
       .eq('status', 'waiting')
       .eq('source', 'whatsapp')
     esperaBadge = count ?? 0
-  }
-
-  // Badge: contar insights no leídos de hoy
-  let insightsBadge = 0
-  if (session.permissions.analytics?.read && !isDoctor) {
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
-    const { count } = await supabaseAdmin
-      .from('clinic_insights')
-      .select('id', { count: 'exact', head: true })
-      .eq('clinic_id', session.clinicId)
-      .eq('is_read', false)
-      .gte('generated_at', todayStart.toISOString())
-    insightsBadge = count ?? 0
   }
 
   // Badge: contar conversaciones escaladas (urgentes) sin resolver

@@ -19,8 +19,6 @@ import type { CalendarAppointment, CalendarDoctor } from '@/components/dashboard
 import { redirect } from 'next/navigation'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { getTodayInsight } from '@/app/actions/insights'
-import { InsightWidget } from '@/components/dashboard/insight-widget'
 import { getSetupProgress } from '@/app/actions/setup-progress'
 import { SetupChecklist } from '@/components/dashboard/setup-checklist'
 import { ISaludSyncButton } from '@/components/dashboard/isalud-sync-button'
@@ -172,9 +170,6 @@ export default async function DashboardPage() {
     ? Math.round(((totalNoShows ?? 0) / totalAllTime) * 100)
     : 0
 
-  // Insight del día (solo para admins)
-  const todayInsight = !restrictDoctorId ? await getTodayInsight().catch(() => null) : null
-
   // Checklist de activación (solo para admins)
   const setupProgress = !restrictDoctorId ? await getSetupProgress().catch(() => null) : null
 
@@ -250,11 +245,6 @@ export default async function DashboardPage() {
         clinicId={clinic.id}
         todayDateStr={today}
       />
-
-      {/* Insight del día */}
-      {todayInsight && todayInsight.recommendations.length > 0 && (
-        <InsightWidget recommendation={todayInsight.recommendations[0]} />
-      )}
 
       {/* Calendario */}
       <CalendarView

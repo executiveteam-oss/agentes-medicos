@@ -234,6 +234,7 @@ export interface ConsultationType {
   requires_documents: boolean     // Si requiere documentos previos (migración 00025)
   required_documents_description: string | null  // Instrucciones de documentos (migración 00025)
   modality: ConsultationModality  // presencial / virtual / ambas (migración 00027)
+  eps_name: string | null         // EPS/convenio/aseguradora (migración 00051)
   created_at: string
 }
 

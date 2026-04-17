@@ -1142,6 +1142,9 @@ function ConsultationTypesSection({ doctorId, doctorName, hasIsalud }: { doctorI
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-sm font-medium ${ct.is_active ? 'text-slate-900' : 'text-slate-400'}`}>{ct.name}</span>
+                      {ct.eps_name && (
+                        <span className="text-[10px] font-medium bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full border border-slate-200">{ct.eps_name}</span>
+                      )}
                       <span className="text-xs text-slate-400">{ct.duration_minutes} min</span>
                       {ct.requires_preparation && (
                         <span className="text-[10px] font-medium bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full border border-amber-200">
@@ -1257,10 +1260,11 @@ function ConsultationTypeForm({
 }: {
   initial?: ConsultationType
   doctorId?: string
-  onSave: (input: { name: string; duration_minutes: number; requires_preparation: boolean; preparation_instructions: string | null; price: number | null; is_active: boolean; bookable_via_whatsapp: boolean; requires_documents: boolean; required_documents_description: string | null; modality: 'presencial' | 'virtual' | 'ambas' }) => Promise<{ ok: boolean; error?: string }>
+  onSave: (input: { name: string; duration_minutes: number; requires_preparation: boolean; preparation_instructions: string | null; price: number | null; is_active: boolean; bookable_via_whatsapp: boolean; requires_documents: boolean; required_documents_description: string | null; modality: 'presencial' | 'virtual' | 'ambas'; eps_name: string | null }) => Promise<{ ok: boolean; error?: string }>
   onCancel: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
+  const [epsName, setEpsName] = useState(initial?.eps_name ?? '')
   const [duration, setDuration] = useState(initial?.duration_minutes ?? 30)
   const [requiresPrep, setRequiresPrep] = useState(initial?.requires_preparation ?? false)
   const [prepInstructions, setPrepInstructions] = useState(initial?.preparation_instructions ?? '')
@@ -1292,6 +1296,7 @@ function ConsultationTypeForm({
         requires_documents: requiresDocs,
         required_documents_description: requiresDocs ? docsDescription.trim() || null : null,
         modality,
+        eps_name: epsName.trim() || null,
       })
       if (!result.ok) setError(result.error ?? 'Error')
     })
@@ -1318,6 +1323,17 @@ function ConsultationTypeForm({
             ))}
           </select>
         </div>
+      </div>
+
+      {/* EPS / Entidad */}
+      <div>
+        <label className="text-xs font-medium text-slate-600 mb-1 block">EPS / Entidad (opcional)</label>
+        <input
+          value={epsName}
+          onChange={(e) => setEpsName(e.target.value)}
+          className="input-field w-full"
+          placeholder="Ej: Sura, Allianz, Particular..."
+        />
       </div>
 
       {/* Modalidad */}
@@ -1919,7 +1935,7 @@ function ImportIsaludModal({
   const [step, setStep] = useState<Step>('loading')
   const [data, setData] = useState<StagingDataResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [selection, setSelection] = useState<Record<string, { selected: boolean; nombre: string; duracion: number; precio: number }>>({})
+  const [selection, setSelection] = useState<Record<string, { selected: boolean; nombre: string; duracion: number; precio: number; epsName: string }>>({})
   const [onlyAgendable, setOnlyAgendable] = useState(false)
   const [confirmResult, setConfirmResult] = useState<{ created: number; skipped: number } | null>(null)
 
@@ -1975,7 +1991,7 @@ function ImportIsaludModal({
   }, [])
 
   function buildSelection(d: StagingDataResponse) {
-    const sel: Record<string, { selected: boolean; nombre: string; duracion: number; precio: number }> = {}
+    const sel: Record<string, { selected: boolean; nombre: string; duracion: number; precio: number; epsName: string }> = {}
     for (const g of d.groups) {
       for (const p of g.productos) {
         sel[p.id] = {
@@ -1983,6 +1999,7 @@ function ImportIsaludModal({
           nombre: p.producto_nombre,
           duracion: p.duracion_minutos ?? 30,
           precio: p.tarifa,
+          epsName: g.convenio_nombre,
         }
       }
     }
@@ -2014,6 +2031,7 @@ function ImportIsaludModal({
         nombre: s.nombre.trim(),
         duracion: s.duracion,
         precio: s.precio,
+        epsName: s.epsName || null,
       }))
     if (items.length === 0) {
       setError('Selecciona al menos un producto')

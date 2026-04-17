@@ -92,7 +92,8 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
         const prepStr = ct.requires_preparation ? ' ⚠️ requiere preparación' : ''
         const docsStr = ct.requires_documents ? ' 📄 requiere documentos' : ''
         const modalStr = ct.modality === 'virtual' ? ' [Virtual]' : ct.modality === 'ambas' ? ' [Presencial/Virtual]' : ''
-        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${modalStr}${prepStr}${docsStr} | tipo_id: ${ct.id}`
+        const epsStr = ct.eps_name ? ` [${ct.eps_name}]` : ''
+        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr} | tipo_id: ${ct.id}`
         if (ct.requires_documents && ct.required_documents_description) {
           line += `\n        Documentos: ${ct.required_documents_description}`
         }

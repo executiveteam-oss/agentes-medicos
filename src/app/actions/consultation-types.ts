@@ -23,6 +23,7 @@ export interface ConsultationTypeInput {
   requires_documents: boolean
   required_documents_description: string | null
   modality: ConsultationModality
+  eps_name?: string | null
 }
 
 /**
@@ -96,6 +97,7 @@ export async function createConsultationType(
       requires_documents: input.requires_documents ?? false,
       required_documents_description: input.requires_documents ? input.required_documents_description?.trim() || null : null,
       modality: input.modality ?? 'presencial',
+      eps_name: input.eps_name?.trim() || null,
     })
     .select('*')
     .single()
@@ -150,6 +152,7 @@ export async function updateConsultationType(
   }
   if (input.required_documents_description !== undefined) updateData.required_documents_description = input.required_documents_description?.trim() || null
   if (input.modality !== undefined) updateData.modality = input.modality
+  if (input.eps_name !== undefined) updateData.eps_name = input.eps_name?.trim() || null
 
   const { error } = await supabaseAdmin
     .from('consultation_types')

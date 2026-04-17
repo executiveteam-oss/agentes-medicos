@@ -51,6 +51,7 @@ export interface ConfirmItemForDoctor {
   nombre: string
   duracion: number
   precio: number
+  epsName?: string | null
 }
 
 export interface ImportRunResult {
@@ -409,6 +410,7 @@ export async function confirmImportForDoctor(
         is_active: true,
         bookable_via_whatsapp: true,
         modality: 'presencial',
+        eps_name: it.epsName?.trim() || null,
       })
 
     if (insErr) {

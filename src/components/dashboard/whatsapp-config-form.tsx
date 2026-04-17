@@ -55,6 +55,24 @@ const DAY_LABELS = [
 const DURATION_OPTIONS = [20, 30, 45, 60]
 const MAX_DURATION_OPTIONS = [30, 45, 60, 90]
 
+// Especialidades comunes en Colombia — usadas como fallback si la clínica no tiene configuradas
+const DEFAULT_SPECIALTIES = [
+  'Medicina General',
+  'Ginecología',
+  'Pediatría',
+  'Fisioterapia',
+  'Psicología',
+  'Ortopedia',
+  'Dermatología',
+  'Cardiología',
+  'Medicina Interna',
+  'Neurología',
+  'Oftalmología',
+  'Otorrinolaringología',
+  'Urología',
+  'Otro',
+]
+
 interface Props {
   initialConfig: WhatsAppConfig
   doctors: DoctorForConfig[]
@@ -646,14 +664,13 @@ function AddDoctorForm({
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
-          {clinicSpecialties.length > 0 ? (
-            <select name="specialty" className="input-field w-full">
-              <option value="">Seleccionar...</option>
-              {clinicSpecialties.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          ) : (
-            <p className="text-xs text-amber-500 py-2">Configura especialidades en Configuración → Consultorio</p>
-          )}
+          <select name="specialty" className="input-field w-full">
+            <option value="">Seleccionar...</option>
+            {(clinicSpecialties.length > 0
+              ? clinicSpecialties
+              : DEFAULT_SPECIALTIES
+            ).map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Teléfono</label>
@@ -1595,14 +1612,13 @@ function EditDoctorInline({
         </div>
         <div>
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
-          {clinicSpecialties.length > 0 ? (
-            <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-field w-full">
-              <option value="">Seleccionar...</option>
-              {clinicSpecialties.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          ) : (
-            <p className="text-xs text-amber-500 py-2">Configura especialidades en Configuración → Consultorio</p>
-          )}
+          <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-field w-full">
+            <option value="">Seleccionar...</option>
+            {(clinicSpecialties.length > 0
+              ? clinicSpecialties
+              : DEFAULT_SPECIALTIES
+            ).map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
         </div>
       </div>
       {error && <p className="text-red-600 text-xs mt-1">{error}</p>}

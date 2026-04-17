@@ -556,8 +556,8 @@ export function ClinicSettingsForm({ initialData }: Props) {
         )}
       </div>
 
-      {/* Save */}
-      <div className="flex items-center gap-3">
+      {/* Sticky save bar — siempre visible al fondo de la pantalla */}
+      <div className="sticky bottom-0 -mx-5 px-5 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 z-10">
         <button
           type="button"
           onClick={handleSave}
@@ -566,7 +566,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
         >
           {isPending ? 'Guardando...' : 'Guardar configuración'}
         </button>
-        {saved && <span className="text-sm text-emerald-600 font-medium">Guardado</span>}
+        {saved && <span className="text-sm text-emerald-600 font-medium">Guardado ✓</span>}
         {error && <span className="text-sm text-red-600 font-medium">{error}</span>}
       </div>
     </div>

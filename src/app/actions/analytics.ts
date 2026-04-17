@@ -172,7 +172,7 @@ export async function getAnalyticsData(doctorId?: string | null): Promise<Analyt
 
   // Pre-build queries with doctor filter applied inline
   let q1 = supabaseAdmin.from('appointments')
-    .select('id, starts_at, status, payment_type, invoice_status, clinic_value, eps_value, patient_copago')
+    .select('id, starts_at, status, payment_type, invoice_status, clinic_value, eps_value, patient_copago, consultation_type_id')
     .eq('clinic_id', clinicId).gte('starts_at', weekStart.toISOString())
   if (doctorId) q1 = q1.eq('doctor_id', doctorId)
 
@@ -666,7 +666,7 @@ export async function getAnalyticsData(doctorId?: string | null): Promise<Analyt
       agendadas: weekAgendadas,
       ingresos: weekIngresos,
       noShows: weekNoShows,
-      costoPerdido: weekNoShows * price,
+      costoPerdido: weekData.filter((a) => a.status === 'no_show').reduce((sum, a) => sum + appointmentPrice(a), 0),
       peorFranja,
     },
     month: {

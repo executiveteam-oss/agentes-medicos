@@ -45,9 +45,10 @@ export default async function NoShowPage() {
   const hace30 = new Date()
   hace30.setDate(hace30.getDate() - 30)
 
+  // Traer citas + consultation_type_id para calcular costo real perdido
   let noshowQuery = supabaseAdmin
     .from('appointments')
-    .select('id, starts_at, status, patients(name, phone, no_show_count, total_appointments)')
+    .select('id, starts_at, status, consultation_type_id, patients(name, phone, no_show_count, total_appointments)')
     .eq('clinic_id', clinic.id)
     .in('status', ['completed', 'no_show'])
     .gte('starts_at', hace30.toISOString())
@@ -59,10 +60,27 @@ export default async function NoShowPage() {
 
   const { data: appointments } = await noshowQuery
 
+  // Cargar precios de consultation_types para lookup por id
+  const { data: ctData } = await supabaseAdmin
+    .from('consultation_types')
+    .select('id, price')
+    .eq('clinic_id', clinic.id)
+  const ctPrices: Record<string, number> = {}
+  for (const ct of ctData ?? []) {
+    if (ct.price) ctPrices[ct.id] = ct.price
+  }
+  const fallbackPrice = clinic.consultation_price ?? 0
+
   const total = appointments?.length ?? 0
-  const noShows = (appointments ?? []).filter((a) => a.status === 'no_show').length
+  const noShowList = (appointments ?? []).filter((a) => a.status === 'no_show')
+  const noShows = noShowList.length
   const noShowRate = total > 0 ? Math.round((noShows / total) * 100) : 0
-  const costoEstimado = noShows * (clinic.consultation_price ?? 0)
+  // Costo real: precio del tipo de consulta de cada no-show, con fallback al precio de la clínica
+  const costoEstimado = noShowList.reduce((sum, a) => {
+    const ctId = (a as Record<string, unknown>).consultation_type_id as string | null
+    const price = (ctId && ctPrices[ctId]) ? ctPrices[ctId] : fallbackPrice
+    return sum + price
+  }, 0)
 
   // Agrupar por día de la semana
   const byDayOfWeek: Record<string, { noShows: number; completadas: number }> = {

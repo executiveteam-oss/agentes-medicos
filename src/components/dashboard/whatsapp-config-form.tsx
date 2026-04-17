@@ -55,7 +55,7 @@ const DAY_LABELS = [
 const DURATION_OPTIONS = [20, 30, 45, 60]
 const MAX_DURATION_OPTIONS = [30, 45, 60, 90]
 
-// Especialidades comunes en Colombia — usadas como fallback si la clínica no tiene configuradas
+// Especialidades comunes en Colombia
 const DEFAULT_SPECIALTIES = [
   'Medicina General',
   'Ginecología',
@@ -70,8 +70,23 @@ const DEFAULT_SPECIALTIES = [
   'Oftalmología',
   'Otorrinolaringología',
   'Urología',
-  'Otro',
 ]
+
+/** Combina especialidades de la clínica con defaults, sin duplicados, "Otro" al final */
+function mergeSpecialties(clinicSpecs: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const s of clinicSpecs) {
+    const key = s.toLowerCase()
+    if (!seen.has(key) && key !== 'otro') { seen.add(key); result.push(s) }
+  }
+  for (const s of DEFAULT_SPECIALTIES) {
+    const key = s.toLowerCase()
+    if (!seen.has(key)) { seen.add(key); result.push(s) }
+  }
+  result.push('Otro')
+  return result
+}
 
 interface Props {
   initialConfig: WhatsAppConfig
@@ -666,10 +681,7 @@ function AddDoctorForm({
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
           <select name="specialty" className="input-field w-full">
             <option value="">Seleccionar...</option>
-            {(clinicSpecialties.length > 0
-              ? clinicSpecialties
-              : DEFAULT_SPECIALTIES
-            ).map((s) => <option key={s} value={s}>{s}</option>)}
+            {mergeSpecialties(clinicSpecialties).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div>
@@ -1614,10 +1626,7 @@ function EditDoctorInline({
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
           <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-field w-full">
             <option value="">Seleccionar...</option>
-            {(clinicSpecialties.length > 0
-              ? clinicSpecialties
-              : DEFAULT_SPECIALTIES
-            ).map((s) => <option key={s} value={s}>{s}</option>)}
+            {mergeSpecialties(clinicSpecialties).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
       </div>

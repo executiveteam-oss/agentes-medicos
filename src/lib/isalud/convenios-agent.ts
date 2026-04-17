@@ -352,55 +352,121 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
   await page.waitForTimeout(1500)
 
   // LECTURA DIRECTA del DOM — sin activar la tab "Detalle Tarifario".
-  // El HTML de la tabla ya está server-rendered dentro de un tab-pane hidden.
-  // Bootstrap solo toggle display:none/block, pero los datos YA ESTÁN en el DOM.
-  //
-  // Estructura confirmada por dump:
-  //   <div class="tab-pane" id="Detalle&nbsp;Tarifario">
-  //     <div id="manualtarifario">
-  //       ...
-  //       <table id="tabladetalletarifario">
-  //         <tbody> ← filas de productos con datos reales
-  //
-  // La tabla usa DataTables con scrollY:
-  //   - Headers en: #tabladetalletarifario_wrapper .dataTables_scrollHead thead th
-  //   - Filas en:   #tabladetalletarifario tbody tr (dentro de scrollBody)
+  // DataTables solo renderiza la página actual en el DOM (~8-10 filas).
+  // Para leer TODAS las filas, primero intentamos "mostrar todos" via
+  // DataTables API, luego leemos. Si eso falla, paginamos manualmente.
 
-  // Encontrar la tabla y sus filas directamente (funciona aunque el panel esté hidden)
-  const extraction = await page.evaluate(() => {
-    const table = document.querySelector('#tabladetalletarifario')
-    if (!table) {
-      // Fallback: buscar tabla dentro del panel "Detalle Tarifario" por cualquier medio
-      const panels = document.querySelectorAll('.tab-content .tab-pane')
-      let panel: Element | null = null
-      for (const p of Array.from(panels)) {
-        if (/detalle.*tarifario/i.test(p.id.replace(/\u00a0/g, ' '))) { panel = p; break }
-      }
-      if (!panel && panels.length >= 5) panel = panels[4] // 5ta tab = índice 4
-      if (!panel) return { error: 'panel not found', headers: [] as string[], rows: [] as string[][] }
-      const t = panel.querySelector('table')
-      if (!t) return { error: 'table not in panel', headers: [] as string[], rows: [] as string[][] }
-      // Leer todas las filas raw
-      const rows = Array.from(t.querySelectorAll('tbody tr')).map((tr) =>
-        Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent ?? '').trim())
-      )
-      const headers = Array.from(t.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
-      return { error: null, headers, rows }
+  // Paso 1: Activar la tab para que DataTables inicialice (necesario para la API)
+  await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jq = (window as any).$ ?? (window as any).jQuery
+    if (!jq) return
+    const tabLink = document.querySelector('ul.nav-tabs a[data-toggle="tab"][href*="Detalle"][href*="Tarifario"]') as HTMLElement | null
+    if (tabLink) {
+      try { jq(tabLink).tab('show') } catch { /* */ }
+      tabLink.click()
     }
+  })
+  await page.waitForTimeout(1000)
 
-    // Tabla encontrada por ID. Headers están en scrollHead (tabla separada).
+  // Paso 2: Intentar "mostrar todos" via DataTables API + length select
+  const showAllResult = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jq = (window as any).$ ?? (window as any).jQuery
+    // Intento 1: DataTables API (.page.len(-1).draw())
+    if (jq && jq.fn && jq.fn.dataTable) {
+      try {
+        const dt = jq('#tabladetalletarifario').DataTable()
+        dt.page.len(-1).draw()
+        return { method: 'api', ok: true }
+      } catch { /* */ }
+    }
+    // Intento 2: cambiar el <select> de paginación directamente
+    const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
+    if (wrapper) {
+      const sel = wrapper.querySelector('.dataTables_length select') as HTMLSelectElement | null
+      if (sel) {
+        for (const v of ['-1', '100', '50']) {
+          const opt = Array.from(sel.options).find((o) => o.value === v)
+          if (opt) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); return { method: `select(${v})`, ok: true } }
+        }
+      }
+    }
+    return { method: 'none', ok: false }
+  })
+  if (showAllResult.ok) await page.waitForTimeout(1500)
+
+  // Paso 3: Leer headers + filas. Si "mostrar todos" funcionó, estarán todas.
+  // Si no, leemos página por página.
+  const allRows: string[][] = []
+
+  // Leer headers (del scrollHead, tabla separada)
+  const headers = await page.evaluate(() => {
     const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
     const headerTable = wrapper?.querySelector('.dataTables_scrollHead table thead')
-    const headers = headerTable
-      ? Array.from(headerTable.querySelectorAll('th')).map((th) => (th.textContent ?? '').trim())
-      : Array.from(table.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
-
-    // Filas de datos
-    const rows = Array.from(table.querySelectorAll('tbody tr')).map((tr) =>
-      Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent ?? '').trim())
-    )
-    return { error: null, headers, rows }
+    if (headerTable) return Array.from(headerTable.querySelectorAll('th')).map((th) => (th.textContent ?? '').trim())
+    const table = document.querySelector('#tabladetalletarifario')
+    if (table) return Array.from(table.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
+    return [] as string[]
   })
+
+  if (headers.length === 0) {
+    console.log(`[ConveniosAgent] Detalle ${conv.nombre}: tabla no encontrada (saltando)`)
+    return []
+  }
+
+  // Leer filas de la página actual
+  const readCurrentPage = async (): Promise<string[][]> => {
+    return page.evaluate(() => {
+      const table = document.querySelector('#tabladetalletarifario')
+      if (!table) return []
+      return Array.from(table.querySelectorAll('tbody tr'))
+        .map((tr) => Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent ?? '').trim()))
+        .filter((cells) => cells.length > 0)
+    })
+  }
+
+  // Leer primera página
+  const firstPage = await readCurrentPage()
+  allRows.push(...firstPage)
+
+  // Paginar si "mostrar todos" no funcionó (detectar si hay más páginas)
+  if (!showAllResult.ok || firstPage.length <= 10) {
+    let pageNum = 1
+    while (true) {
+      // Verificar si hay un botón "next" habilitado
+      const hasNext = await page.evaluate(() => {
+        const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
+        if (!wrapper) return false
+        const next = wrapper.querySelector('.paginate_button.next') as HTMLElement | null
+        if (!next) return false
+        // DataTables agrega clase "disabled" cuando no hay más páginas
+        return !next.classList.contains('disabled')
+      })
+
+      if (!hasNext) break
+
+      // Click en "next"
+      await page.evaluate(() => {
+        const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
+        const next = wrapper?.querySelector('.paginate_button.next') as HTMLElement | null
+        next?.click()
+      })
+      // Esperar a que DataTables re-renderice el tbody
+      await page.waitForTimeout(800)
+      pageNum++
+
+      const pageRows = await readCurrentPage()
+      if (pageRows.length === 0) break
+      allRows.push(...pageRows)
+
+      if (pageNum > 50) break // safeguard
+    }
+    if (pageNum > 1) console.log(`[ConveniosAgent] ${conv.nombre}: paginó ${pageNum} páginas`)
+  }
+
+  // Construir resultado
+  const extraction = { error: null as string | null, headers: headers as string[], rows: allRows }
 
   if (extraction.error) {
     console.log(`[ConveniosAgent] Detalle ${conv.nombre}: ${extraction.error} (saltando)`)
@@ -408,8 +474,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
   }
 
   // Mapear columnas por nombre
-  const headers = extraction.headers
-  const lower = headers.map((h) => h.toLowerCase())
+  const lower = extraction.headers.map((h) => h.toLowerCase())
   const find = (...keys: string[]): number => {
     for (let i = 0; i < lower.length; i++) {
       for (const k of keys) {
@@ -426,7 +491,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
     agendable: find('agendada web', 'agendable web', 'agendable', 'web'),
     duracion: find('duración', 'duracion'),
   }
-  console.log(`[ConveniosAgent] ${conv.nombre}: headers=[${headers.join(' | ')}], ${extraction.rows.length} filas raw`)
+  console.log(`[ConveniosAgent] ${conv.nombre}: headers=[${extraction.headers.join(' | ')}], showAll=${showAllResult.method}, ${extraction.rows.length} filas raw`)
 
   // Detectar placeholder vacío
   if (extraction.rows.length <= 1) {

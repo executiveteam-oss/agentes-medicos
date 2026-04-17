@@ -100,6 +100,10 @@ export async function saveClinicSettings(
       return { ok: false, error: 'El nombre del consultorio es obligatorio' }
     }
 
+    // Asegurar que specialty sea un array (puede llegar undefined si el campo no se tocó)
+    const specialty = Array.isArray(input.specialty) ? input.specialty : []
+    console.log(`[saveClinicSettings] clinic=${clinicId} specialty=${JSON.stringify(specialty)} (${specialty.length} items)`)
+
     const { error } = await supabaseAdmin
       .from('clinics')
       .update({
@@ -107,7 +111,7 @@ export async function saveClinicSettings(
         phone: input.phone.trim(),
         contact_email: input.contact_email.trim() || null,
         website: input.website.trim() || null,
-        specialty: input.specialty,
+        specialty,
         consultation_price: input.consultation_price,
         daily_goal_appointments: input.daily_goal_appointments,
         min_booking_advance_hours: input.min_booking_advance_hours,
@@ -137,6 +141,8 @@ export async function saveClinicSettings(
     })
 
     revalidatePath('/dashboard/settings')
+    revalidatePath('/dashboard/settings/clinic')
+    revalidatePath('/dashboard/whatsapp')
     return { ok: true }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }

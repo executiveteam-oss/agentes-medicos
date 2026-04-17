@@ -72,20 +72,10 @@ const DEFAULT_SPECIALTIES = [
   'Urología',
 ]
 
-/** Combina especialidades de la clínica con defaults, sin duplicados, "Otro" al final */
-function mergeSpecialties(clinicSpecs: string[]): string[] {
-  const seen = new Set<string>()
-  const result: string[] = []
-  for (const s of clinicSpecs) {
-    const key = s.toLowerCase()
-    if (!seen.has(key) && key !== 'otro') { seen.add(key); result.push(s) }
-  }
-  for (const s of DEFAULT_SPECIALTIES) {
-    const key = s.toLowerCase()
-    if (!seen.has(key)) { seen.add(key); result.push(s) }
-  }
-  result.push('Otro')
-  return result
+/** Retorna especialidades de la clínica si existen, defaults como fallback. "Otro" siempre al final. */
+function getSpecialtyOptions(clinicSpecs: string[]): string[] {
+  const base = clinicSpecs.length > 0 ? clinicSpecs.filter((s) => s.toLowerCase() !== 'otro') : DEFAULT_SPECIALTIES
+  return [...base, 'Otro']
 }
 
 interface Props {
@@ -681,7 +671,7 @@ function AddDoctorForm({
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
           <select name="specialty" className="input-field w-full">
             <option value="">Seleccionar...</option>
-            {mergeSpecialties(clinicSpecialties).map((s) => <option key={s} value={s}>{s}</option>)}
+            {getSpecialtyOptions(clinicSpecialties).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div>
@@ -1626,7 +1616,7 @@ function EditDoctorInline({
           <label className="text-xs font-medium text-slate-600 mb-1 block">Especialidad</label>
           <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-field w-full">
             <option value="">Seleccionar...</option>
-            {mergeSpecialties(clinicSpecialties).map((s) => <option key={s} value={s}>{s}</option>)}
+            {getSpecialtyOptions(clinicSpecialties).map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
       </div>

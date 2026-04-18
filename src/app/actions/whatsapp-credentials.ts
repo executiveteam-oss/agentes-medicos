@@ -115,6 +115,9 @@ export async function saveWhatsAppCredentials(formData: FormData): Promise<Verif
 
   if (dbError) {
     console.error('[saveWhatsAppCredentials] DB error:', dbError)
+    if (dbError.code === '23505' && dbError.message?.includes('whatsapp_phone_id')) {
+      return { success: false, error: 'Este Phone Number ID ya está en uso por otra clínica. Cada número de WhatsApp solo puede estar conectado a una clínica.' }
+    }
     return { success: false, error: 'Error guardando credenciales' }
   }
 

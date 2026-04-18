@@ -110,26 +110,29 @@ export default async function NoShowPage() {
       : 0,
   }))
 
-  // Pacientes con mayor riesgo (más de 1 no-show)
-  const highRiskPatients = (appointments ?? [])
-    .filter((a) => {
-      const p = a.patients as unknown as { no_show_count: number; total_appointments: number } | null
-      return p && p.no_show_count > 1
-    })
-    .map((a) => {
-      const p = a.patients as unknown as { name: string; phone: string; no_show_count: number; total_appointments: number }
-      return {
-        id: a.id,
+  // Pacientes con mayor riesgo — agrupados por paciente (dedup)
+  const riskMap = new Map<string, { name: string; phone: string; no_show_count: number; total_appointments: number; last_no_show: string }>()
+  for (const a of (appointments ?? []).filter((x) => x.status === 'no_show')) {
+    const p = a.patients as unknown as { name: string; phone: string; no_show_count: number; total_appointments: number } | null
+    if (!p) continue
+    const key = p.phone // unique per patient within a clinic
+    const existing = riskMap.get(key)
+    if (!existing || a.starts_at > existing.last_no_show) {
+      riskMap.set(key, {
         name: p.name,
         phone: p.phone,
         no_show_count: p.no_show_count,
         total_appointments: p.total_appointments,
         last_no_show: a.starts_at,
-        tasa: p.total_appointments > 0
-          ? Math.round((p.no_show_count / p.total_appointments) * 100)
-          : 0,
-      }
-    })
+      })
+    }
+  }
+  const highRiskPatients = Array.from(riskMap.values())
+    .filter((p) => p.no_show_count > 1)
+    .map((p) => ({
+      ...p,
+      tasa: p.total_appointments > 0 ? Math.round((p.no_show_count / p.total_appointments) * 100) : 0,
+    }))
     .sort((a, b) => b.no_show_count - a.no_show_count)
     .slice(0, 10)
 
@@ -274,7 +277,7 @@ export default async function NoShowPage() {
               </thead>
               <tbody>
                 {highRiskPatients.map((p) => (
-                  <tr key={p.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
+                  <tr key={p.phone} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
                     <td className="py-3.5 px-5 text-sm font-medium text-slate-900">{p.name}</td>
                     <td className="py-3.5 px-5">
                       <span className="badge badge-red">

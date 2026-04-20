@@ -87,61 +87,62 @@ export async function scrapeConvenios(clinicId: string): Promise<ConveniosScrape
       errors.push('No se encontraron convenios en iSalud (revisar selectores)')
     }
 
-    // 5. Por cada convenio: traer su detalle tarifario en BATCHES PARALELOS.
-    //    Reusa el browser context (cookies de auth compartidas), abre una página
-    //    nueva por convenio, las cierra al terminar. CONCURRENCY = 3 para no
-    //    saturar memoria de Vercel (250MB) ni la sesión de iSalud.
-    const CONCURRENCY = 3
+    // 5. Por cada convenio: traer su detalle tarifario SECUENCIALMENTE.
+    //    Abrir 1 sola página a la vez para no saturar la RAM de Vercel (250MB).
+    //    Si un convenio falla, reintenta 1 vez antes de saltar.
     const startedAt = Date.now()
-    for (let i = 0; i < convenios.length; i += CONCURRENCY) {
-      const batch = convenios.slice(i, i + CONCURRENCY)
-      console.log(`[ConveniosAgent] Batch ${Math.floor(i / CONCURRENCY) + 1}: convenios ${i + 1}-${i + batch.length} de ${convenios.length}`)
+    for (let i = 0; i < convenios.length; i++) {
+      const conv = convenios[i]
+      const heapMB = Math.round(process.memoryUsage().heapUsed / 1024 / 1024)
+      console.log(`[ConveniosAgent] [${i + 1}/${convenios.length}] ${conv.nombre} (heap: ${heapMB}MB)`)
 
-      const batchResults = await Promise.all(batch.map(async (conv) => {
+      let productos: ConvenioProducto[] = []
+      let lastError = ''
+
+      for (let attempt = 0; attempt < 2; attempt++) {
         const tabPage = await context.newPage()
         try {
-          const productos = await scrapeDetalleTarifario(tabPage, creds, conv)
-          return { conv, productos, error: null as string | null }
+          productos = await scrapeDetalleTarifario(tabPage, creds, conv)
+          lastError = ''
+          break // éxito
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err)
-          return { conv, productos: [], error: msg }
+          lastError = err instanceof Error ? err.message : String(err)
+          if (attempt === 0) console.warn(`[ConveniosAgent] ${conv.nombre}: intento 1 falló (${lastError}), reintentando...`)
         } finally {
           await tabPage.close().catch(() => {})
         }
-      }))
+      }
 
-      // Procesar resultados (UPSERT secuencial — DB ops son rápidas)
-      for (const r of batchResults) {
-        if (r.error) {
-          errors.push(`${r.conv.nombre}: ${r.error}`)
-          console.error(`[ConveniosAgent] Convenio ${r.conv.nombre} error: ${r.error}`)
-          continue
-        }
-        if (r.productos.length === 0) {
-          console.log(`[ConveniosAgent] Convenio ${r.conv.nombre}: 0 productos activos`)
-          continue
-        }
-        const rows = r.productos.map((p) => ({
-          clinic_id: clinicId,
-          convenio_nit: p.convenio_nit,
-          convenio_nombre: p.convenio_nombre,
-          convenio_nombre_abreviado: p.convenio_nombre_abreviado,
-          producto_nombre: p.producto_nombre,
-          tarifa: p.tarifa,
-          duracion_minutos: p.duracion_minutos,
-          agendable_web: p.agendable_web,
-          opcion_detalle: p.opcion_detalle,
-        }))
-        const { error: insErr } = await supabaseAdmin
-          .from('isalud_import_staging')
-          .upsert(rows, { onConflict: 'clinic_id,convenio_nit,convenio_nombre_abreviado,producto_nombre' })
-        if (insErr) {
-          errors.push(`Insert ${r.conv.nombre}: ${insErr.message}`)
-          console.error(`[ConveniosAgent] Insert error: ${insErr.message}`)
-        } else {
-          totalProductos += r.productos.length
-          console.log(`[ConveniosAgent] Convenio ${r.conv.nombre}: +${r.productos.length} productos`)
-        }
+      if (lastError) {
+        errors.push(`${conv.nombre}: ${lastError}`)
+        console.error(`[ConveniosAgent] ${conv.nombre}: falló tras 2 intentos — ${lastError}`)
+        continue
+      }
+      if (productos.length === 0) {
+        console.log(`[ConveniosAgent] ${conv.nombre}: 0 productos activos`)
+        continue
+      }
+
+      const rows = productos.map((p) => ({
+        clinic_id: clinicId,
+        convenio_nit: p.convenio_nit,
+        convenio_nombre: p.convenio_nombre,
+        convenio_nombre_abreviado: p.convenio_nombre_abreviado,
+        producto_nombre: p.producto_nombre,
+        tarifa: p.tarifa,
+        duracion_minutos: p.duracion_minutos,
+        agendable_web: p.agendable_web,
+        opcion_detalle: p.opcion_detalle,
+      }))
+      const { error: insErr } = await supabaseAdmin
+        .from('isalud_import_staging')
+        .upsert(rows, { onConflict: 'clinic_id,convenio_nit,convenio_nombre_abreviado,producto_nombre' })
+      if (insErr) {
+        errors.push(`Insert ${conv.nombre}: ${insErr.message}`)
+        console.error(`[ConveniosAgent] Insert error: ${insErr.message}`)
+      } else {
+        totalProductos += productos.length
+        console.log(`[ConveniosAgent] ${conv.nombre}: +${productos.length} productos`)
       }
     }
 
@@ -349,7 +350,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
   const url = candidates[0]
   console.log(`[ConveniosAgent] Detalle ${conv.nombre}: navegando a ${url}`)
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: CONVENIO_TIMEOUT_MS })
-  await page.waitForTimeout(1500)
+  await page.waitForTimeout(2000)
 
   // LECTURA DIRECTA del DOM — sin activar la tab "Detalle Tarifario".
   // DataTables solo renderiza la página actual en el DOM (~8-10 filas).

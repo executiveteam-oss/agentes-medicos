@@ -1960,12 +1960,12 @@ function ImportIsaludModal({
     return () => { document.body.style.overflow = '' }
   }, [])
 
-  // Inicial: chequear si ya hay staging; si no, ejecutar scraping
+  // Inicial: chequear si ya hay staging; si no, ejecutar scraping con fire-and-poll
   useEffect(() => {
     let cancelled = false
     async function init() {
       try {
-        // 1) Verificar si hay staging cargado
+        // 1) Verificar si ya hay staging cargado
         const existing = await getStagingProducts()
         if (cancelled) return
         if (existing.totalProducts > 0) {
@@ -1974,27 +1974,34 @@ function ImportIsaludModal({
           setStep('selection')
           return
         }
-        // 2) Si no hay, scrapear
+        // 2) Si no hay, disparar el scraping en background (NO await — evita timeout del browser)
         setStep('scraping')
-        const res = await fetch('/api/isalud/convenios', { method: 'POST' })
-        const result = await res.json() as { ok: boolean; convenios?: number; productos?: number; errors?: string[]; error?: string }
-        if (cancelled) return
-        if (!result.ok && (!result.productos || result.productos === 0)) {
-          setError(result.error ?? (result.errors && result.errors[0]) ?? 'No se pudieron importar productos')
-          setStep('error')
-          return
+        fetch('/api/isalud/convenios', { method: 'POST' }).catch(() => {})
+
+        // 3) Polling: cada 5s verificar si ya hay productos en staging
+        const poll = async () => {
+          for (let attempt = 0; attempt < 36; attempt++) { // max 3 min (36 × 5s)
+            if (cancelled) return
+            await new Promise((r) => setTimeout(r, 5000))
+            if (cancelled) return
+            try {
+              const check = await getStagingProducts()
+              if (cancelled) return
+              if (check.totalProducts > 0) {
+                setData(check)
+                setSelection(buildSelection(check))
+                setStep('selection')
+                return
+              }
+            } catch { /* sigue intentando */ }
+          }
+          // Timeout tras 3 min — probablemente falló
+          if (!cancelled) {
+            setError('La importación está tomando más de lo esperado. Cierra e intenta de nuevo.')
+            setStep('error')
+          }
         }
-        // Cargar staging fresco
-        const fresh = await getStagingProducts()
-        if (cancelled) return
-        if (fresh.totalProducts === 0) {
-          setError('iSalud no devolvió productos. Verifica que tengas convenios con productos activos.')
-          setStep('error')
-          return
-        }
-        setData(fresh)
-        setSelection(buildSelection(fresh))
-        setStep('selection')
+        await poll()
       } catch (e) {
         if (cancelled) return
         setError(e instanceof Error ? e.message : 'Error inesperado')

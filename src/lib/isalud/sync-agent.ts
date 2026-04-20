@@ -64,7 +64,7 @@ export async function syncAllISaludIntegrations(): Promise<{ synced: number; err
     .from('sync_integrations')
     .select('id, clinic_id, credentials, config')
     .eq('provider', 'isalud')
-    .neq('sync_status', 'running')
+    .not('sync_status', 'in', '("running","disabled")')
 
   if (!integrations || integrations.length === 0) return { synced: 0, errors: [] }
 

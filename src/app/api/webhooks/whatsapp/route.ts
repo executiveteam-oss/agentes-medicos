@@ -354,18 +354,52 @@ async function processWebhook(body: unknown): Promise<void> {
           }
         : null
 
-      const agentResponse = await runAppointmentAgent({
-        patientMessage: sanitizedText,
-        messageHistory,
-        clinic,
-        doctor,
-        doctors,
-        waConfig,
-        consultationTypes,
-        patientPhone,
-        patientName: patient.name,
-        existingPatient,
-      })
+      let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number } }
+
+      try {
+        agentResponse = await runAppointmentAgent({
+          patientMessage: sanitizedText,
+          messageHistory,
+          clinic,
+          doctor,
+          doctors,
+          waConfig,
+          consultationTypes,
+          patientPhone,
+          patientName: patient.name,
+          existingPatient,
+        })
+      } catch (agentError) {
+        // Claude API falló (rate limit, 500, network, etc.)
+        // El paciente DEBE recibir un mensaje — nunca dejarlo sin respuesta.
+        const errMsg = agentError instanceof Error ? agentError.message : String(agentError)
+        console.error(`[Webhook] ❌ AGENTE FALLÓ: ${errMsg}`)
+        console.error(`[Webhook] Stack:`, agentError instanceof Error ? agentError.stack : '')
+
+        const fallbackText = 'Disculpa, estoy teniendo dificultades técnicas en este momento. Intenta de nuevo en unos minutos o escribe "hablar con humano" si es urgente. 🙏'
+
+        // Intentar enviar el fallback por WhatsApp
+        try {
+          await sendWhatsAppMessage(message.from, fallbackText, clinicCreds)
+        } catch (sendErr) {
+          console.error('[Webhook] Fallback WhatsApp también falló:', sendErr instanceof Error ? sendErr.message : sendErr)
+        }
+
+        // Guardar en DB para que staff vea qué pasó
+        try { await saveMessage(conversation.id, 'agent', fallbackText) } catch { /* */ }
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'agent_error',
+            actor_type: 'agent',
+            details: { error: errMsg, conversation_id: conversation.id, patient_message: sanitizedText.slice(0, 200) },
+          })
+        } catch { /* */ }
+
+        // No re-throw — el webhook debe retornar 200 a Meta
+        return
+      }
+
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
       console.log(`[Webhook] Respuesta: "${agentResponse.text.slice(0, 100)}..."`)
 

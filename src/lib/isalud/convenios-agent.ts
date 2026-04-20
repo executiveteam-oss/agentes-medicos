@@ -268,63 +268,62 @@ async function scrapeConvenioList(page: Page, creds: ISaludCredentials): Promise
   }
   console.log(`[ConveniosAgent] Using URL: ${arrivedUrl}`)
 
-  // Maximizar registros visibles (DataTables)
-  try { await page.selectOption('.dataTables_length select', '-1') } catch {
-    try { await page.selectOption('.dataTables_length select', '100') } catch {}
-  }
-  await page.waitForTimeout(1500)
-
-  // Diagnóstico: encabezados
-  const headers = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim())
-  )
-  console.log(`[ConveniosAgent] Convenios headers: [${headers.join(' | ')}]`)
-
-  // Detectar índices por nombre de header (más robusto que asumir orden)
+  // Detectar columnas
   const colIdx = await page.evaluate(() => {
-    const headers = Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim().toLowerCase())
-    const find = (...keys: string[]) => {
-      for (let i = 0; i < headers.length; i++) {
-        for (const k of keys) {
-          if (headers[i].includes(k)) return i
-        }
-      }
-      return -1
-    }
-    return {
-      nit: find('nit'),
-      nombre: find('nombre'),
-      abreviado: find('abreviad', 'corto', 'siglas'),
-    }
+    const hs = Array.from(document.querySelectorAll('table thead th')).map((th) => (th.textContent ?? '').trim().toLowerCase())
+    const find = (...keys: string[]) => { for (let i = 0; i < hs.length; i++) for (const k of keys) if (hs[i].includes(k)) return i; return -1 }
+    return { nit: find('nit'), nombre: find('nombre'), abreviado: find('abreviad', 'corto', 'siglas') }
   })
   console.log(`[ConveniosAgent] Column indices: ${JSON.stringify(colIdx)}`)
 
-  // Extraer filas
-  const convenios = await page.evaluate((idx: { nit: number; nombre: number; abreviado: number }) => {
+  // Función para leer los convenios de la página actual
+  const readCurrentRows = () => page.evaluate((idx: { nit: number; nombre: number; abreviado: number }) => {
     const rows: Array<{ nit: string; nombre: string; nombre_abreviado: string | null; detalle_url: string | null }> = []
     document.querySelectorAll('table tbody tr').forEach((tr) => {
       const tds = tr.querySelectorAll('td')
       if (tds.length === 0) return
-      const cellText = (i: number): string => i >= 0 && i < tds.length ? (tds[i]?.textContent ?? '').trim() : ''
-      const nit = cellText(idx.nit)
-      const nombre = cellText(idx.nombre)
-      const abreviado = cellText(idx.abreviado)
-      // Buscar link al detalle
+      const cell = (i: number): string => i >= 0 && i < tds.length ? (tds[i]?.textContent ?? '').trim() : ''
+      const nombre = cell(idx.nombre)
+      if (!nombre || nombre.length <= 1) return
       const link = tr.querySelector('a[href]') as HTMLAnchorElement | null
-      const detalleHref = link ? link.getAttribute('href') : null
-      if (nombre && nombre.length > 1) {
-        rows.push({
-          nit: nit || '',
-          nombre,
-          nombre_abreviado: abreviado || null,
-          detalle_url: detalleHref,
-        })
-      }
+      rows.push({ nit: cell(idx.nit) || '', nombre, nombre_abreviado: cell(idx.abreviado) || null, detalle_url: link ? link.getAttribute('href') : null })
     })
     return rows
   }, colIdx)
 
-  console.log(`[ConveniosAgent] Extracted ${convenios.length} convenio rows`)
+  // iSalud usa paginación SERVER-SIDE con ?page=N (NO DataTables client-side).
+  // Links: <a href="/aseguradora?page=2">2</a>, etc.
+  // Leer todas las páginas navegando a cada ?page=N.
+  const convenios: ConvenioListItem[] = []
+  let pageNum = 1
+  while (true) {
+    const pageRows = await readCurrentRows()
+    convenios.push(...pageRows)
+    console.log(`[ConveniosAgent] Página ${pageNum}: ${pageRows.length} convenios (acumulado: ${convenios.length})`)
+
+    if (pageRows.length === 0) break
+
+    // Buscar el link a la página siguiente (?page=N+1)
+    const nextPageUrl = await page.evaluate((currentPage: number) => {
+      const nextPage = currentPage + 1
+      // Buscar link con texto = nextPage o href que contenga page=nextPage
+      const links = Array.from(document.querySelectorAll('a[href]'))
+      for (const a of links) {
+        const href = (a as HTMLAnchorElement).href
+        if (href.includes('page=' + nextPage)) return href
+      }
+      return null
+    }, pageNum)
+
+    if (!nextPageUrl) break
+
+    await page.goto(nextPageUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    await page.waitForTimeout(2000)
+    pageNum++
+    if (pageNum > 20) break // safeguard
+  }
+
+  console.log(`[ConveniosAgent] Total: ${convenios.length} convenios en ${pageNum} páginas`)
   if (convenios.length > 0) console.log(`[ConveniosAgent] First: ${JSON.stringify(convenios[0])}`)
   return convenios
 }

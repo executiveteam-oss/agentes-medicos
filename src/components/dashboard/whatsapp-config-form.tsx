@@ -1978,8 +1978,11 @@ function ImportIsaludModal({
         setStep('scraping')
         fetch('/api/isalud/convenios', { method: 'POST' }).catch(() => {})
 
-        // 3) Polling: cada 5s verificar si ya hay productos en staging
+        // 3) Polling: cada 5s verificar staging. Para cuando el conteo se
+        //    estabiliza (mismo número 3 polls seguidos = scraping terminó).
         const poll = async () => {
+          let lastCount = 0
+          let stableRuns = 0
           for (let attempt = 0; attempt < 36; attempt++) { // max 3 min (36 × 5s)
             if (cancelled) return
             await new Promise((r) => setTimeout(r, 5000))
@@ -1987,7 +1990,17 @@ function ImportIsaludModal({
             try {
               const check = await getStagingProducts()
               if (cancelled) return
-              if (check.totalProducts > 0) {
+              const currentCount = check.totalProducts
+
+              if (currentCount > 0 && currentCount === lastCount) {
+                stableRuns++
+              } else {
+                stableRuns = 0
+              }
+              lastCount = currentCount
+
+              // Estabilizado: mismo conteo 3 veces seguidas (15s sin cambios) con datos
+              if (stableRuns >= 2 && currentCount > 0) {
                 setData(check)
                 setSelection(buildSelection(check))
                 setStep('selection')
@@ -1995,8 +2008,17 @@ function ImportIsaludModal({
               }
             } catch { /* sigue intentando */ }
           }
-          // Timeout tras 3 min — probablemente falló
+          // Timeout tras 3 min — mostrar lo que haya o error
           if (!cancelled) {
+            try {
+              const final = await getStagingProducts()
+              if (final.totalProducts > 0) {
+                setData(final)
+                setSelection(buildSelection(final))
+                setStep('selection')
+                return
+              }
+            } catch { /* */ }
             setError('La importación está tomando más de lo esperado. Cierra e intenta de nuevo.')
             setStep('error')
           }

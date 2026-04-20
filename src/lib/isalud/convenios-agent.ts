@@ -369,38 +369,30 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
   })
   await page.waitForTimeout(1000)
 
-  // Paso 2: Intentar "mostrar todos" via DataTables API + length select
-  const showAllResult = await page.evaluate(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const jq = (window as any).$ ?? (window as any).jQuery
-    // Intento 1: DataTables API (.page.len(-1).draw())
-    if (jq && jq.fn && jq.fn.dataTable) {
-      try {
-        const dt = jq('#tabladetalletarifario').DataTable()
-        dt.page.len(-1).draw()
-        return { method: 'api', ok: true }
-      } catch { /* */ }
-    }
-    // Intento 2: cambiar el <select> de paginación directamente
+  // Paso 2: Cambiar el select de paginación a "100" (máx disponible).
+  // NO usar DataTables API (.page.len(-1).draw()) — corrompe la tabla
+  // porque -1 no es una opción válida y .draw() puede hacer un AJAX reload.
+  await page.evaluate(() => {
     const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
-    if (wrapper) {
-      const sel = wrapper.querySelector('.dataTables_length select') as HTMLSelectElement | null
-      if (sel) {
-        for (const v of ['-1', '100', '50']) {
-          const opt = Array.from(sel.options).find((o) => o.value === v)
-          if (opt) { sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); return { method: `select(${v})`, ok: true } }
-        }
+    if (!wrapper) return
+    const sel = wrapper.querySelector('.dataTables_length select') as HTMLSelectElement | null
+    if (!sel) return
+    // Intentar 100 (máx disponible en iSalud), luego 50, luego 25
+    for (const v of ['100', '50', '25']) {
+      const opt = Array.from(sel.options).find((o) => o.value === v)
+      if (opt) {
+        sel.value = v
+        sel.dispatchEvent(new Event('change', { bubbles: true }))
+        return
       }
     }
-    return { method: 'none', ok: false }
   })
-  if (showAllResult.ok) await page.waitForTimeout(1500)
+  await page.waitForTimeout(1500)
 
-  // Paso 3: Leer headers + filas. Si "mostrar todos" funcionó, estarán todas.
-  // Si no, leemos página por página.
+  // Paso 3: Leer headers + filas + paginar si hay más.
   const allRows: string[][] = []
 
-  // Leer headers (del scrollHead, tabla separada)
+  // Headers (del scrollHead, tabla separada por DataTables scrollY)
   const headers = await page.evaluate(() => {
     const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
     const headerTable = wrapper?.querySelector('.dataTables_scrollHead table thead')
@@ -415,55 +407,49 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
     return []
   }
 
-  // Leer filas de la página actual
+  // Función para leer filas del tbody
   const readCurrentPage = async (): Promise<string[][]> => {
     return page.evaluate(() => {
       const table = document.querySelector('#tabladetalletarifario')
       if (!table) return []
       return Array.from(table.querySelectorAll('tbody tr'))
         .map((tr) => Array.from(tr.querySelectorAll('td')).map((td) => (td.textContent ?? '').trim()))
-        .filter((cells) => cells.length > 0)
+        .filter((cells) => cells.length > 0 && !cells.every((c) => c === ''))
     })
   }
 
-  // Leer primera página
-  const firstPage = await readCurrentPage()
-  allRows.push(...firstPage)
+  // Leer + paginar
+  let pageNum = 1
+  while (true) {
+    const pageRows = await readCurrentPage()
+    // Filtrar placeholder "No hay datos"
+    const realRows = pageRows.filter((cells) => {
+      const joined = cells.join(' ').toLowerCase()
+      return !joined.includes('no hay datos') && !joined.includes('no data')
+    })
+    allRows.push(...realRows)
 
-  // Paginar si "mostrar todos" no funcionó (detectar si hay más páginas)
-  if (!showAllResult.ok || firstPage.length <= 10) {
-    let pageNum = 1
-    while (true) {
-      // Verificar si hay un botón "next" habilitado
-      const hasNext = await page.evaluate(() => {
-        const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
-        if (!wrapper) return false
-        const next = wrapper.querySelector('.paginate_button.next') as HTMLElement | null
-        if (!next) return false
-        // DataTables agrega clase "disabled" cuando no hay más páginas
-        return !next.classList.contains('disabled')
-      })
+    // ¿Hay botón "next" habilitado en el wrapper del tarifario?
+    const hasNext = await page.evaluate(() => {
+      const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
+      if (!wrapper) return false
+      const next = wrapper.querySelector('.paginate_button.next') as HTMLElement | null
+      if (!next) return false
+      return !next.classList.contains('disabled')
+    })
 
-      if (!hasNext) break
+    if (!hasNext) break
 
-      // Click en "next"
-      await page.evaluate(() => {
-        const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
-        const next = wrapper?.querySelector('.paginate_button.next') as HTMLElement | null
-        next?.click()
-      })
-      // Esperar a que DataTables re-renderice el tbody
-      await page.waitForTimeout(800)
-      pageNum++
-
-      const pageRows = await readCurrentPage()
-      if (pageRows.length === 0) break
-      allRows.push(...pageRows)
-
-      if (pageNum > 50) break // safeguard
-    }
-    if (pageNum > 1) console.log(`[ConveniosAgent] ${conv.nombre}: paginó ${pageNum} páginas`)
+    await page.evaluate(() => {
+      const wrapper = document.querySelector('#tabladetalletarifario_wrapper')
+      const next = wrapper?.querySelector('.paginate_button.next') as HTMLElement | null
+      next?.click()
+    })
+    await page.waitForTimeout(800)
+    pageNum++
+    if (pageNum > 50) break
   }
+  if (pageNum > 1) console.log(`[ConveniosAgent] ${conv.nombre}: paginó ${pageNum} páginas`)
 
   // Construir resultado
   const extraction = { error: null as string | null, headers: headers as string[], rows: allRows }
@@ -491,7 +477,7 @@ async function scrapeDetalleTarifario(page: Page, creds: ISaludCredentials, conv
     agendable: find('agendada web', 'agendable web', 'agendable', 'web'),
     duracion: find('duración', 'duracion'),
   }
-  console.log(`[ConveniosAgent] ${conv.nombre}: headers=[${extraction.headers.join(' | ')}], showAll=${showAllResult.method}, ${extraction.rows.length} filas raw`)
+  console.log(`[ConveniosAgent] ${conv.nombre}: ${extraction.rows.length} filas raw (${pageNum} págs)`)
 
   // Detectar placeholder vacío
   if (extraction.rows.length <= 1) {

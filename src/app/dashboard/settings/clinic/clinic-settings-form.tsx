@@ -124,6 +124,23 @@ export function ClinicSettingsForm({ initialData }: Props) {
             />
           </div>
 
+          {/* Nombre del asistente virtual */}
+          <div>
+            <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
+              Nombre del asistente virtual
+            </label>
+            <input
+              type="text"
+              value={data.agent_name}
+              onChange={(e) => update('agent_name', e.target.value)}
+              placeholder="Ej: Sofía, Caro, Ana..."
+              className="input-field w-full"
+            />
+            <p className="text-[10px] text-slate-400 mt-1">
+              Este nombre usará el agente cuando se presente en WhatsApp. Si lo dejas vacío, será &quot;Asistente&quot;.
+            </p>
+          </div>
+
           {/* Especialidades */}
           <div>
             <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">

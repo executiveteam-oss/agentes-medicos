@@ -20,6 +20,7 @@ const DEFAULT_VIRTUAL_CONFIG: VirtualConsultationConfig = {
 
 export interface ClinicSettingsData {
   name: string
+  agent_name: string
   phone: string
   contact_email: string
   website: string
@@ -51,7 +52,7 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
     const { data } = await supabaseAdmin
       .from('clinics')
       .select(`
-        name, phone, contact_email, website, specialty,
+        name, agent_name, phone, contact_email, website, specialty,
         consultation_price, daily_goal_appointments,
         min_booking_advance_hours, max_booking_advance_days,
         address, city, department, building, floor, office, logo_url,
@@ -64,6 +65,7 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
 
     return {
       name: data.name ?? '',
+      agent_name: data.agent_name ?? '',
       phone: data.phone ?? '',
       contact_email: data.contact_email ?? '',
       website: data.website ?? '',
@@ -108,6 +110,7 @@ export async function saveClinicSettings(
       .from('clinics')
       .update({
         name: input.name.trim(),
+        agent_name: input.agent_name.trim() || 'Asistente',
         phone: input.phone.trim(),
         contact_email: input.contact_email.trim() || null,
         website: input.website.trim() || null,

@@ -14,6 +14,7 @@ export default async function ClinicSettingsPage() {
     <ClinicSettingsForm
       initialData={data ?? {
         name: '',
+        agent_name: '',
         phone: '',
         contact_email: '',
         website: '',

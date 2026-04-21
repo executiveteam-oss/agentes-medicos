@@ -437,9 +437,8 @@ export async function scrapeAdmisiones(page: Page, credentials: ISaludCredential
 
       if (dayData) all.push(...dayData)
 
-      if (d < 3 || d % 10 === 0) {
-        const realDates = dayData ? [...new Set(dayData.map((a) => a.fecha))] : []
-        console.log(`[iSalud] Day ${d} (${fechaStr}): ${dayData?.length ?? 0} rows, dates in data: [${realDates.join(', ')}]`)
+      if (d < 3 || (dayData && dayData.length > 0) || d % 10 === 0) {
+        console.log(`[iSalud] Day ${d} (${fechaStr}): ${dayData?.length ?? 0} rows`)
       }
     } catch (err) {
       errors.push(`${fechaStr}: ${err instanceof Error ? err.message : String(err)}`)

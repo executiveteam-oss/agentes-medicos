@@ -242,7 +242,7 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     const reasonText = patientName || 'Bloqueo iSalud'
     const notesText = `[iSalud] ${patientName} | ${adm.procedimiento} | ${adm.aseguradora} | ${adm.profesional_nombre}`
 
-    const { data: ex } = await supabaseAdmin.from('appointments').select('id').eq('external_his_id', externalId).maybeSingle()
+    const { data: ex } = await supabaseAdmin.from('appointments').select('id').eq('clinic_id', clinicId).eq('external_his_id', externalId).maybeSingle()
     if (ex) {
       const { error: updateErr } = await supabaseAdmin.from('appointments').update({
         status, external_data: adm as unknown as Record<string, unknown>,

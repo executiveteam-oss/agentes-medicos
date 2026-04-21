@@ -401,18 +401,28 @@ async function processWebhook(body: unknown): Promise<void> {
       }
 
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
-      console.log(`[Webhook] Respuesta: "${agentResponse.text.slice(0, 100)}..."`)
+
+      // Limpiar markdown que Claude pueda haber incluido (WhatsApp muestra asteriscos literales)
+      const cleanText = agentResponse.text
+        .replace(/\*\*(.*?)\*\*/g, '$1')  // **bold** → bold
+        .replace(/\*(.*?)\*/g, '$1')      // *italic* → italic
+        .replace(/_(.*?)_/g, '$1')        // _under_ → under
+        .replace(/^[•●]\s*/gm, '- ')     // • bullet → - bullet
+        .replace(/^#{1,3}\s*/gm, '')      // ## header → header
+        .replace(/`(.*?)`/g, '$1')        // `code` → code
+
+      console.log(`[Webhook] Respuesta: "${cleanText.slice(0, 100)}..."`)
 
       // 18.1. Registrar uso de tokens
       if (agentResponse.tokenUsage) {
         await trackTokenUsage(clinic.id, agentResponse.tokenUsage.input, agentResponse.tokenUsage.output)
       }
 
-      // 19. Guardar respuesta del agente en DB
-      await saveMessage(conversation.id, 'agent', agentResponse.text)
+      // 19. Guardar respuesta del agente en DB (versión limpia)
+      await saveMessage(conversation.id, 'agent', cleanText)
 
       // 19. Enviar respuesta por WhatsApp
-      const sendResult = await sendWhatsAppMessage(message.from, agentResponse.text, clinicCreds)
+      const sendResult = await sendWhatsAppMessage(message.from, cleanText, clinicCreds)
       if (!sendResult) {
         console.error('[Webhook] FALLÓ el envío por WhatsApp — la respuesta se guardó en DB pero el paciente no la recibió')
       }

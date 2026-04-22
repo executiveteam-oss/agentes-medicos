@@ -73,6 +73,9 @@ export async function executeTool(
       case 'add_to_waitlist':
         return await addToWaitlist(input, clinicId)
 
+      case 'check_eps_convenio':
+        return await checkEpsConvenio(input, clinicId)
+
       default:
         return { success: false, error: `Tool "${toolName}" no reconocida` }
     }
@@ -1045,5 +1048,76 @@ async function notifyWaitlist(
   } catch (error) {
     // No es crítico — la cita ya se canceló, el paciente simplemente no se entera
     console.error('[notifyWaitlist] Error:', error)
+  }
+}
+
+// ============================================================
+// CHECK EPS CONVENIO — Verificar si la clínica tiene convenio con una EPS
+// ============================================================
+async function checkEpsConvenio(
+  input: Record<string, unknown>,
+  clinicId: string
+): Promise<ToolResult> {
+  const epsName = (input.eps_name as string ?? '').trim()
+  if (!epsName) return { success: false, error: 'Nombre de EPS vacío' }
+
+  // Normalizar para búsqueda flexible
+  const searchTerm = epsName.toLowerCase()
+
+  // Buscar en consultation_types.eps_name (convenios importados de iSalud)
+  const { data: matches } = await supabaseAdmin
+    .from('consultation_types')
+    .select('eps_name')
+    .eq('clinic_id', clinicId)
+    .not('eps_name', 'is', null)
+
+  // Match flexible: partial match case-insensitive
+  const uniqueEps = [...new Set((matches ?? []).map((r) => r.eps_name as string))]
+  const found = uniqueEps.find((e) => {
+    const lower = e.toLowerCase()
+    return lower.includes(searchTerm) || searchTerm.includes(lower.replace(/[.\s]+/g, ''))
+  })
+
+  // También buscar en isalud_import_staging (puede haber convenios no importados aún)
+  if (!found) {
+    const { data: staging } = await supabaseAdmin
+      .from('isalud_import_staging')
+      .select('convenio_nombre_abreviado')
+      .eq('clinic_id', clinicId)
+      .limit(1)
+      .ilike('convenio_nombre_abreviado', `%${searchTerm}%`)
+    
+    if (staging && staging.length > 0) {
+      return {
+        success: true,
+        data: {
+          hasConvenio: true,
+          convenioExacto: staging[0].convenio_nombre_abreviado,
+          source: 'staging',
+        },
+      }
+    }
+  }
+
+  if (found) {
+    return {
+      success: true,
+      data: {
+        hasConvenio: true,
+        convenioExacto: found,
+        source: 'consultation_types',
+      },
+    }
+  }
+
+  // No encontrado — listar los que SÍ tiene para referencia
+  return {
+    success: true,
+    data: {
+      hasConvenio: false,
+      epsSearched: epsName,
+      availableConvenios: uniqueEps.slice(0, 10),
+      message: `No se encontró convenio con "${epsName}". Informa al paciente y ofrece agendar como particular.`,
+    },
   }
 }

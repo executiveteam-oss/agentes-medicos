@@ -241,4 +241,21 @@ export const agentTools: Tool[] = [
       required: ['doctor_id', 'patient_phone'],
     },
   },
+  {
+    name: 'check_eps_convenio',
+    description:
+      'Verifica si la clínica tiene convenio con una EPS/aseguradora. ' +
+      'Úsala DESPUÉS de que el paciente diga su EPS y ANTES de proponer horarios. ' +
+      'Si no hay convenio, informa al paciente y ofrece agendar como particular.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        eps_name: {
+          type: 'string',
+          description: 'Nombre de la EPS o aseguradora que el paciente mencionó (ej: "Suramericana", "Coomeva", "Sanitas")',
+        },
+      },
+      required: ['eps_name'],
+    },
+  },
 ]

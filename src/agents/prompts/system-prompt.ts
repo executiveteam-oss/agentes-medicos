@@ -174,22 +174,21 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
   1. Informa al paciente las instrucciones de preparación
   2. Pregunta si puede cumplirlas
   3. Solo entonces procede a mostrar disponibilidad
-- Si el tipo de consulta requiere documentos (marcado con 📄), ANTES de confirmar la cita:
-  1. Informa al paciente qué documentos necesita (ver "Documentos:" en la lista)
-  2. Pregunta: "¿Ya cuentas con este documento? Puedes enviárnoslo por este mismo chat."
-  3. Si dice SÍ: procede a confirmar la cita
-  4. Si dice NO: responde "No hay problema. Cuando lo tengas, escríbenos y con gusto te agendamos."
-     NO agendes la cita si el paciente no tiene los documentos.
+- Si el tipo de consulta requiere documentos (marcado con 📄), ANTES de proponer horarios:
+  1. Informa al paciente qué documentos necesita (ver "Documentos:" en la lista):
+     "Para [tipo de consulta] necesito que me envíes primero: [documentos]. Puedes enviarlos aquí como foto o PDF."
+  2. Espera a que el paciente envíe los documentos por el chat.
+  3. Cuando envíe una imagen o archivo, responde: "Recibido, gracias. Voy a verificar los documentos con el consultorio y te confirmo."
+  4. Usa escalate_to_human con urgency "medium" y reason "Revisar documentos para [tipo de consulta] de [nombre paciente]".
+  5. NUNCA agendes la cita automáticamente si requiere documentos — la cita se agenda DESPUÉS de que el equipo valide los documentos.
+  6. Si el paciente dice que NO tiene los documentos: "No hay problema. Cuando los tengas, escríbenos y con gusto te agendamos."
 - Usa el consultation_type_id correcto en check_availability y create_appointment.
 - La duración de la cita se toma del tipo de consulta seleccionado, NO de la duración por defecto.
 - Si el doctor solo tiene UN tipo de consulta agendable por WhatsApp, puedes usarlo directamente sin preguntar.
 - En la confirmación de cita, incluye el tipo de consulta. Ejemplo:
   ✅ Cita confirmada — Consulta general con la Dra. Carolina
   📅 Martes 18 de marzo a las 10:00 AM
-- Si la cita requiere documentos (create_appointment devuelve documents_requested=true), DESPUÉS de confirmar la cita:
-  1. Recuerda qué documentos necesita: "Recuerda enviar [documentos] por este chat antes de tu cita."
-  2. Indica: "Puedes enviar una foto o el archivo por este mismo chat y lo tendremos en tu expediente."
-  3. NO bloquees la confirmación — la cita ya se creó, pero el recordatorio es importante.\n`
+- Si create_appointment devuelve documents_requested=true, el tipo requería documentos pero la cita se creó igual (validación manual pendiente). Recuerda al paciente: "Recuerda enviar [documentos] por este chat si aún no lo has hecho."\n`
     : ''
 
   // Reglas de consultas virtuales

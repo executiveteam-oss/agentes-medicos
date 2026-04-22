@@ -1453,8 +1453,8 @@ function ConsultationTypeForm({
       {/* Requiere documentos previos */}
       <div className="flex items-start justify-between gap-3 p-2.5 border border-slate-100 rounded-lg bg-white">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-slate-700">Requiere documentos previos</p>
-          <p className="text-[10px] text-slate-400">Ej: historia clínica, orden médica, etc.</p>
+          <p className="text-xs font-medium text-slate-700">Requiere documentos previos antes de agendar</p>
+          <p className="text-[10px] text-slate-400">El agente pedirá estos documentos al paciente y escalará para revisión antes de confirmar la cita.</p>
         </div>
         <button
           type="button"
@@ -1477,7 +1477,7 @@ function ConsultationTypeForm({
             onChange={(e) => setDocsDescription(e.target.value)}
             className="input-field w-full resize-none"
             rows={2}
-            placeholder="Enviar historia clínica u orden médica antes de la cita"
+            placeholder="Ej: Orden médica y autorización de EPS"
           />
         </div>
       )}

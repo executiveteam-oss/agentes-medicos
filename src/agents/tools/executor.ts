@@ -427,7 +427,7 @@ async function createAppointment(
   if (conflict && conflict.length > 0) {
     return {
       success: false,
-      error: 'Ese horario ya está ocupado. Por favor ofrece otro horario al paciente.',
+      error: 'SLOT_JUST_TAKEN — Ese horario se acaba de ocupar por otra persona mientras el paciente esperaba. DEBES: (1) disculparte: "Disculpa, ese horario se acaba de ocupar mientras hablábamos" (2) usar check_availability para buscar alternativas cercanas (3) ofrecer 2-3 opciones nuevas. NUNCA actúes como si nunca hubieras propuesto el horario original.',
     }
   }
 

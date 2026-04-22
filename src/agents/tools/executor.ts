@@ -21,6 +21,12 @@ import { es } from 'date-fns/locale'
 import { toZonedTime } from 'date-fns-tz'
 
 const TIMEZONE = 'America/Bogota'
+const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
+
+/** Día de la semana en español para una fecha YYYY-MM-DD */
+function spanishDayOfWeek(dateStr: string): string {
+  return SPANISH_DAY_NAMES[toZonedTime(parseISO(`${dateStr}T12:00:00-05:00`), TIMEZONE).getDay()]
+}
 
 // Tipo para el resultado que devolvemos a Claude
 interface ToolResult {
@@ -240,12 +246,14 @@ async function checkAvailability(
   }
 
   if (!isDayActive || dayBlocks.length === 0) {
+    const dow = spanishDayOfWeek(dateStr)
     return {
       success: true,
       data: {
         available: false,
         date: dateStr,
-        reason: `El doctor no atiende ese día`,
+        dayOfWeek: dow,
+        reason: `El doctor no atiende ese día (${dow})`,
       },
     }
   }
@@ -314,6 +322,7 @@ async function checkAvailability(
       data: {
         available: false,
         date: dateStr,
+        dayOfWeek: spanishDayOfWeek(dateStr),
         reason: 'No hay horarios disponibles para esta fecha',
         suggestion: 'Puedes ofrecer al paciente unirse a la lista de espera o probar otro día',
       },
@@ -325,6 +334,7 @@ async function checkAvailability(
     data: {
       available: true,
       date: dateStr,
+      dayOfWeek: spanishDayOfWeek(dateStr),
       doctor_name: doctor.name,
       slots: availableSlots.map((s) => ({
         time: s.display,

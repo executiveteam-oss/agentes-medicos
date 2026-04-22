@@ -402,6 +402,24 @@ async function processWebhook(body: unknown): Promise<void> {
 
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
 
+      // POST-CITA LOCKOUT DEFENSIVO:
+      // Si el historial reciente ya contiene "✅ Cita confirmada" (cita ya creada),
+      // y en ESTE turno Claude volvió a llamar create_appointment + check_availability,
+      // es un bug de contexto — bloquear y responder con mensaje canned.
+      const recentAgentMsgs = messageHistory.filter((m) => m.role === 'agent').slice(-5)
+      const alreadyConfirmed = recentAgentMsgs.some((m) => m.content.includes('✅') && /cita (confirmada|agendada|creada)/i.test(m.content))
+      if (
+        alreadyConfirmed &&
+        agentResponse.toolsUsed.includes('check_availability') &&
+        !agentResponse.text.includes('✅') // no es una nueva confirmación exitosa
+      ) {
+        console.warn(`[Webhook] ⚠️ POST-CITA LOCKOUT: agente intentó re-agendar tras cita confirmada. Bloqueando.`)
+        const lockoutText = 'Tu cita ya está confirmada. ¿Necesitas agregar algún dato o agendar una cita diferente?'
+        await saveMessage(conversation.id, 'agent', lockoutText)
+        await sendWhatsAppMessage(message.from, lockoutText, clinicCreds)
+        return
+      }
+
       // Limpiar markdown que Claude pueda haber incluido (WhatsApp muestra asteriscos literales)
       const cleanText = agentResponse.text
         .replace(/\*\*(.*?)\*\*/g, '$1')  // **bold** → bold

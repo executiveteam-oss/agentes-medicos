@@ -23,7 +23,7 @@ export const whatsappWebhookSchema = z.object({
             contacts: z
               .array(
                 z.object({
-                  profile: z.object({ name: z.string() }),
+                  profile: z.object({ name: z.string() }).optional(),
                   wa_id: z.string(),
                 })
               )

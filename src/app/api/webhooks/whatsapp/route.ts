@@ -403,17 +403,26 @@ async function processWebhook(body: unknown): Promise<void> {
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
 
       // POST-CITA LOCKOUT DEFENSIVO:
-      // Si el historial reciente ya contiene "✅ Cita confirmada" (cita ya creada),
-      // y en ESTE turno Claude volvió a llamar create_appointment + check_availability,
-      // es un bug de contexto — bloquear y responder con mensaje canned.
+      // Bloquea si el agente intenta re-agendar tras una cita confirmada,
+      // SALVO que el paciente haya pedido explícitamente otra cita.
       const recentAgentMsgs = messageHistory.filter((m) => m.role === 'agent').slice(-5)
+      const recentPatientMsgs = messageHistory.filter((m) => m.role === 'patient').slice(-10)
       const alreadyConfirmed = recentAgentMsgs.some((m) => m.content.includes('✅') && /cita (confirmada|agendada|creada)/i.test(m.content))
+      const patientAskedForAnother = recentPatientMsgs.some((m) => {
+        const t = m.content.toLowerCase()
+        return /otra (cita|consulta)|adicional|una m[aá]s|tambi[eé]n.*cita|agendar otra|otra para/i.test(t)
+      })
+      const agentAskedAboutAnother = recentAgentMsgs.some((m) => /cita adicional|otra cita/i.test(m.content))
+      const confirmedAnother = agentAskedAboutAnother && recentPatientMsgs.some((m) => /^(s[ií]|dale|claro|ok|sip|ajá)/i.test(m.content.trim()))
+
       if (
         alreadyConfirmed &&
         agentResponse.toolsUsed.includes('check_availability') &&
-        !agentResponse.text.includes('✅') // no es una nueva confirmación exitosa
+        !agentResponse.text.includes('✅') &&
+        !patientAskedForAnother &&
+        !confirmedAnother
       ) {
-        console.warn(`[Webhook] ⚠️ POST-CITA LOCKOUT: agente intentó re-agendar tras cita confirmada. Bloqueando.`)
+        console.warn(`[Webhook] ⚠️ POST-CITA LOCKOUT: agente intentó re-agendar sin pedido explícito. Bloqueando.`)
         const lockoutText = 'Tu cita ya está confirmada. ¿Necesitas agregar algún dato o agendar una cita diferente?'
         await saveMessage(conversation.id, 'agent', lockoutText)
         await sendWhatsAppMessage(message.from, lockoutText, clinicCreds)

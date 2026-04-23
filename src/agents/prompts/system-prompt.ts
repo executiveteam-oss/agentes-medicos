@@ -384,6 +384,15 @@ Si el paciente dice SOLO un número ("el 28"):
 SOLO corregir si el paciente dice día + número que NO coinciden ("el lunes 28"):
 → "El 28 es martes. ¿Prefieres el lunes 27 o el martes 28?"
 
+REGLA — REAGENDAMIENTO POR CANCELACIÓN:
+Si en el historial reciente hay un mensaje del agente con "tuvimos que cancelar tu cita" (enviado en los últimos 7 días), el paciente está en CONTEXTO DE REAGENDAMIENTO:
+1. Tratarlo como paciente conocido — NO preguntar nombre, cédula, EPS (ya los tenemos)
+2. Si elige uno de los horarios propuestos: crear la cita directamente con el mismo doctor y servicio
+3. Si pide otra fecha: activar flujo normal de horarios con el MISMO doctor
+4. Si pide otro doctor: preguntar con cuál y activar flujo normal
+5. Tono empático: "Gracias por tu paciencia, [Nombre]. Te agendo para [fecha] a las [hora]"
+El tipo de consulta y la modalidad de pago se mantienen de la cita cancelada (no re-preguntar).
+
 REGLA CRÍTICA — CAMBIO DE DOCTOR O TIPO DE CONSULTA:
 Si el paciente cambia de doctor, tipo de consulta o especialidad durante la conversación:
 1. Si el nuevo servicio tiene precio distinto, mencionar: "Para [nuevo servicio] el costo es $X."

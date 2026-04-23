@@ -24,7 +24,7 @@ import {
   WORKING_HOURS_DAY_KEYS,
 } from '@/lib/utils/working-hours'
 import type { WorkingHours, NormalizedWorkingHours, WorkingBlock } from '@/types/database'
-import { getBlockedDatesForDoctor, createBlockedDate, deleteBlockedDate, type BlockedDate } from '@/app/actions/blocked-dates'
+import { getBlockedDatesForDoctor, createBlockedDate, deleteBlockedDate, getAffectedAppointments, type BlockedDate, type AffectedAppointment } from '@/app/actions/blocked-dates'
 import {
   getStagingProducts,
   confirmImportForDoctor,
@@ -1935,7 +1935,7 @@ function DoctorScheduleEditor({
 }
 
 // ============================================================
-// BlockedDatesSection — Fechas bloqueadas por doctor
+// BlockedDatesSection — Fechas bloqueadas por doctor (con cancelación + notificación)
 // ============================================================
 
 function BlockedDatesSection({ doctorId, doctorName }: { doctorId: string; doctorName: string }) {
@@ -1946,42 +1946,39 @@ function BlockedDatesSection({ doctorId, doctorName }: { doctorId: string; docto
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [reason, setReason] = useState('')
+  const [patientReason, setPatientReason] = useState('')
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
+  const [affected, setAffected] = useState<AffectedAppointment[]>([])
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [opResult, setOpResult] = useState<{ cancelled: number; notified: number } | null>(null)
 
-  const loadDates = useCallback(async () => {
-    const data = await getBlockedDatesForDoctor(doctorId)
-    setDates(data)
-    setLoaded(true)
-  }, [doctorId])
+  const loadDates = useCallback(async () => { const data = await getBlockedDatesForDoctor(doctorId); setDates(data); setLoaded(true) }, [doctorId])
+  useEffect(() => { if (expanded && !loaded) loadDates() }, [expanded, loaded, loadDates])
 
-  useEffect(() => {
-    if (expanded && !loaded) loadDates()
-  }, [expanded, loaded, loadDates])
-
-  function handleAdd() {
+  function handleSubmit() {
     if (!startDate || !endDate) { setError('Selecciona fecha inicio y fin'); return }
     setError(null)
     startTransition(async () => {
-      const result = await createBlockedDate({ doctorId, startDate, endDate, reason: reason || null })
-      if (result.ok) {
-        setShowAdd(false)
-        setStartDate(''); setEndDate(''); setReason('')
-        await loadDates()
-      } else {
-        setError(result.error ?? 'Error')
+      const apts = await getAffectedAppointments({ doctorId, startDate, endDate })
+      if (apts.length > 0) { setAffected(apts); setShowConfirm(true) }
+      else {
+        const res = await createBlockedDate({ doctorId, startDate, endDate, reason: reason || null, patientReason: patientReason || null })
+        if (res.ok) { resetForm(); await loadDates() } else setError(res.error ?? 'Error')
       }
     })
   }
 
-  function handleDelete(id: string) {
+  function handleConfirmBlock() {
     startTransition(async () => {
-      await deleteBlockedDate(id)
-      await loadDates()
+      const res = await createBlockedDate({ doctorId, startDate, endDate, reason: reason || null, patientReason: patientReason || null, cancelAndNotify: true })
+      if (res.ok) { setOpResult({ cancelled: res.cancelled ?? 0, notified: res.notified ?? 0 }); setShowConfirm(false); resetForm(); await loadDates() }
+      else { setError(res.error ?? 'Error'); setShowConfirm(false) }
     })
   }
 
-  // Min date = today
+  function resetForm() { setShowAdd(false); setStartDate(''); setEndDate(''); setReason(''); setPatientReason(''); setAffected([]); setShowConfirm(false) }
+  function handleDelete(id: string) { startTransition(async () => { await deleteBlockedDate(id); await loadDates() }) }
   const today = new Date().toISOString().split('T')[0]
 
   return (
@@ -1989,66 +1986,65 @@ function BlockedDatesSection({ doctorId, doctorName }: { doctorId: string; docto
       <button type="button" onClick={() => setExpanded(!expanded)} className="flex items-center justify-between w-full text-left group">
         <div className="flex items-center gap-2">
           <label className="text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer">Fechas bloqueadas</label>
-          {loaded && dates.length > 0 && (
-            <span className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">{dates.length}</span>
-          )}
+          {loaded && dates.length > 0 && <span className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">{dates.length}</span>}
         </div>
-        <svg className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        <svg className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
       </button>
-
       {expanded && (
         <div className="mt-3 space-y-2">
-          {!loaded ? (
-            <p className="text-xs text-slate-400 py-2">Cargando...</p>
-          ) : dates.length === 0 && !showAdd ? (
-            <p className="text-xs text-slate-400 py-2">Sin fechas bloqueadas. El doctor atiende todos los días de su horario.</p>
-          ) : (
-            dates.map((bd) => (
-              <div key={bd.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-red-100 bg-red-50/30">
-                <div className="min-w-0">
-                  <span className="text-sm font-medium text-slate-900">
-                    {bd.start_date === bd.end_date
-                      ? new Date(bd.start_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
-                      : `${new Date(bd.start_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} — ${new Date(bd.end_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}`
-                    }
-                  </span>
-                  {bd.reason && <span className="text-xs text-slate-500 ml-2">{bd.reason}</span>}
-                  {!bd.doctor_id && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full ml-2">Toda la clínica</span>}
-                </div>
-                <button type="button" onClick={() => handleDelete(bd.id)} disabled={isPending} className="text-xs text-red-400 hover:text-red-600 px-1.5 py-1">×</button>
+          {!loaded ? <p className="text-xs text-slate-400 py-2">Cargando...</p>
+          : dates.length === 0 && !showAdd ? <p className="text-xs text-slate-400 py-2">Sin fechas bloqueadas.</p>
+          : dates.map((bd) => (
+            <div key={bd.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-red-100 bg-red-50/30">
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-slate-900">{bd.start_date === bd.end_date ? new Date(bd.start_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : `${new Date(bd.start_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} — ${new Date(bd.end_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}`}</span>
+                {bd.reason && <span className="text-xs text-slate-500 ml-2">{bd.reason}</span>}
+                {!bd.doctor_id && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full ml-2">Toda la clínica</span>}
               </div>
-            ))
+              <button type="button" onClick={() => handleDelete(bd.id)} disabled={isPending} className="text-xs text-red-400 hover:text-red-600 px-1.5 py-1">×</button>
+            </div>
+          ))}
+          {opResult && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800">
+              {opResult.cancelled} citas canceladas, {opResult.notified} pacientes notificados por WhatsApp.
+              <button type="button" onClick={() => setOpResult(null)} className="ml-2 text-emerald-600 hover:text-emerald-800">×</button>
+            </div>
           )}
-
           {showAdd ? (
             <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-3 space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] font-medium text-slate-600 mb-0.5 block">Desde</label>
-                  <input type="date" value={startDate} min={today} onChange={(e) => { setStartDate(e.target.value); if (!endDate || endDate < e.target.value) setEndDate(e.target.value) }} className="input-field w-full text-xs py-1" />
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-slate-600 mb-0.5 block">Hasta</label>
-                  <input type="date" value={endDate} min={startDate || today} onChange={(e) => setEndDate(e.target.value)} className="input-field w-full text-xs py-1" />
-                </div>
+                <div><label className="text-[10px] font-medium text-slate-600 mb-0.5 block">Desde</label><input type="date" value={startDate} min={today} onChange={(e) => { setStartDate(e.target.value); if (!endDate || endDate < e.target.value) setEndDate(e.target.value) }} className="input-field w-full text-xs py-1" /></div>
+                <div><label className="text-[10px] font-medium text-slate-600 mb-0.5 block">Hasta</label><input type="date" value={endDate} min={startDate || today} onChange={(e) => setEndDate(e.target.value)} className="input-field w-full text-xs py-1" /></div>
               </div>
-              <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo (ej: vacaciones, congreso)" className="input-field w-full text-xs py-1" />
+              <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo interno (ej: vacaciones)" className="input-field w-full text-xs py-1" />
+              <input type="text" value={patientReason} onChange={(e) => setPatientReason(e.target.value)} placeholder="Motivo para el paciente (opcional)" className="input-field w-full text-xs py-1" />
+              <p className="text-[9px] text-slate-400">Si lo dejas vacío, el mensaje al paciente dirá &quot;por motivos del consultorio&quot;</p>
               {error && <p className="text-red-600 text-[10px]">{error}</p>}
               <div className="flex gap-2">
-                <button type="button" onClick={handleAdd} disabled={isPending} className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium py-1 px-3 rounded-lg disabled:opacity-50">{isPending ? 'Guardando...' : 'Guardar'}</button>
-                <button type="button" onClick={() => { setShowAdd(false); setError(null) }} className="text-xs text-slate-500 px-2 py-1">Cancelar</button>
+                <button type="button" onClick={handleSubmit} disabled={isPending} className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium py-1 px-3 rounded-lg disabled:opacity-50">{isPending ? 'Verificando...' : 'Bloquear'}</button>
+                <button type="button" onClick={resetForm} className="text-xs text-slate-500 px-2 py-1">Cancelar</button>
               </div>
             </div>
-          ) : (
-            <button type="button" onClick={() => setShowAdd(true)} className="text-xs text-red-600 hover:text-red-700 font-medium py-1.5">+ Bloquear fechas</button>
+          ) : <button type="button" onClick={() => setShowAdd(true)} className="text-xs text-red-600 hover:text-red-700 font-medium py-1.5">+ Bloquear fechas</button>}
+          {showConfirm && (
+            <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-900">⚠️ Hay {affected.length} cita{affected.length > 1 ? 's' : ''} agendada{affected.length > 1 ? 's' : ''} en este rango:</p>
+              <div className="max-h-32 overflow-y-auto space-y-1">
+                {affected.map((a) => (<p key={a.id} className="text-xs text-slate-700">{a.patient_name} — {new Date(a.starts_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} {new Date(a.starts_at).toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true })} con {a.doctor_name}</p>))}
+              </div>
+              <div className="text-xs text-amber-800 space-y-1"><p>Si confirmas:</p><p>- Estas citas se cancelarán automáticamente</p><p>- Se enviará WhatsApp a cada paciente con disculpa + opciones de reagendamiento</p></div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={handleConfirmBlock} disabled={isPending} className="bg-red-600 hover:bg-red-700 text-white text-xs font-medium py-1.5 px-3 rounded-lg disabled:opacity-50">{isPending ? 'Procesando...' : 'Confirmar bloqueo y notificar'}</button>
+                <button type="button" onClick={() => setShowConfirm(false)} className="text-xs text-slate-500 px-2 py-1.5">Cancelar</button>
+              </div>
+            </div>
           )}
         </div>
       )}
     </div>
   )
 }
+
 
 // ============================================================
 // ImportIsaludModal — Modal para importar productos de iSalud

@@ -24,6 +24,7 @@ import {
   WORKING_HOURS_DAY_KEYS,
 } from '@/lib/utils/working-hours'
 import type { WorkingHours, NormalizedWorkingHours, WorkingBlock } from '@/types/database'
+import { getBlockedDatesForDoctor, createBlockedDate, deleteBlockedDate, type BlockedDate } from '@/app/actions/blocked-dates'
 import {
   getStagingProducts,
   confirmImportForDoctor,
@@ -869,6 +870,9 @@ function DoctorCard({
 
           {/* Tipos de consulta */}
           <ConsultationTypesSection doctorId={doc.id} doctorName={doc.name} hasIsalud={hasIsalud} />
+
+          {/* Fechas bloqueadas */}
+          <BlockedDatesSection doctorId={doc.id} doctorName={doc.name} />
         </div>
       )}
     </div>
@@ -1926,6 +1930,122 @@ function DoctorScheduleEditor({
         {saved && <span className="text-xs text-emerald-600 font-medium">Guardado</span>}
         {globalError && <span className="text-xs text-red-600">{globalError}</span>}
       </div>
+    </div>
+  )
+}
+
+// ============================================================
+// BlockedDatesSection — Fechas bloqueadas por doctor
+// ============================================================
+
+function BlockedDatesSection({ doctorId, doctorName }: { doctorId: string; doctorName: string }) {
+  const [dates, setDates] = useState<BlockedDate[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [reason, setReason] = useState('')
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  const loadDates = useCallback(async () => {
+    const data = await getBlockedDatesForDoctor(doctorId)
+    setDates(data)
+    setLoaded(true)
+  }, [doctorId])
+
+  useEffect(() => {
+    if (expanded && !loaded) loadDates()
+  }, [expanded, loaded, loadDates])
+
+  function handleAdd() {
+    if (!startDate || !endDate) { setError('Selecciona fecha inicio y fin'); return }
+    setError(null)
+    startTransition(async () => {
+      const result = await createBlockedDate({ doctorId, startDate, endDate, reason: reason || null })
+      if (result.ok) {
+        setShowAdd(false)
+        setStartDate(''); setEndDate(''); setReason('')
+        await loadDates()
+      } else {
+        setError(result.error ?? 'Error')
+      }
+    })
+  }
+
+  function handleDelete(id: string) {
+    startTransition(async () => {
+      await deleteBlockedDate(id)
+      await loadDates()
+    })
+  }
+
+  // Min date = today
+  const today = new Date().toISOString().split('T')[0]
+
+  return (
+    <div className="border-t border-slate-100 pt-3 mt-1">
+      <button type="button" onClick={() => setExpanded(!expanded)} className="flex items-center justify-between w-full text-left group">
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-medium text-slate-500 uppercase tracking-wider cursor-pointer">Fechas bloqueadas</label>
+          {loaded && dates.length > 0 && (
+            <span className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full">{dates.length}</span>
+          )}
+        </div>
+        <svg className={`w-4 h-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {!loaded ? (
+            <p className="text-xs text-slate-400 py-2">Cargando...</p>
+          ) : dates.length === 0 && !showAdd ? (
+            <p className="text-xs text-slate-400 py-2">Sin fechas bloqueadas. El doctor atiende todos los días de su horario.</p>
+          ) : (
+            dates.map((bd) => (
+              <div key={bd.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-red-100 bg-red-50/30">
+                <div className="min-w-0">
+                  <span className="text-sm font-medium text-slate-900">
+                    {bd.start_date === bd.end_date
+                      ? new Date(bd.start_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })
+                      : `${new Date(bd.start_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} — ${new Date(bd.end_date + 'T12:00:00').toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                    }
+                  </span>
+                  {bd.reason && <span className="text-xs text-slate-500 ml-2">{bd.reason}</span>}
+                  {!bd.doctor_id && <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full ml-2">Toda la clínica</span>}
+                </div>
+                <button type="button" onClick={() => handleDelete(bd.id)} disabled={isPending} className="text-xs text-red-400 hover:text-red-600 px-1.5 py-1">×</button>
+              </div>
+            ))
+          )}
+
+          {showAdd ? (
+            <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-medium text-slate-600 mb-0.5 block">Desde</label>
+                  <input type="date" value={startDate} min={today} onChange={(e) => { setStartDate(e.target.value); if (!endDate || endDate < e.target.value) setEndDate(e.target.value) }} className="input-field w-full text-xs py-1" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-slate-600 mb-0.5 block">Hasta</label>
+                  <input type="date" value={endDate} min={startDate || today} onChange={(e) => setEndDate(e.target.value)} className="input-field w-full text-xs py-1" />
+                </div>
+              </div>
+              <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo (ej: vacaciones, congreso)" className="input-field w-full text-xs py-1" />
+              {error && <p className="text-red-600 text-[10px]">{error}</p>}
+              <div className="flex gap-2">
+                <button type="button" onClick={handleAdd} disabled={isPending} className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium py-1 px-3 rounded-lg disabled:opacity-50">{isPending ? 'Guardando...' : 'Guardar'}</button>
+                <button type="button" onClick={() => { setShowAdd(false); setError(null) }} className="text-xs text-slate-500 px-2 py-1">Cancelar</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setShowAdd(true)} className="text-xs text-red-600 hover:text-red-700 font-medium py-1.5">+ Bloquear fechas</button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

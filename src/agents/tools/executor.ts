@@ -162,6 +162,39 @@ async function checkAvailability(
     return { success: false, error: 'Fecha no válida. Formato esperado: YYYY-MM-DD' }
   }
 
+  // Verificar fechas bloqueadas (doctor-specific + clinic-wide)
+  const { data: blockedRows } = await supabaseAdmin
+    .from('blocked_dates')
+    .select('id, doctor_id, reason')
+    .eq('clinic_id', clinicId)
+    .lte('start_date', dateStr)
+    .gte('end_date', dateStr)
+    .or(`doctor_id.eq.${doctorId},doctor_id.is.null`)
+    .limit(1)
+
+  if (blockedRows && blockedRows.length > 0) {
+    const blocked = blockedRows[0]
+    const blockedBy = blocked.doctor_id ? 'doctor' : 'clinic'
+    const dow = spanishDayOfWeek(dateStr)
+    return {
+      success: true,
+      data: {
+        available: false,
+        blocked: true,
+        blockedBy,
+        date: dateStr,
+        dayOfWeek: dow,
+        reason: blocked.reason
+          ? (blockedBy === 'doctor'
+              ? `${doctor.name} no atiende ese día (${dow}) por: ${blocked.reason}. Ofrece otro día con este doctor o propón otro doctor de la misma especialidad.`
+              : `El consultorio no atiende ese día (${dow}) por: ${blocked.reason}. Ofrece otro día.`)
+          : (blockedBy === 'doctor'
+              ? `${doctor.name} no atiende ese día (${dow}). Ofrece otro día con este doctor o propón otro doctor.`
+              : `El consultorio no atiende ese día (${dow}). Ofrece otro día.`),
+      },
+    }
+  }
+
   // Verificar reglas de anticipación de la clínica
   const now = toZonedTime(new Date(), TIMEZONE)
   const minAdvanceHours = clinic.min_booking_advance_hours ?? 24

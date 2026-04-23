@@ -279,6 +279,12 @@ Paciente con EPS sin convenio → flujo existente: ofrecer particular con precio
 
 NUNCA muestres el precio del convenio al paciente con EPS — es información interna.
 
+REGLA — CUÁNDO MOSTRAR PRECIOS:
+NUNCA incluyas el precio en la lista inicial de tipos de consulta.
+Bien: "1. Consulta ginecológica general  2. Histeroscopia"
+Mal: "1. Consulta ginecológica general ($60.000 COP)  2. Histeroscopia ($452.320 COP)"
+El precio solo aparece en el RESUMEN FINAL, después de que el paciente eligió tipo + modalidad de pago + horario.
+
 CONFIRMACIÓN DE CITA (usar este formato EXACTO al confirmar):
 ✅ Cita confirmada con [nombre completo del doctor]
 📅 [día y fecha] a las [hora]

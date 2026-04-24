@@ -1283,7 +1283,7 @@ function ConsultationTypeForm({
 }: {
   initial?: ConsultationType
   doctorId?: string
-  onSave: (input: { name: string; duration_minutes: number; requires_preparation: boolean; preparation_instructions: string | null; price: number | null; is_active: boolean; bookable_via_whatsapp: boolean; requires_documents: boolean; required_documents_description: string | null; modality: 'presencial' | 'virtual' | 'ambas'; eps_name: string | null }) => Promise<{ ok: boolean; error?: string }>
+  onSave: (input: { name: string; duration_minutes: number; requires_preparation: boolean; preparation_instructions: string | null; price: number | null; is_active: boolean; bookable_via_whatsapp: boolean; non_bookable_message: string | null; requires_documents: boolean; required_documents_description: string | null; modality: 'presencial' | 'virtual' | 'ambas'; eps_name: string | null }) => Promise<{ ok: boolean; error?: string }>
   onCancel: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
@@ -1294,6 +1294,7 @@ function ConsultationTypeForm({
   const [price, setPrice] = useState<string>(initial?.price != null ? String(initial.price) : '')
   const [isActive, setIsActive] = useState(initial?.is_active ?? true)
   const [bookableViaWhatsapp, setBookableViaWhatsapp] = useState(initial?.bookable_via_whatsapp ?? true)
+  const [nonBookableMessage, setNonBookableMessage] = useState(initial?.non_bookable_message ?? '')
   const [requiresDocs, setRequiresDocs] = useState(initial?.requires_documents ?? false)
   const [docsDescription, setDocsDescription] = useState(initial?.required_documents_description ?? '')
   const [modality, setModality] = useState<'presencial' | 'virtual' | 'ambas'>(initial?.modality ?? 'presencial')
@@ -1316,6 +1317,7 @@ function ConsultationTypeForm({
         price: price ? parseInt(price, 10) || null : null,
         is_active: isActive,
         bookable_via_whatsapp: bookableViaWhatsapp,
+        non_bookable_message: !bookableViaWhatsapp ? (nonBookableMessage.trim() || null) : null,
         requires_documents: requiresDocs,
         required_documents_description: requiresDocs ? docsDescription.trim() || null : null,
         modality,
@@ -1439,7 +1441,7 @@ function ConsultationTypeForm({
       <div className="flex items-start justify-between gap-3 p-2.5 border border-slate-100 rounded-lg bg-white">
         <div className="min-w-0">
           <p className="text-xs font-medium text-slate-700">Agendable por WhatsApp</p>
-          <p className="text-[10px] text-slate-400">Si está apagado, el agente no ofrecerá este servicio</p>
+          <p className="text-[10px] text-slate-400">Si está apagado, el agente escalará a un humano cuando el paciente pida este servicio</p>
         </div>
         <button
           type="button"
@@ -1453,6 +1455,20 @@ function ConsultationTypeForm({
           }`} />
         </button>
       </div>
+
+      {!bookableViaWhatsapp && (
+        <div>
+          <label className="text-xs font-medium text-slate-600 mb-1 block">Mensaje al paciente cuando pide este servicio</label>
+          <textarea
+            value={nonBookableMessage}
+            onChange={(e) => setNonBookableMessage(e.target.value)}
+            className="input-field w-full resize-none"
+            rows={2}
+            placeholder="Ej: Para este tipo de consulta coordinamos directamente. Te paso con un asesor."
+          />
+          <p className="text-[9px] text-slate-400 mt-0.5">Si está vacío, se usará un mensaje genérico.</p>
+        </div>
+      )}
 
       {/* Requiere documentos previos */}
       <div className="flex items-start justify-between gap-3 p-2.5 border border-slate-100 rounded-lg bg-white">

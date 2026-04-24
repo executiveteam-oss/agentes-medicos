@@ -231,6 +231,7 @@ export interface ConsultationType {
   price: number | null            // COP
   is_active: boolean
   bookable_via_whatsapp: boolean  // Si el agente puede ofrecer este servicio (migración 00025)
+  non_bookable_message: string | null  // Mensaje custom cuando no es agendable (migración 00057)
   requires_documents: boolean     // Si requiere documentos previos (migración 00025)
   required_documents_description: string | null  // Instrucciones de documentos (migración 00025)
   modality: ConsultationModality  // presencial / virtual / ambas (migración 00027)

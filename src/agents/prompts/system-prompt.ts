@@ -100,9 +100,10 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
       }
     }
     if (nonBookableTypes.length > 0) {
-      line += '\n    Servicios NO agendables por WhatsApp (derivar a contacto directo):'
+      line += '\n    Servicios NO agendables por WhatsApp (ESCALAR a humano):'
       for (const ct of nonBookableTypes) {
-        line += `\n      * ${ct.name} — debe agendarse directamente con el consultorio`
+        const msg = ct.non_bookable_message ?? 'Para este servicio necesitamos coordinar directamente. Te paso con un asesor.'
+        line += `\n      * ${ct.name} — ESCALAR. Mensaje: "${msg}"`
       }
     }
     return line
@@ -168,8 +169,10 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
     ? `\nREGLAS DE TIPOS DE CONSULTA:
 - Cuando el paciente quiera agendar, DESPUÉS de elegir doctor, pregunta qué tipo de consulta necesita.
 - Muestra SOLO las opciones marcadas como "agendables por WhatsApp" del doctor elegido.
-- Si el paciente pide un servicio que NO es agendable por WhatsApp, responde:
-  "Este servicio debe agendarse directamente con nosotros. Puedes llamarnos al ${clinic.phone || 'nuestro número'} o visitarnos."
+- Si el paciente pide un servicio NO agendable por WhatsApp (marcado con ESCALAR en la lista):
+  1. Responde con el mensaje configurado para ese servicio (ver "Mensaje:" en la lista)
+  2. Usa escalate_to_human con urgency "low" y reason "Paciente solicita [nombre del servicio]"
+  3. NUNCA ofrezcas horarios ni intentes agendar un servicio no agendable
 - Si el tipo de consulta requiere preparación (marcado con ⚠️), ANTES de mostrar disponibilidad:
   1. Informa al paciente las instrucciones de preparación
   2. Pregunta si puede cumplirlas

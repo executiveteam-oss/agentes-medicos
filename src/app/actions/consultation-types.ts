@@ -20,6 +20,7 @@ export interface ConsultationTypeInput {
   price: number | null
   is_active: boolean
   bookable_via_whatsapp: boolean
+  non_bookable_message?: string | null
   requires_documents: boolean
   required_documents_description: string | null
   modality: ConsultationModality
@@ -94,6 +95,7 @@ export async function createConsultationType(
       price: input.price,
       is_active: input.is_active,
       bookable_via_whatsapp: input.bookable_via_whatsapp ?? true,
+      non_bookable_message: !input.bookable_via_whatsapp ? (input.non_bookable_message?.trim() || null) : null,
       requires_documents: input.requires_documents ?? false,
       required_documents_description: input.requires_documents ? input.required_documents_description?.trim() || null : null,
       modality: input.modality ?? 'presencial',
@@ -143,7 +145,14 @@ export async function updateConsultationType(
   if (input.preparation_instructions !== undefined) updateData.preparation_instructions = input.preparation_instructions?.trim() || null
   if (input.price !== undefined) updateData.price = input.price
   if (input.is_active !== undefined) updateData.is_active = input.is_active
-  if (input.bookable_via_whatsapp !== undefined) updateData.bookable_via_whatsapp = input.bookable_via_whatsapp
+  if (input.bookable_via_whatsapp !== undefined) {
+    updateData.bookable_via_whatsapp = input.bookable_via_whatsapp
+    if (!input.bookable_via_whatsapp) {
+      updateData.non_bookable_message = input.non_bookable_message?.trim() || null
+    } else {
+      updateData.non_bookable_message = null
+    }
+  }
   if (input.requires_documents !== undefined) {
     updateData.requires_documents = input.requires_documents
     if (!input.requires_documents) {

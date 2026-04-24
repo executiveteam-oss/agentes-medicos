@@ -85,11 +85,25 @@ export async function cancelAndNotifyPatient(
 
   try {
     await sendWhatsAppMessage(patient.phone.replace('+', ''), message, creds)
-    return { ok: true, whatsappSent: true }
   } catch (err) {
     console.error(`[cancelAndNotify] WhatsApp failed for ${patient.name}:`, err instanceof Error ? err.message : err)
     return { ok: true, whatsappSent: false, warning: 'Cita cancelada pero falló el envío de WhatsApp. Contactar manualmente.' }
   }
+
+  // 6. Notify assigned staff (by specialty)
+  try {
+    const { getNotificationPhoneForSpecialty } = await import('@/app/actions/specialty-notifications')
+    // Get doctor's specialty
+    const { data: docInfo } = await supabaseAdmin.from('doctors').select('specialty').eq('id', apt.doctor_id as string).single()
+    const specialty = docInfo?.specialty as string | null
+    const staffPhone = await getNotificationPhoneForSpecialty(clinicId, specialty)
+    if (staffPhone && creds) {
+      const staffMsg = `📋 Cita cancelada: ${patient.name} con ${doctorName}, ${dateFormatted} ${timeFormatted}. Motivo: ${reasonText}. Se envió WhatsApp al paciente con opciones de reagendamiento.`
+      await sendWhatsAppMessage(staffPhone.replace('+', ''), staffMsg, creds)
+    }
+  } catch { /* staff notification is non-critical */ }
+
+  return { ok: true, whatsappSent: true }
 }
 
 /** Find 3 next available slots for a doctor in the next 14 days */

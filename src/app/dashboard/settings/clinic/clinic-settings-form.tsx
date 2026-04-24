@@ -4,9 +4,10 @@
 // Formulario completo de configuración del consultorio (Tab 1)
 // ============================================================
 
-import { useState, useTransition, type KeyboardEvent } from 'react'
+import { useState, useTransition, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { saveClinicSettings } from '@/app/actions/clinic'
 import type { ClinicSettingsData } from '@/app/actions/clinic'
+import { getSpecialtyNotifications, saveSpecialtyNotification, deleteSpecialtyNotification, type SpecialtyNotification } from '@/app/actions/specialty-notifications'
 
 interface Props {
   initialData: ClinicSettingsData
@@ -573,6 +574,15 @@ export function ClinicSettingsForm({ initialData }: Props) {
         )}
       </div>
 
+      {/* --- Notificaciones por especialidad --- */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Notificaciones por especialidad</h3>
+        <p className="text-xs text-slate-400 mb-4">
+          Cuando se cancele o reagende una cita, se envía WhatsApp al número asignado a la especialidad del doctor. Si no hay número configurado, se usa el teléfono de escalamiento.
+        </p>
+        <SpecialtyNotificationsSection specialties={data.specialty} />
+      </div>
+
       {/* Sticky save bar — siempre visible al fondo de la pantalla */}
       <div className="sticky bottom-0 -mx-5 px-5 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 z-10">
         <button
@@ -586,6 +596,84 @@ export function ClinicSettingsForm({ initialData }: Props) {
         {saved && <span className="text-sm text-emerald-600 font-medium">Guardado ✓</span>}
         {error && <span className="text-sm text-red-600 font-medium">{error}</span>}
       </div>
+    </div>
+  )
+}
+
+// ============================================================
+// SpecialtyNotificationsSection
+// ============================================================
+
+function SpecialtyNotificationsSection({ specialties }: { specialties: string[] }) {
+  const [items, setItems] = useState<SpecialtyNotification[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [specialty, setSpecialty] = useState('')
+  const [phone, setPhone] = useState('')
+  const [contactName, setContactName] = useState('')
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const data = await getSpecialtyNotifications()
+    setItems(data)
+    setLoaded(true)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  function handleSave() {
+    if (!specialty || !phone.trim()) { setError('Selecciona especialidad y escribe teléfono'); return }
+    setError(null)
+    startTransition(async () => {
+      const result = await saveSpecialtyNotification({ specialtyName: specialty, notificationPhone: phone.trim(), contactName: contactName.trim() || null })
+      if (result.ok) { setShowAdd(false); setSpecialty(''); setPhone(''); setContactName(''); await load() }
+      else setError(result.error ?? 'Error')
+    })
+  }
+
+  function handleDelete(id: string) {
+    startTransition(async () => { await deleteSpecialtyNotification(id); await load() })
+  }
+
+  if (!loaded) return <p className="text-xs text-slate-400">Cargando...</p>
+
+  return (
+    <div className="space-y-2">
+      {items.length === 0 && !showAdd && (
+        <p className="text-xs text-slate-400 py-1">Sin configurar. Las notificaciones irán al teléfono de escalamiento.</p>
+      )}
+
+      {items.map((item) => (
+        <div key={item.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-slate-100">
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-slate-900">{item.specialty_name}</span>
+            <span className="text-xs text-slate-500 ml-2">→ {item.notification_phone}</span>
+            {item.contact_name && <span className="text-xs text-slate-400 ml-1">({item.contact_name})</span>}
+          </div>
+          <button type="button" onClick={() => handleDelete(item.id)} disabled={isPending} className="text-xs text-red-400 hover:text-red-600 px-1.5 py-1">×</button>
+        </div>
+      ))}
+
+      {showAdd ? (
+        <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-3 space-y-2">
+          <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-field w-full text-xs py-1">
+            <option value="">Seleccionar especialidad...</option>
+            {specialties.filter((s) => !items.some((i) => i.specialty_name === s)).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Teléfono WhatsApp (ej: 3101234567)" className="input-field w-full text-xs py-1" />
+          <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Nombre del contacto (opcional)" className="input-field w-full text-xs py-1" />
+          {error && <p className="text-red-600 text-[10px]">{error}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={handleSave} disabled={isPending} className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium py-1 px-3 rounded-lg disabled:opacity-50">{isPending ? 'Guardando...' : 'Guardar'}</button>
+            <button type="button" onClick={() => { setShowAdd(false); setError(null) }} className="text-xs text-slate-500 px-2 py-1">Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setShowAdd(true)} className="text-xs text-blue-700 hover:text-blue-800 font-medium py-1.5">+ Agregar notificación</button>
+      )}
     </div>
   )
 }

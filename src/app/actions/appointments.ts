@@ -308,6 +308,23 @@ export async function cancelAppointment(
   }
 }
 
+/** Cancelar cita con notificación WhatsApp empática + opciones de reagendamiento */
+export async function cancelAppointmentWithNotification(
+  appointmentId: string,
+  internalReason: string,
+  patientReason?: string | null,
+): Promise<{ ok: boolean; error?: string; whatsappSent?: boolean; warning?: string }> {
+  try {
+    const clinicId = await checkWritePermission('agenda')
+    const { cancelAndNotifyPatient } = await import('@/lib/cancel-notify')
+    const result = await cancelAndNotifyPatient(appointmentId, clinicId, internalReason, patientReason)
+    revalidatePath('/dashboard')
+    return { ok: result.ok, whatsappSent: result.whatsappSent, warning: result.warning }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
 /** Actualizar cita desde el dashboard */
 export async function updateAppointmentFromDashboard(
   appointmentId: string,

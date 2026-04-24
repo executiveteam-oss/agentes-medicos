@@ -2,11 +2,8 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
-import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
-import { formatTimeForPatient } from '@/lib/utils/dates'
+import { cancelAndNotifyPatient } from '@/lib/cancel-notify'
 import { revalidatePath } from 'next/cache'
-import { format, parseISO } from 'date-fns'
-import { es } from 'date-fns/locale'
 
 export interface BlockedDate {
   id: string
@@ -123,48 +120,15 @@ export async function createBlockedDate(input: {
     })
 
     if (affected.length > 0) {
-      // Cancelar todas
-      const ids = affected.map((a) => a.id)
-      await supabaseAdmin
-        .from('appointments')
-        .update({ status: 'cancelled', cancellation_reason: input.patientReason?.trim() || input.reason?.trim() || 'Doctor/clínica no disponible' })
-        .in('id', ids)
-      cancelled = ids.length
+      const internalReason = input.reason?.trim() || 'Fecha bloqueada'
+      const patReason = input.patientReason?.trim() || null
 
-      // Obtener credenciales de WhatsApp
-      const creds = await getClinicCreds(clinicId)
-
-      // Obtener nombre de la clínica
-      const { data: clinic } = await supabaseAdmin.from('clinics').select('name').eq('id', clinicId).single()
-      const clinicName = clinic?.name ?? 'el consultorio'
-
-      // Notificar cada paciente
       for (const apt of affected) {
-        if (!apt.patient_phone || !creds) continue
-
-        const patientReason = input.patientReason?.trim() || 'por motivos del consultorio'
-        const dateFormatted = format(parseISO(apt.starts_at), "EEEE d 'de' MMMM", { locale: es })
-        const timeFormatted = formatTimeForPatient(apt.starts_at)
-
-        // Buscar 3 próximos slots del mismo doctor después del bloqueo
-        const slotsMsg = await findNextSlots(clinicId, apt, input)
-
-        const message =
-          `Hola ${apt.patient_name} 👋\n\n` +
-          `Te escribimos de ${clinicName}. Lamentablemente tuvimos que cancelar tu cita con ${apt.doctor_name} del ${dateFormatted} a las ${timeFormatted} ${patientReason}. Te pedimos disculpas por el inconveniente.\n\n` +
-          slotsMsg +
-          `\n\nResponde a este mensaje y con gusto te reagendamos.`
-
-        const whatsappNumber = apt.patient_phone.replace('+', '')
-        try {
-          await sendWhatsAppMessage(whatsappNumber, message, creds)
-          notified++
-        } catch (err) {
-          console.error(`[BlockedDates] Error notificando ${apt.patient_name}:`, err instanceof Error ? err.message : err)
-        }
+        const result = await cancelAndNotifyPatient(apt.id, clinicId, internalReason, patReason)
+        cancelled++
+        if (result.whatsappSent) notified++
       }
 
-      // Audit log
       await supabaseAdmin.from('audit_log').insert({
         clinic_id: clinicId,
         action: 'blocked_date_cancel_notify',
@@ -178,62 +142,6 @@ export async function createBlockedDate(input: {
   revalidatePath('/dashboard/settings/clinic')
   revalidatePath('/dashboard')
   return { ok: true, cancelled, notified }
-}
-
-/** Buscar 3 próximos slots disponibles del mismo doctor después del bloqueo */
-async function findNextSlots(
-  clinicId: string,
-  apt: AffectedAppointment,
-  blockInput: { endDate: string; doctorId?: string | null }
-): Promise<string> {
-  // Buscar en los 14 días después del fin del bloqueo
-  const startSearch = new Date(blockInput.endDate + 'T12:00:00-05:00')
-  startSearch.setDate(startSearch.getDate() + 1)
-  const endSearch = new Date(startSearch)
-  endSearch.setDate(endSearch.getDate() + 14)
-
-  // Buscar citas existentes del doctor en ese rango
-  const doctorId = (apt as unknown as { doctor_id?: string }).doctor_id ?? blockInput.doctorId
-  if (!doctorId) return 'Pronto te contactamos para reagendar.'
-
-  const { data: existing } = await supabaseAdmin
-    .from('appointments')
-    .select('starts_at')
-    .eq('clinic_id', clinicId)
-    .eq('doctor_id', doctorId)
-    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
-    .gte('starts_at', startSearch.toISOString())
-    .lte('starts_at', endSearch.toISOString())
-
-  const occupiedSet = new Set((existing ?? []).map((a) => a.starts_at))
-
-  // Generar slots libres (9 AM - 5 PM, cada 30 min)
-  const freeSlots: string[] = []
-  for (let d = 0; d < 14 && freeSlots.length < 3; d++) {
-    const day = new Date(startSearch)
-    day.setDate(day.getDate() + d)
-    if (day.getDay() === 0) continue // domingo
-
-    for (let h = 9; h < 17 && freeSlots.length < 3; h++) {
-      for (const m of [0, 30]) {
-        if (freeSlots.length >= 3) break
-        const slot = new Date(Date.UTC(day.getFullYear(), day.getMonth(), day.getDate(), h + 5, m))
-        if (!occupiedSet.has(slot.toISOString())) {
-          const dayStr = format(day, "EEEE d 'de' MMMM", { locale: es })
-          const timeStr = formatTimeForPatient(slot.toISOString())
-          freeSlots.push(`${dayStr} a las ${timeStr}`)
-        }
-      }
-    }
-  }
-
-  if (freeSlots.length === 0) {
-    return `${apt.doctor_name} no tiene fechas cercanas disponibles en los próximos días. ¿Quieres que revisemos con otro doctor, o prefieres que te avise cuando tenga espacio?`
-  }
-
-  return `Estas son las próximas opciones disponibles con ${apt.doctor_name}:\n\n` +
-    freeSlots.map((s) => `- ${s}`).join('\n') +
-    '\n\n¿Cuál te sirve? También puedo buscar otras fechas.'
 }
 
 export async function deleteBlockedDate(id: string): Promise<{ ok: boolean; error?: string }> {

@@ -7,7 +7,7 @@
 
 import { useState, useTransition } from 'react'
 import { AppointmentFormModal } from '@/components/dashboard/appointment-form-modal'
-import { cancelAppointment } from '@/app/actions/appointments'
+import { cancelAppointmentWithNotification } from '@/app/actions/appointments'
 
 interface Doctor {
   id: string
@@ -55,8 +55,10 @@ export function NewAppointmentButton({ doctors, minBookingAdvanceHours }: Props)
 export function CancelAppointmentButton({ appointmentId }: { appointmentId: string }) {
   const [showConfirm, setShowConfirm] = useState(false)
   const [reason, setReason] = useState('')
+  const [patientReason, setPatientReason] = useState('')
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState('')
+  const [warning, setWarning] = useState('')
 
   if (!showConfirm) {
     return (
@@ -64,44 +66,57 @@ export function CancelAppointmentButton({ appointmentId }: { appointmentId: stri
         onClick={() => setShowConfirm(true)}
         className="text-xs text-red-600 hover:text-red-700 font-medium px-2 py-1"
       >
-        Cancelar cita
+        Cancelar y notificar
       </button>
     )
   }
 
   return (
-    <div className="flex items-center gap-2 mt-2">
+    <div className="mt-2 border border-red-200 bg-red-50/30 rounded-lg p-3 space-y-2">
+      <p className="text-xs font-semibold text-red-800">Cancelar cita</p>
       <input
         type="text"
         value={reason}
         onChange={(e) => setReason(e.target.value)}
-        placeholder="Motivo de cancelación..."
-        className="input-field text-xs py-1 flex-1"
+        placeholder="Motivo interno (obligatorio)"
+        className="input-field text-xs py-1 w-full"
         autoFocus
       />
-      <button
-        disabled={isPending}
-        onClick={() => {
-          startTransition(async () => {
-            const result = await cancelAppointment(appointmentId, reason)
-            if (result.ok) {
-              window.location.reload()
-            } else {
-              setError(result.error ?? 'Error')
-            }
-          })
-        }}
-        className="text-xs bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded-lg font-medium disabled:opacity-50"
-      >
-        {isPending ? '...' : 'Confirmar'}
-      </button>
-      <button
-        onClick={() => { setShowConfirm(false); setReason('') }}
-        className="text-xs text-slate-400 hover:text-slate-600 px-1"
-      >
-        &times;
-      </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      <input
+        type="text"
+        value={patientReason}
+        onChange={(e) => setPatientReason(e.target.value)}
+        placeholder="Motivo para el paciente (opcional)"
+        className="input-field text-xs py-1 w-full"
+      />
+      <p className="text-[9px] text-slate-400">Se enviará WhatsApp al paciente con disculpa + 3 opciones de reagendamiento</p>
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      {warning && <p className="text-xs text-amber-600">{warning}</p>}
+      <div className="flex gap-2">
+        <button
+          disabled={isPending || !reason.trim()}
+          onClick={() => {
+            startTransition(async () => {
+              const result = await cancelAppointmentWithNotification(appointmentId, reason, patientReason || null)
+              if (result.ok) {
+                if (result.warning) setWarning(result.warning)
+                else window.location.reload()
+              } else {
+                setError(result.error ?? 'Error')
+              }
+            })
+          }}
+          className="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
+        >
+          {isPending ? 'Cancelando...' : 'Confirmar y notificar'}
+        </button>
+        <button
+          onClick={() => { setShowConfirm(false); setReason(''); setPatientReason(''); setError(''); setWarning('') }}
+          className="text-xs text-slate-500 px-2 py-1.5"
+        >
+          Volver
+        </button>
+      </div>
     </div>
   )
 }

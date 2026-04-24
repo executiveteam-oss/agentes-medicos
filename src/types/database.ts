@@ -159,6 +159,7 @@ export interface Clinic {
   expected_monthly_appointments: number | null // Citas mensuales esperadas
   onboarded_at: string | null              // Null = no ha completado el wizard (migración 00007)
   cancellation_policy: string | null       // Política de cancelación (migración 00048)
+  clinic_info: string | null               // Info adicional para contexto del agente (migración 00058)
   created_at: string
   updated_at: string
 }

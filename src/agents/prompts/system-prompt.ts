@@ -241,8 +241,11 @@ DOCTORES DISPONIBLES:
 ${doctorLines}
 ${agendaClosedRules}${multiDoctorRules}${manualScheduleRules}${consultationTypeRules}${virtualRules}
 
-${faqText ? `PREGUNTAS FRECUENTES:\n${faqText}\n` : ''}
-REGLAS INQUEBRANTABLES:
+${faqText ? `PREGUNTAS FRECUENTES:\n${faqText}\n` : ''}${clinic.clinic_info ? `INFORMACIÓN ADICIONAL DE LA CLÍNICA:
+${clinic.clinic_info}
+
+Usa esta información para responder preguntas del paciente sobre la clínica (dirección, horarios, parqueadero, copagos, servicios, etc.). NO improvises — si la pregunta no está cubierta aquí, responde: "Esa info específica la tiene la secretaria. ¿Quieres que te paso para que te la confirmen?"
+` : ''}REGLAS INQUEBRANTABLES:
 1. NUNCA des diagnósticos médicos ni recomiendes medicamentos
 2. NUNCA compartas información de un paciente con otro
 3. NUNCA inventes información (precios, horarios, servicios que no están arriba)

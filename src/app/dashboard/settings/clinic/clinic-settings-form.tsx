@@ -574,6 +574,22 @@ export function ClinicSettingsForm({ initialData }: Props) {
         )}
       </div>
 
+      {/* --- Información de la clínica (contexto del agente) --- */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">Información adicional del consultorio</h3>
+        <p className="text-xs text-slate-400 mb-3">
+          Describe información que el agente debe saber para responder preguntas del paciente: dirección, horarios, parqueadero, copagos, servicios, etc.
+        </p>
+        <textarea
+          value={data.clinic_info}
+          onChange={(e) => update('clinic_info', e.target.value)}
+          rows={6}
+          className="input-field w-full resize-y"
+          placeholder={"Ejemplo:\n- Dirección: Oval Médica, piso 11, consultorio 1104\n- Horarios: lunes a viernes 7 AM a 6 PM\n- Parqueadero: disponible en el edificio\n- Copagos: dependen del plan, la secretaria los confirma"}
+        />
+        <p className="text-[10px] text-slate-400 mt-1">Todo lo que pongas aquí lo usará el agente para responder preguntas del paciente. Si no sabe la respuesta, escalará a un humano.</p>
+      </div>
+
       {/* --- Notificaciones por especialidad --- */}
       <div className="card p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Notificaciones por especialidad</h3>

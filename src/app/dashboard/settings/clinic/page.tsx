@@ -34,6 +34,7 @@ export default async function ClinicSettingsPage() {
         escalation_contact_phone: '',
         cancellation_policy: '',
         welcome_message: '',
+        clinic_info: '',
       }}
     />
   )

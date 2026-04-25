@@ -18,6 +18,7 @@ import {
   Phone,
   Shield,
   Lightbulb,
+  Palmtree,
   Lock,
 } from 'lucide-react'
 
@@ -36,6 +37,7 @@ const ICON_MAP = {
   Phone,
   Shield,
   Lightbulb,
+  Palmtree,
 } as const
 
 type IconName = keyof typeof ICON_MAP

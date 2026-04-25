@@ -67,7 +67,7 @@ export default async function AnalyticsPage() {
           <p className="text-slate-500 text-sm">Métricas del consultorio en tiempo real</p>
         </div>
         <Link
-          href="/dashboard/analytics/vacaciones"
+          href="/dashboard/vacaciones"
           className="btn-primary text-sm py-2 px-4 whitespace-nowrap shrink-0"
         >
           Planificar vacaciones

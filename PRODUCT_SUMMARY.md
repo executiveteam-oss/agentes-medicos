@@ -119,7 +119,7 @@ Omuwan is a B2B SaaS platform for small medical clinics in Colombia (1-3 doctors
 - **EPS profitability**: facturado vs cobrado vs glosado chart (6 months)
 - **Financial alerts**: cartera vencida, revenue projection, EPS invoices >30 days with detail table
 
-**Vacation Planning** (`/dashboard/analytics/vacaciones`)
+**Vacation Planning** (`/dashboard/vacaciones`)
 - Week-by-week historical demand analysis
 - Ranked suggestions for lowest-demand weeks
 - Vacation message configuration

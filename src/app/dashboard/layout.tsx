@@ -32,6 +32,7 @@ type IconName =
   | 'Phone'
   | 'Shield'
   | 'Lightbulb'
+  | 'Palmtree'
 
 const ALL_NAV_ITEMS: Array<{
   href: string
@@ -45,6 +46,7 @@ const ALL_NAV_ITEMS: Array<{
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', featureKey: 'waitlist' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations' },
+  { href: '/dashboard/vacaciones', label: 'Vacaciones', iconName: 'Palmtree', module: 'agenda' },
   { href: '/dashboard/whatsapp', label: 'WhatsApp', iconName: 'Phone', module: 'whatsapp' },
   { href: '/dashboard/stradmed', label: 'Finanzas', iconName: 'CreditCard', module: 'settings' },
   { href: '/dashboard/legal', label: 'Legal', iconName: 'Shield', module: 'settings' },

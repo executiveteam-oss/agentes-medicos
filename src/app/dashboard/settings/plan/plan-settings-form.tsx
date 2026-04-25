@@ -62,7 +62,6 @@ const FEATURES: FeatureItem[] = [
   { key: 'reactivation', label: 'Reactivación de pacientes', description: 'Contacta automáticamente pacientes inactivos', core: false, plusName: 'Reactivación de pacientes' },
   { key: 'virtual', label: 'Consultas virtuales', description: 'Videollamadas con link automático', core: false, plusName: 'Consultas virtuales' },
   { key: 'vacations', label: 'Planificación de vacaciones', description: 'Bloqueo de agenda con redistribución de citas', core: false, plusName: 'Planificación de vacaciones' },
-  { key: 'ai_assistant', label: 'Asistente IA dashboard', description: 'Consultor IA interactivo dentro del dashboard', core: false, plusName: 'Asistente IA dashboard' },
 ]
 
 interface Props {

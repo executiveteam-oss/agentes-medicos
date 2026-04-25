@@ -72,8 +72,6 @@ export function checkRateLimit(key: string, config: RateLimitConfig): RateLimitR
 export const RATE_LIMITS = {
   /** /api/webhooks/whatsapp — 30 req/min por teléfono */
   webhook: { maxRequests: 30, windowSeconds: 60 },
-  /** /api/dashboard/asistente — 20 req/min por clínica */
-  asistente: { maxRequests: 20, windowSeconds: 60 },
   /** /api/cron/* — 5 req/min */
   cron: { maxRequests: 5, windowSeconds: 60 },
   /** Todas las demás /api/* — 60 req/min por IP */

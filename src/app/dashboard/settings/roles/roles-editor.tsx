@@ -18,7 +18,6 @@ const MODULE_LABELS: Record<ModuleKey, string> = {
   espera: 'Lista de espera',
   patients: 'Pacientes',
   conversations: 'Conversaciones',
-  asistente: 'Asistente IA',
   analytics: 'Estadísticas',
   whatsapp: 'WhatsApp',
   settings: 'Configuración',

@@ -199,7 +199,6 @@ export interface FeatureConfig {
   dashboard: boolean
   virtual: boolean
   vacations: boolean
-  ai_assistant: boolean
   cartera: boolean
   facturacion: boolean
   estadisticas: boolean

@@ -137,7 +137,6 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
       reactivation: false,      // Plus — módulo pago
       virtual: false,           // Plus — módulo pago
       vacations: false,         // Plus — módulo pago
-      ai_assistant: false,      // Plus — módulo pago
       cartera: false,           // Plus — módulo pago
       facturacion: false,       // Plus — módulo pago
       estadisticas: false,      // Plus — módulo pago

@@ -14,7 +14,6 @@ const ROUTE_MODULE_MAP: Record<string, string> = {
   '/dashboard/cartera': 'cartera',
   '/dashboard/facturacion': 'facturacion',
   '/dashboard/espera': 'espera',
-  '/dashboard/asistente': 'asistente',
   '/dashboard/patients': 'patients',
   '/dashboard/conversations': 'conversations',
   '/dashboard/analytics': 'analytics',

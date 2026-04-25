@@ -11,7 +11,6 @@ export const MODULES = [
   'espera',
   'patients',
   'conversations',
-  'asistente',
   'analytics',
   'whatsapp',
   'settings',

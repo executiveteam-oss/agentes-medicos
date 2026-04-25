@@ -18,7 +18,6 @@ const DEFAULT_FEATURES: FeatureConfig = {
   dashboard: true,
   virtual: true,
   vacations: true,
-  ai_assistant: true,
   cartera: true,
   facturacion: true,
   estadisticas: true,

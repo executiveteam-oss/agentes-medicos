@@ -26,7 +26,6 @@ const ALL_ENABLED: FeatureConfig = {
   dashboard: true,
   virtual: true,
   vacations: true,
-  ai_assistant: true,
   cartera: true,
   facturacion: true,
   estadisticas: true,

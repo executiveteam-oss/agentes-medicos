@@ -7,7 +7,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
-import type { PaymentType, InvoiceStatus } from '@/types/database'
+import type { PaymentType } from '@/types/database'
 import { getSessionClinicId, checkWritePermission } from '@/lib/actions-helpers'
 
 /** Marcar cita como completada */
@@ -124,34 +124,6 @@ export async function updatePaymentType(
   })
 
   revalidatePath('/dashboard')
-  revalidatePath('/dashboard/facturacion')
-}
-
-/** Emitir factura para una cita */
-export async function emitirFactura(appointmentId: string): Promise<void> {
-  const clinicId = await getSessionClinicId()
-
-  const { error } = await supabaseAdmin
-    .from('appointments')
-    .update({
-      invoice_status: 'emitida' as InvoiceStatus,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', appointmentId)
-    .eq('clinic_id', clinicId)
-
-  if (error) throw new Error('Error emitiendo factura')
-
-  await supabaseAdmin.from('audit_log').insert({
-    clinic_id: clinicId,
-    action: 'invoice_emitted',
-    actor_type: 'staff',
-    target_type: 'appointment',
-    target_id: appointmentId,
-    details: {},
-  })
-
-  revalidatePath('/dashboard/facturacion')
 }
 
 // ============================================================

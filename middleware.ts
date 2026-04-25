@@ -11,8 +11,6 @@ import type { NextRequest } from 'next/server'
 // Mapeo de rutas a módulos de permisos
 const ROUTE_MODULE_MAP: Record<string, string> = {
   '/dashboard/noshow': 'noshow',
-  '/dashboard/cartera': 'cartera',
-  '/dashboard/facturacion': 'facturacion',
   '/dashboard/espera': 'espera',
   '/dashboard/patients': 'patients',
   '/dashboard/conversations': 'conversations',

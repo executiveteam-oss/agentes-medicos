@@ -29,20 +29,13 @@ export async function calculatePatientPriority(
   patientId: string,
   clinicId: string
 ): Promise<PriorityScore> {
-  const [patientRes, carteraRes, appointmentsRes] = await Promise.all([
+  const [patientRes, appointmentsRes] = await Promise.all([
     supabaseAdmin
       .from('patients')
       .select('id, no_show_count, total_appointments')
       .eq('id', patientId)
       .eq('clinic_id', clinicId)
       .single(),
-    supabaseAdmin
-      .from('cartera')
-      .select('id')
-      .eq('clinic_id', clinicId)
-      .eq('patient_id', patientId)
-      .eq('status', 'pendiente')
-      .limit(1),
     // Último tipo de pago
     supabaseAdmin
       .from('appointments')
@@ -57,12 +50,10 @@ export async function calculatePatientPriority(
   const patient = patientRes.data
   if (!patient) return { patientId, score: 0, label: 'Bajo', tier: 'low' }
 
-  const hasCartera = (carteraRes.data ?? []).length > 0
   const lastPayment = appointmentsRes.data?.[0]?.payment_type ?? null
 
   return computeScore(patientId, {
     paymentType: lastPayment,
-    hasCartera,
     totalAppointments: patient.total_appointments ?? 0,
     noShowCount: patient.no_show_count ?? 0,
     daysWaiting: 0, // Se sobreescribe cuando se calcula en bulk
@@ -71,7 +62,6 @@ export async function calculatePatientPriority(
 
 interface ScoreInput {
   paymentType: string | null
-  hasCartera: boolean
   totalAppointments: number
   noShowCount: number
   daysWaiting: number
@@ -80,10 +70,9 @@ interface ScoreInput {
 function computeScore(patientId: string, input: ScoreInput): PriorityScore {
   let score = 0
 
-  // Historial de pago (+30 particular, +10 EPS, -20 cartera)
+  // Historial de pago (+30 particular, +10 EPS)
   if (input.paymentType === 'Particular') score += 30
   else if (input.paymentType) score += 10 // EPS u otro
-  if (input.hasCartera) score -= 20
 
   // Frecuencia de visitas
   if (input.totalAppointments >= 5) score += 25
@@ -124,17 +113,11 @@ export async function calculateWaitlistPriorities(clinicId: string): Promise<Wai
   }
 
   // Queries en paralelo para todos los pacientes
-  const [patientsRes, carteraRes, paymentsRes, clinicRes, weekApptsRes] = await Promise.all([
+  const [patientsRes, paymentsRes, clinicRes, weekApptsRes] = await Promise.all([
     supabaseAdmin
       .from('patients')
       .select('id, no_show_count, total_appointments')
       .in('id', patientIds),
-    supabaseAdmin
-      .from('cartera')
-      .select('patient_id')
-      .eq('clinic_id', clinicId)
-      .eq('status', 'pendiente')
-      .in('patient_id', patientIds),
     supabaseAdmin
       .from('appointments')
       .select('patient_id, payment_type')
@@ -171,7 +154,6 @@ export async function calculateWaitlistPriorities(clinicId: string): Promise<Wai
   ])
 
   const patients = patientsRes.data ?? []
-  const carteraPatients = new Set((carteraRes.data ?? []).map((c) => c.patient_id))
 
   // Último tipo de pago por paciente
   const lastPayment: Record<string, string> = {}
@@ -196,7 +178,6 @@ export async function calculateWaitlistPriorities(clinicId: string): Promise<Wai
 
     scores[pid] = computeScore(pid, {
       paymentType: lastPayment[pid] ?? null,
-      hasCartera: carteraPatients.has(pid),
       totalAppointments: pat.total_appointments,
       noShowCount: pat.no_show_count,
       daysWaiting,
@@ -244,26 +225,17 @@ export async function notifyHighestPriorityWaitlistPatient(
 
   if (!entries || entries.length === 0) return null
 
-  // Obtener cartera y payment info para scoring
+  // Obtener payment info para scoring
   const patientIds = entries.map((e) => e.patient_id)
 
-  const [carteraRes, paymentsRes] = await Promise.all([
-    supabaseAdmin
-      .from('cartera')
-      .select('patient_id')
-      .eq('clinic_id', clinicId)
-      .eq('status', 'pendiente')
-      .in('patient_id', patientIds),
-    supabaseAdmin
-      .from('appointments')
-      .select('patient_id, payment_type')
-      .eq('clinic_id', clinicId)
-      .eq('status', 'completed')
-      .in('patient_id', patientIds)
-      .order('starts_at', { ascending: false }),
-  ])
+  const paymentsRes = await supabaseAdmin
+    .from('appointments')
+    .select('patient_id, payment_type')
+    .eq('clinic_id', clinicId)
+    .eq('status', 'completed')
+    .in('patient_id', patientIds)
+    .order('starts_at', { ascending: false })
 
-  const carteraPatients = new Set((carteraRes.data ?? []).map((c) => c.patient_id))
   const lastPayment: Record<string, string> = {}
   for (const a of paymentsRes.data ?? []) {
     if (!lastPayment[a.patient_id]) lastPayment[a.patient_id] = a.payment_type
@@ -287,7 +259,6 @@ export async function notifyHighestPriorityWaitlistPatient(
     const pt = lastPayment[entry.patient_id] ?? null
     if (pt === 'Particular') score += 30
     else if (pt) score += 10
-    if (carteraPatients.has(entry.patient_id)) score -= 20
     if (patient.total_appointments >= 5) score += 25
     else if (patient.total_appointments >= 2) score += 15
     if (patient.no_show_count === 0) score += 20

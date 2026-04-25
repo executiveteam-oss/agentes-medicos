@@ -18,8 +18,6 @@ const DEFAULT_FEATURES: FeatureConfig = {
   dashboard: true,
   virtual: true,
   vacations: true,
-  cartera: true,
-  facturacion: true,
 }
 
 export interface PlanData {

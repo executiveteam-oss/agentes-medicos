@@ -97,14 +97,7 @@ export async function DELETE(
       .eq('patient_id', patientId)
       .eq('clinic_id', clinicId)
 
-    // 4. Anonimizar notas en cartera
-    await supabaseAdmin
-      .from('cartera')
-      .update({ notes: null, treatment: null })
-      .eq('patient_id', patientId)
-      .eq('clinic_id', clinicId)
-
-    // 5. Anonimizar razón en lista de espera
+    // 4. Anonimizar razón en lista de espera
     await supabaseAdmin
       .from('waitlist')
       .update({ reason: null })

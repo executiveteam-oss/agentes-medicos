@@ -19,7 +19,6 @@ export interface PatientListItem {
   total_appointments: number
   no_show_count: number
   last_no_show_date: string | null
-  outstanding_balance: number
 }
 
 export interface PatientListResult {
@@ -72,39 +71,22 @@ export async function getPatientsList(opts: {
   const total = count ?? 0
   const patientIds = (patients ?? []).map((p) => p.id)
 
-  // Obtener último no-show y saldo pendiente en paralelo
+  // Obtener último no-show
   let noShowMap: Record<string, string> = {}
-  let balanceMap: Record<string, number> = {}
 
   if (patientIds.length > 0) {
-    const [noShowRes, carteraRes] = await Promise.all([
-      // Último no-show por paciente
-      supabaseAdmin
-        .from('appointments')
-        .select('patient_id, starts_at')
-        .eq('clinic_id', clinicId)
-        .eq('status', 'no_show')
-        .in('patient_id', patientIds)
-        .order('starts_at', { ascending: false }),
-      // Saldo pendiente por paciente
-      supabaseAdmin
-        .from('cartera')
-        .select('patient_id, amount')
-        .eq('clinic_id', clinicId)
-        .eq('status', 'pendiente')
-        .in('patient_id', patientIds),
-    ])
+    const noShowRes = await supabaseAdmin
+      .from('appointments')
+      .select('patient_id, starts_at')
+      .eq('clinic_id', clinicId)
+      .eq('status', 'no_show')
+      .in('patient_id', patientIds)
+      .order('starts_at', { ascending: false })
 
-    // Agrupar: último no-show (primero de cada paciente)
     for (const row of noShowRes.data ?? []) {
       if (!noShowMap[row.patient_id]) {
         noShowMap[row.patient_id] = row.starts_at
       }
-    }
-
-    // Agrupar: suma de saldos
-    for (const row of carteraRes.data ?? []) {
-      balanceMap[row.patient_id] = (balanceMap[row.patient_id] ?? 0) + row.amount
     }
   }
 
@@ -116,7 +98,6 @@ export async function getPatientsList(opts: {
     total_appointments: p.total_appointments,
     no_show_count: p.no_show_count,
     last_no_show_date: noShowMap[p.id] ?? null,
-    outstanding_balance: balanceMap[p.id] ?? 0,
   }))
 
   return {
@@ -151,7 +132,6 @@ export interface PatientAppointment {
   status: string
   reason: string | null
   payment_type: string
-  invoice_status: string
   documents_requested: boolean
   documents_received: boolean
   doctor_name: string | null
@@ -164,24 +144,14 @@ export interface PatientConversation {
   message_count: number
 }
 
-export interface PatientCarteraEntry {
-  id: string
-  amount: number
-  days_overdue: number
-  treatment: string | null
-  payment_type: string
-  status: string
-}
-
 export interface PatientDetailResult {
   patient: PatientDetail
   appointments: PatientAppointment[]
   conversations: PatientConversation[]
-  cartera: PatientCarteraEntry[]
 }
 
 /**
- * Obtener detalle completo de un paciente: perfil, citas, conversaciones, cartera.
+ * Obtener detalle completo de un paciente: perfil, citas y conversaciones.
  */
 export async function getPatientDetail(patientId: string): Promise<PatientDetailResult | null> {
   const clinicId = await checkReadPermission('patients')
@@ -195,11 +165,11 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
 
   if (error || !patientRaw) return null
 
-  // Citas, conversaciones, cartera en paralelo
-  const [apptRes, convRes, cartRes] = await Promise.all([
+  // Citas y conversaciones en paralelo
+  const [apptRes, convRes] = await Promise.all([
     supabaseAdmin
       .from('appointments')
-      .select('id, starts_at, status, reason, payment_type, invoice_status, documents_requested, documents_received, doctors(name)')
+      .select('id, starts_at, status, reason, payment_type, documents_requested, documents_received, doctors(name)')
       .eq('clinic_id', clinicId)
       .eq('patient_id', patientId)
       .order('starts_at', { ascending: false })
@@ -211,12 +181,6 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
       .eq('patient_id', patientId)
       .order('last_message_at', { ascending: false })
       .limit(20),
-    supabaseAdmin
-      .from('cartera')
-      .select('id, amount, days_overdue, treatment, payment_type, status')
-      .eq('clinic_id', clinicId)
-      .eq('patient_id', patientId)
-      .order('days_overdue', { ascending: false }),
   ])
 
   // Contar mensajes por conversación
@@ -257,7 +221,6 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
         status: a.status,
         reason: a.reason,
         payment_type: a.payment_type,
-        invoice_status: a.invoice_status,
         documents_requested: (a.documents_requested as boolean) ?? false,
         documents_received: (a.documents_received as boolean) ?? false,
         doctor_name: doc?.name ?? null,
@@ -268,14 +231,6 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
       status: c.status,
       last_message_at: c.last_message_at,
       message_count: msgCounts[c.id] ?? 0,
-    })),
-    cartera: (cartRes.data ?? []).map((c) => ({
-      id: c.id,
-      amount: c.amount,
-      days_overdue: c.days_overdue,
-      treatment: c.treatment,
-      payment_type: c.payment_type,
-      status: c.status,
     })),
   }
 }

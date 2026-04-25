@@ -79,7 +79,7 @@ export default async function DashboardPage() {
     .from('appointments')
     .select(`
       id, starts_at, ends_at, status, reason, reminder_24h_sent, reminder_confirmed,
-      payment_type, invoice_status, outstanding_balance, doctor_id, modality, virtual_link,
+      payment_type, doctor_id, modality, virtual_link,
       documents_requested, documents_received, free_text_reason,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
       doctors(name, specialty)
@@ -116,8 +116,6 @@ export default async function DashboardPage() {
       reminder_24h_sent: (apt.reminder_24h_sent as boolean) ?? false,
       reminder_confirmed: (raw.reminder_confirmed as boolean | null) ?? null,
       payment_type: (apt.payment_type as string) ?? 'Particular',
-      invoice_status: (raw.invoice_status as string) ?? 'pendiente',
-      outstanding_balance: (raw.outstanding_balance as number) ?? null,
       modality: (raw.modality as string) ?? 'presencial',
       virtual_link: (raw.virtual_link as string) ?? null,
       documents_requested: (raw.documents_requested as boolean) ?? false,

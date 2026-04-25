@@ -26,8 +26,6 @@ export interface CalendarAppointment {
   reminder_24h_sent: boolean
   reminder_confirmed: boolean | null
   payment_type: string
-  invoice_status: string
-  outstanding_balance: number | null
   modality: string
   virtual_link: string | null
   documents_requested: boolean
@@ -213,8 +211,6 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
             reminder_24h_sent: (updated.reminder_24h_sent as boolean) ?? a.reminder_24h_sent,
             reminder_confirmed: (updated.reminder_confirmed as boolean | null) ?? a.reminder_confirmed,
             payment_type: (updated.payment_type as string) ?? a.payment_type,
-            invoice_status: (updated.invoice_status as string) ?? a.invoice_status,
-            outstanding_balance: (updated.outstanding_balance as number | null) ?? a.outstanding_balance,
             doctor_id: (updated.doctor_id as string | null) ?? a.doctor_id,
             modality: (updated.modality as string) ?? a.modality,
             virtual_link: (updated.virtual_link as string | null) ?? a.virtual_link,
@@ -242,8 +238,6 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           reminder_24h_sent: (newApt.reminder_24h_sent as boolean) ?? false,
           reminder_confirmed: (newApt.reminder_confirmed as boolean | null) ?? null,
           payment_type: (newApt.payment_type as string) ?? 'Particular',
-          invoice_status: (newApt.invoice_status as string) ?? 'pendiente',
-          outstanding_balance: (newApt.outstanding_balance as number | null) ?? null,
           doctor_id: (newApt.doctor_id as string | null) ?? null,
           modality: (newApt.modality as string) ?? 'presencial',
           virtual_link: (newApt.virtual_link as string | null) ?? null,

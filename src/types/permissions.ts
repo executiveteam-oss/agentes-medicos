@@ -6,8 +6,6 @@
 export const MODULES = [
   'agenda',
   'noshow',
-  'cartera',
-  'facturacion',
   'espera',
   'patients',
   'conversations',

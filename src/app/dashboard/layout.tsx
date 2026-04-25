@@ -82,7 +82,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const DEFAULT_FEATURES: FeatureConfig = {
     agent: true, reminders_24h: true, reminders_72h: true, docs_required: true,
     waitlist: true, reactivation: true, dashboard: true, virtual: true,
-    vacations: true, cartera: true, facturacion: true,
+    vacations: true,
   }
   const features: FeatureConfig = featureConfig ? { ...DEFAULT_FEATURES, ...featureConfig } : DEFAULT_FEATURES
 

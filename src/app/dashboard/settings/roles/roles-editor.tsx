@@ -13,8 +13,6 @@ import type { Permissions, ModuleKey } from '@/types/permissions'
 const MODULE_LABELS: Record<ModuleKey, string> = {
   agenda: 'Agenda',
   noshow: 'No-Shows',
-  cartera: 'Cartera',
-  facturacion: 'Facturación',
   espera: 'Lista de espera',
   patients: 'Pacientes',
   conversations: 'Conversaciones',

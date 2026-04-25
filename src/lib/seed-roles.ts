@@ -26,8 +26,6 @@ const ROLE_DEFINITIONS: RoleDefinition[] = [
     permissions: {
       agenda: perm(true, true),
       noshow: perm(true, true),
-      cartera: perm(true, true),
-      facturacion: perm(true, true),
       espera: perm(true, true),
       patients: perm(true, true),
       conversations: perm(true, true),
@@ -45,8 +43,6 @@ const ROLE_DEFINITIONS: RoleDefinition[] = [
     permissions: {
       agenda: perm(true, true),
       noshow: perm(true, false),
-      cartera: perm(false, false),
-      facturacion: perm(false, false),
       espera: perm(false, false),
       patients: perm(true, false),
       conversations: perm(false, false),
@@ -64,8 +60,6 @@ const ROLE_DEFINITIONS: RoleDefinition[] = [
     permissions: {
       agenda: perm(true, true),
       noshow: perm(true, true),
-      cartera: perm(false, false),
-      facturacion: perm(false, false),
       espera: perm(true, true),
       patients: perm(true, true),
       conversations: perm(true, false),
@@ -83,8 +77,6 @@ const ROLE_DEFINITIONS: RoleDefinition[] = [
     permissions: {
       agenda: perm(true, true),
       noshow: perm(false, false),
-      cartera: perm(false, false),
-      facturacion: perm(false, false),
       espera: perm(true, false),
       patients: perm(true, false),
       conversations: perm(false, false),
@@ -97,13 +89,11 @@ const ROLE_DEFINITIONS: RoleDefinition[] = [
   },
   {
     name: 'Contador',
-    description: 'Acceso a cartera, facturación y estadísticas financieras',
+    description: 'Acceso a datos financieros (integración STRADmed)',
     is_default: false,
     permissions: {
       agenda: perm(false, false),
       noshow: perm(false, false),
-      cartera: perm(true, true),
-      facturacion: perm(true, true),
       espera: perm(false, false),
       patients: perm(false, false),
       conversations: perm(false, false),

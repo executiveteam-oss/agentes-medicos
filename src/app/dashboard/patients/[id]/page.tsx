@@ -1,5 +1,5 @@
 // ============================================================
-// Detalle de paciente — Perfil, citas, conversaciones, cartera
+// Detalle de paciente — Perfil, citas y conversaciones
 // Ruta: /dashboard/patients/[id]
 // ============================================================
 
@@ -20,15 +20,6 @@ const STATUS_LABELS: Record<string, { label: string; class: string }> = {
   no_show: { label: 'No-show', class: 'badge-red' },
   cancelled: { label: 'Cancelada', class: 'badge-slate' },
   rescheduled: { label: 'Reagendada', class: 'badge-amber' },
-}
-
-const INVOICE_LABELS: Record<string, { label: string; class: string }> = {
-  pendiente: { label: 'Pendiente', class: 'badge-amber' },
-  emitida: { label: 'Emitida', class: 'badge-green' },
-  en_tramite: { label: 'En trámite', class: 'badge-blue' },
-  pagada: { label: 'Pagada', class: 'badge-green' },
-  glosada: { label: 'Glosada', class: 'badge-red' },
-  vencida: { label: 'Vencida', class: 'badge-red' },
 }
 
 const PAYMENT_COLORS: Record<string, string> = {
@@ -54,11 +45,7 @@ export default async function PatientDetailPage({
 
   if (!result) notFound()
 
-  const { patient, appointments, conversations, cartera } = result
-
-  const totalCartera = cartera
-    .filter((c) => c.status === 'pendiente')
-    .reduce((sum, c) => sum + c.amount, 0)
+  const { patient, appointments, conversations } = result
 
   const noShowRate = patient.total_appointments > 0
     ? Math.round((patient.no_show_count / patient.total_appointments) * 100)
@@ -95,11 +82,6 @@ export default async function PatientDetailPage({
           label="No-shows"
           value={`${patient.no_show_count} (${noShowRate}%)`}
           valueClass={noShowRate > 30 ? 'text-red-600' : noShowRate > 15 ? 'text-amber-600' : undefined}
-        />
-        <MiniStat
-          label="Saldo pendiente"
-          value={totalCartera > 0 ? formatCOP(totalCartera) : '$0'}
-          valueClass={totalCartera > 0 ? 'text-red-600' : undefined}
         />
         <MiniStat
           label="Paciente desde"
@@ -168,14 +150,12 @@ export default async function PatientDetailPage({
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Doctor</th>
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Estado</th>
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Pago</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Factura</th>
                   <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Docs</th>
                 </tr>
               </thead>
               <tbody>
                 {appointments.map((a) => {
                   const statusInfo = STATUS_LABELS[a.status] ?? { label: a.status, class: 'badge-slate' }
-                  const invoiceInfo = INVOICE_LABELS[a.invoice_status] ?? { label: a.invoice_status, class: 'badge-slate' }
                   return (
                     <tr key={a.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-5 text-sm text-slate-900">
@@ -189,9 +169,6 @@ export default async function PatientDetailPage({
                       </td>
                       <td className="py-3 px-5">
                         <span className={`badge ${PAYMENT_COLORS[a.payment_type] ?? 'badge-slate'}`}>{a.payment_type}</span>
-                      </td>
-                      <td className="py-3 px-5">
-                        <span className={`badge ${invoiceInfo.class}`}>{invoiceInfo.label}</span>
                       </td>
                       <td className="py-3 px-5">
                         {a.documents_requested ? (
@@ -243,55 +220,6 @@ export default async function PatientDetailPage({
         )}
       </div>
 
-      {/* Cartera */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">Cartera</h2>
-          {totalCartera > 0 && (
-            <span className="badge badge-red">{formatCOP(totalCartera)} pendiente</span>
-          )}
-        </div>
-        {cartera.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-slate-500 text-sm">Sin saldos pendientes</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50">
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Tratamiento</th>
-                  <th className="text-right py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Monto</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Vencida</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Tipo pago</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cartera.map((c) => (
-                  <tr key={c.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
-                    <td className="py-3 px-5 text-sm text-slate-900">{c.treatment ?? '-'}</td>
-                    <td className="py-3 px-5 text-right text-sm font-semibold text-slate-900">{formatCOP(c.amount)}</td>
-                    <td className="py-3 px-5">
-                      <span className={`badge ${c.days_overdue > 30 ? 'badge-red' : 'badge-amber'}`}>
-                        {c.days_overdue}d
-                      </span>
-                    </td>
-                    <td className="py-3 px-5">
-                      <span className={`badge ${PAYMENT_COLORS[c.payment_type] ?? 'badge-slate'}`}>{c.payment_type}</span>
-                    </td>
-                    <td className="py-3 px-5">
-                      <span className={`badge ${c.status === 'pendiente' ? 'badge-amber' : c.status === 'pagado' ? 'badge-green' : 'badge-red'}`}>
-                        {c.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

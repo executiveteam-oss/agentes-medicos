@@ -48,7 +48,7 @@ export async function GET(
     // 2. Citas del paciente
     const { data: appointments } = await supabaseAdmin
       .from('appointments')
-      .select('id, starts_at, ends_at, status, reason, source, notes, payment_type, invoice_status, created_at')
+      .select('id, starts_at, ends_at, status, reason, source, notes, payment_type, created_at')
       .eq('patient_id', patientId)
       .eq('clinic_id', clinicId)
       .order('starts_at', { ascending: false })
@@ -88,13 +88,6 @@ export async function GET(
       .eq('patient_id', patientId)
       .eq('clinic_id', clinicId)
 
-    // 7. Cartera
-    const { data: cartera } = await supabaseAdmin
-      .from('cartera')
-      .select('id, amount, days_overdue, treatment, payment_type, status, created_at')
-      .eq('patient_id', patientId)
-      .eq('clinic_id', clinicId)
-
     // Audit log
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,
@@ -115,7 +108,6 @@ export async function GET(
       })),
       reminders: reminders ?? [],
       waitlist: waitlist ?? [],
-      cartera: cartera ?? [],
     }
 
     return NextResponse.json(exportData)

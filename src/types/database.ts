@@ -141,7 +141,6 @@ export interface Clinic {
   whatsapp_config: WhatsAppConfig | null    // Configuración del agente (migración 00012)
   google_sheet_id: string | null           // ID de Google Sheets vinculado
   doctor_email: string | null              // Email del doctor para compartir Sheet
-  daily_goal_appointments: number          // Meta diaria (punto de equilibrio), migración 00006
   contact_email: string | null              // Email de contacto (migración 00016)
   website: string | null                    // Sitio web (migración 00016)
   logo_url: string | null                   // URL del logo (migración 00016)
@@ -199,8 +198,6 @@ export interface FeatureConfig {
   dashboard: boolean
   virtual: boolean
   vacations: boolean
-  cartera: boolean
-  facturacion: boolean
 }
 
 // --- NOTIFICACIONES ---
@@ -299,12 +296,6 @@ export type AppointmentSource =
 
 export type PaymentType = 'EPS' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
 
-export type InvoiceStatus = 'pendiente' | 'emitida' | 'en_tramite' | 'pagada' | 'glosada' | 'vencida'
-
-export type CollectionStatus = 'pendiente' | 'en_tramite' | 'cobrada' | 'glosada' | 'vencida'
-
-export type GlosaStatus = 'none' | 'pending' | 'responded' | 'lifted' | 'definitive'
-
 export type EpsName = 'Sura' | 'Compensar' | 'Nueva EPS' | 'Sanitas'
 
 export interface Appointment {
@@ -324,21 +315,7 @@ export interface Appointment {
   cancelled_at: string | null
   cancellation_reason: string | null
   payment_type: PaymentType               // Tipo de pago (migración 00006)
-  invoice_status: InvoiceStatus           // Estado factura (migración 00006)
-  outstanding_balance: number             // Saldo pendiente COP (migración 00006)
   eps_name: EpsName | null                // EPS que cubre al paciente (migración 00010)
-  authorization_code: string | null       // Código autorización EPS (migración 00010)
-  clinic_value: number                    // Valor cobrado por la clínica COP (migración 00010)
-  eps_value: number                       // Valor que paga la EPS COP (migración 00010)
-  patient_copago: number                  // Cuota moderadora COP (migración 00010)
-  invoice_radication_date: string | null  // Fecha radicación YYYY-MM-DD (migración 00010)
-  glosa_value: number                     // Monto glosa COP (migración 00010)
-  glosa_reason: string | null             // Razón de la glosa (migración 00010)
-  invoice_number: string | null           // N° factura del software externo (migración 00014)
-  invoice_date: string | null             // Fecha emisión YYYY-MM-DD (migración 00014)
-  invoice_amount: number | null           // Valor facturado COP (migración 00014)
-  invoice_observations: string | null     // Notas de facturación (migración 00014)
-  collection_status: CollectionStatus     // Estado cobro (migración 00014)
   followup_sent: boolean                 // Seguimiento post-consulta enviado (migración 00020)
   nps_score: number | null               // Calificación 1-10 del paciente (migración 00020)
   consultation_type_id: string | null    // Tipo de consulta (migración 00023)
@@ -349,10 +326,6 @@ export interface Appointment {
   documents_received: boolean          // Si los documentos fueron recibidos (migración 00028)
   documents_received_at: string | null // Cuándo se recibieron (migración 00028)
   documents_notes: string | null       // Notas sobre los documentos (migración 00028)
-  glosa_notification_date: string | null  // Fecha notificación glosa YYYY-MM-DD (migración 00031)
-  glosa_response_date: string | null      // Fecha respuesta glosa YYYY-MM-DD (migración 00031)
-  glosa_status: GlosaStatus               // Estado de la glosa (migración 00031)
-  glosa_notes: string | null              // Notas/argumentos de respuesta (migración 00031)
   external_his_id: string | null          // ID en sistema de HC externo (migración 00032)
   created_at: string
   updated_at: string
@@ -443,47 +416,6 @@ export interface AuditLog {
   target_id: string | null
   details: Record<string, unknown>
   created_at: string
-}
-
-// --- FACTURAS STANDALONE (tabla: invoices) ---
-export interface Invoice {
-  id: string
-  clinic_id: string
-  patient_id: string
-  appointment_id: string | null
-  invoice_number: string
-  invoice_date: string              // YYYY-MM-DD
-  invoice_amount: number            // COP sin decimales
-  payment_type: string
-  eps_name: string | null
-  collection_status: CollectionStatus
-  observations: string | null
-  created_at: string
-  updated_at: string
-}
-
-// --- CARTERA (tabla: cartera) ---
-export type CarteraStatus = 'pendiente' | 'pagado' | 'castigado'
-
-export interface CarteraEntry {
-  id: string
-  clinic_id: string
-  patient_id: string
-  appointment_id: string | null
-  amount: number                           // COP sin decimales
-  days_overdue: number
-  treatment: string | null
-  payment_type: PaymentType
-  collection_attempts: number
-  last_collection_at: string | null
-  status: CarteraStatus
-  notes: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface CarteraEntryWithDetails extends CarteraEntry {
-  patient: Pick<Patient, 'name' | 'phone' | 'email' | 'no_show_count' | 'total_appointments'>
 }
 
 // --- ROLES DE CLÍNICA (tabla: clinic_roles) ---

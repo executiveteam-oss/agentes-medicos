@@ -1283,7 +1283,7 @@ function ConsultationTypeForm({
 }: {
   initial?: ConsultationType
   doctorId?: string
-  onSave: (input: { name: string; duration_minutes: number; requires_preparation: boolean; preparation_instructions: string | null; price: number | null; is_active: boolean; bookable_via_whatsapp: boolean; non_bookable_message: string | null; requires_documents: boolean; required_documents_description: string | null; modality: 'presencial' | 'virtual' | 'ambas'; eps_name: string | null }) => Promise<{ ok: boolean; error?: string }>
+  onSave: (input: { name: string; duration_minutes: number; requires_preparation: boolean; preparation_instructions: string | null; price: number | null; is_active: boolean; bookable_via_whatsapp: boolean; non_bookable_message: string | null; requires_free_text_reason: boolean; free_text_reason_prompt: string | null; requires_documents: boolean; required_documents_description: string | null; modality: 'presencial' | 'virtual' | 'ambas'; eps_name: string | null }) => Promise<{ ok: boolean; error?: string }>
   onCancel: () => void
 }) {
   const [name, setName] = useState(initial?.name ?? '')
@@ -1295,6 +1295,8 @@ function ConsultationTypeForm({
   const [isActive, setIsActive] = useState(initial?.is_active ?? true)
   const [bookableViaWhatsapp, setBookableViaWhatsapp] = useState(initial?.bookable_via_whatsapp ?? true)
   const [nonBookableMessage, setNonBookableMessage] = useState(initial?.non_bookable_message ?? '')
+  const [requiresFreeTextReason, setRequiresFreeTextReason] = useState(initial?.requires_free_text_reason ?? false)
+  const [freeTextReasonPrompt, setFreeTextReasonPrompt] = useState(initial?.free_text_reason_prompt ?? '')
   const [requiresDocs, setRequiresDocs] = useState(initial?.requires_documents ?? false)
   const [docsDescription, setDocsDescription] = useState(initial?.required_documents_description ?? '')
   const [modality, setModality] = useState<'presencial' | 'virtual' | 'ambas'>(initial?.modality ?? 'presencial')
@@ -1318,6 +1320,8 @@ function ConsultationTypeForm({
         is_active: isActive,
         bookable_via_whatsapp: bookableViaWhatsapp,
         non_bookable_message: !bookableViaWhatsapp ? (nonBookableMessage.trim() || null) : null,
+        requires_free_text_reason: requiresFreeTextReason,
+        free_text_reason_prompt: requiresFreeTextReason ? (freeTextReasonPrompt.trim() || null) : null,
         requires_documents: requiresDocs,
         required_documents_description: requiresDocs ? docsDescription.trim() || null : null,
         modality,
@@ -1467,6 +1471,39 @@ function ConsultationTypeForm({
             placeholder="Ej: Para este tipo de consulta coordinamos directamente. Te paso con un asesor."
           />
           <p className="text-[9px] text-slate-400 mt-0.5">Si está vacío, se usará un mensaje genérico.</p>
+        </div>
+      )}
+
+      {/* Pedir motivo escrito */}
+      <div className="flex items-start justify-between gap-3 p-2.5 border border-slate-100 rounded-lg bg-white">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-slate-700">Pedir motivo escrito al paciente</p>
+          <p className="text-[10px] text-slate-400">El agente pide al paciente que describa el motivo o diagnóstico antes de agendar</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setRequiresFreeTextReason(!requiresFreeTextReason)}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+            requiresFreeTextReason ? 'bg-blue-700' : 'bg-slate-200'
+          }`}
+        >
+          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+            requiresFreeTextReason ? 'translate-x-4' : 'translate-x-0'
+          }`} />
+        </button>
+      </div>
+
+      {requiresFreeTextReason && (
+        <div>
+          <label className="text-xs font-medium text-slate-600 mb-1 block">Pregunta personalizada</label>
+          <textarea
+            value={freeTextReasonPrompt}
+            onChange={(e) => setFreeTextReasonPrompt(e.target.value)}
+            className="input-field w-full resize-none"
+            rows={2}
+            placeholder="Ej: ¿Cuál es el diagnóstico por el que te envían este estudio?"
+          />
+          <p className="text-[9px] text-slate-400 mt-0.5">Si está vacío, se usará: &quot;¿Puedes contarme el motivo o diagnóstico para tu consulta?&quot;</p>
         </div>
       )}
 

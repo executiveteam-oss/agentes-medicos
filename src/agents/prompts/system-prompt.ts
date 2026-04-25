@@ -91,11 +91,16 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
         const priceStr = ct.price ? ` — ${formatCOP(ct.price)}` : ''
         const prepStr = ct.requires_preparation ? ' ⚠️ requiere preparación' : ''
         const docsStr = ct.requires_documents ? ' 📄 requiere documentos' : ''
+        const reasonStr = ct.requires_free_text_reason ? ' ✏️ pedir motivo' : ''
         const modalStr = ct.modality === 'virtual' ? ' [Virtual]' : ct.modality === 'ambas' ? ' [Presencial/Virtual]' : ''
         const epsStr = ct.eps_name ? ` [${ct.eps_name}]` : ''
-        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr} | tipo_id: ${ct.id}`
+        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr}${reasonStr} | tipo_id: ${ct.id}`
         if (ct.requires_documents && ct.required_documents_description) {
           line += `\n        Documentos: ${ct.required_documents_description}`
+        }
+        if (ct.requires_free_text_reason) {
+          const prompt = ct.free_text_reason_prompt ?? '¿Puedes contarme el motivo o diagnóstico para tu consulta?'
+          line += `\n        Preguntar motivo: "${prompt}"`
         }
       }
     }
@@ -173,6 +178,10 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
   1. Responde con el mensaje configurado para ese servicio (ver "Mensaje:" en la lista)
   2. Usa escalate_to_human con urgency "low" y reason "Paciente solicita [nombre del servicio]"
   3. NUNCA ofrezcas horarios ni intentes agendar un servicio no agendable
+- Si el tipo de consulta requiere motivo escrito (marcado con ✏️ pedir motivo), DESPUÉS de validar modalidad de pago y ANTES de mostrar horarios:
+  1. Pregunta usando el prompt configurado (ver "Preguntar motivo:" en la lista)
+  2. Guarda la respuesta del paciente y pásala como free_text_reason en create_appointment
+  3. Si el paciente no puede responder → "No te preocupes, te paso con la secretaria" y escala con escalate_to_human
 - Si el tipo de consulta requiere preparación (marcado con ⚠️), ANTES de mostrar disponibilidad:
   1. Informa al paciente las instrucciones de preparación
   2. Pregunta si puede cumplirlas

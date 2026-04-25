@@ -114,6 +114,10 @@ export const agentTools: Tool[] = [
           enum: ['presencial', 'virtual'],
           description: 'Modalidad de la cita. Usar "virtual" si el paciente eligió consulta por videollamada. Default: presencial.',
         },
+        free_text_reason: {
+          type: 'string',
+          description: 'Motivo o diagnóstico escrito por el paciente. Obligatorio si el tipo de consulta tiene requires_free_text_reason=true.',
+        },
       },
       required: ['doctor_id', 'patient_name', 'patient_phone', 'starts_at', 'date_of_birth', 'document_type', 'document_number'],
     },

@@ -32,6 +32,7 @@ export interface CalendarAppointment {
   virtual_link: string | null
   documents_requested: boolean
   documents_received: boolean
+  free_text_reason: string | null
   doctor_id: string | null
   patient: {
     id: string
@@ -248,6 +249,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           virtual_link: (newApt.virtual_link as string | null) ?? null,
           documents_requested: (newApt.documents_requested as boolean) ?? false,
           documents_received: (newApt.documents_received as boolean) ?? false,
+          free_text_reason: (newApt.free_text_reason as string | null) ?? null,
           patient: null, // Se llenará al refrescar
           doctor: doctors.find((d) => d.id === newApt.doctor_id)
             ? { name: doctors.find((d) => d.id === newApt.doctor_id)!.name, specialty: null }
@@ -793,6 +795,12 @@ function DayView({
                         valueClass={probability > 40 ? 'text-red-600' : probability > 20 ? 'text-amber-600' : 'text-emerald-600'}
                       />
                     </div>
+                    {apt.free_text_reason && (
+                      <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                        <p className="text-xs font-medium uppercase tracking-wider text-blue-600 mb-1">📋 Motivo del paciente</p>
+                        <p className="text-slate-700 text-sm">{apt.free_text_reason}</p>
+                      </div>
+                    )}
                     {patient.doctor_notes && (
                       <div className="mt-3 p-3 bg-white rounded-lg border border-slate-100">
                         <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-1">Notas del doctor</p>

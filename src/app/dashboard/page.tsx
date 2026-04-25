@@ -80,7 +80,7 @@ export default async function DashboardPage() {
     .select(`
       id, starts_at, ends_at, status, reason, reminder_24h_sent, reminder_confirmed,
       payment_type, invoice_status, outstanding_balance, doctor_id, modality, virtual_link,
-      documents_requested, documents_received,
+      documents_requested, documents_received, free_text_reason,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
       doctors(name, specialty)
     `)
@@ -122,6 +122,7 @@ export default async function DashboardPage() {
       virtual_link: (raw.virtual_link as string) ?? null,
       documents_requested: (raw.documents_requested as boolean) ?? false,
       documents_received: (raw.documents_received as boolean) ?? false,
+      free_text_reason: (raw.free_text_reason as string) ?? null,
       doctor_id: (raw.doctor_id as string) ?? null,
       patient: patients ?? null,
       doctor: doctorsRel ?? null,

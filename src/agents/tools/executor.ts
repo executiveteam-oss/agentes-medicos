@@ -434,6 +434,20 @@ async function createAppointment(
   const procedureEntity = (input.procedure_entity as string) ?? null
   const consultationTypeId = (input.consultation_type_id as string) ?? null
   const modality = (input.modality as string) ?? 'presencial'
+  const freeTextReason = (input.free_text_reason as string) ?? null
+
+  // Validar motivo libre si el tipo lo requiere
+  if (consultationTypeId) {
+    const { data: ctCheck } = await supabaseAdmin
+      .from('consultation_types')
+      .select('requires_free_text_reason')
+      .eq('id', consultationTypeId)
+      .eq('clinic_id', clinicId)
+      .single()
+    if (ctCheck?.requires_free_text_reason && !freeTextReason?.trim()) {
+      return { success: false, error: 'Este tipo de consulta requiere motivo escrito del paciente. Pregunta primero al paciente cuál es su motivo o diagnóstico.' }
+    }
+  }
 
   // Calcular hora de fin: tipo de consulta > per-doctor config > default
   const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
@@ -577,6 +591,7 @@ async function createAppointment(
       modality,
       virtual_link: virtualLink,
       documents_requested: documentsRequested,
+      free_text_reason: freeTextReason?.trim() || null,
     })
     .select('id, starts_at, ends_at')
     .single()

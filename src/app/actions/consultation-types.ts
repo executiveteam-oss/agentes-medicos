@@ -25,6 +25,8 @@ export interface ConsultationTypeInput {
   required_documents_description: string | null
   modality: ConsultationModality
   eps_name?: string | null
+  requires_free_text_reason?: boolean
+  free_text_reason_prompt?: string | null
 }
 
 /**
@@ -100,6 +102,8 @@ export async function createConsultationType(
       required_documents_description: input.requires_documents ? input.required_documents_description?.trim() || null : null,
       modality: input.modality ?? 'presencial',
       eps_name: input.eps_name?.trim() || null,
+      requires_free_text_reason: input.requires_free_text_reason ?? false,
+      free_text_reason_prompt: input.requires_free_text_reason ? (input.free_text_reason_prompt?.trim() || null) : null,
     })
     .select('*')
     .single()
@@ -162,6 +166,10 @@ export async function updateConsultationType(
   if (input.required_documents_description !== undefined) updateData.required_documents_description = input.required_documents_description?.trim() || null
   if (input.modality !== undefined) updateData.modality = input.modality
   if (input.eps_name !== undefined) updateData.eps_name = input.eps_name?.trim() || null
+  if (input.requires_free_text_reason !== undefined) {
+    updateData.requires_free_text_reason = input.requires_free_text_reason
+    updateData.free_text_reason_prompt = input.requires_free_text_reason ? (input.free_text_reason_prompt?.trim() || null) : null
+  }
 
   const { error } = await supabaseAdmin
     .from('consultation_types')

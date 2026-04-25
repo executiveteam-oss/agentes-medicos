@@ -25,6 +25,7 @@ import {
 } from '@/lib/utils/working-hours'
 import type { WorkingHours, NormalizedWorkingHours, WorkingBlock } from '@/types/database'
 import { getBlockedDatesForDoctor, createBlockedDate, deleteBlockedDate, getAffectedAppointments, type BlockedDate, type AffectedAppointment } from '@/app/actions/blocked-dates'
+import { getSchedulesForType, saveSchedulesForType, type CtSchedule } from '@/app/actions/consultation-type-schedules'
 import {
   getStagingProducts,
   confirmImportForDoctor,
@@ -1211,6 +1212,7 @@ function ConsultationTypesSection({ doctorId, doctorName, hasIsalud }: { doctorI
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button type="button" onClick={() => setEditingId(ct.id)} className="text-xs text-slate-400 hover:text-blue-700 px-1.5 py-1">Editar</button>
+                    <CtScheduleButton ctId={ct.id} ctName={ct.name} />
                     <ToggleCtButton ct={ct} onToggled={(active) => setTypes((prev) => prev.map((t) => t.id === ct.id ? { ...t, is_active: active } : t))} />
                     <button type="button" onClick={() => setDeletingId(ct.id)} className="text-xs text-slate-300 hover:text-red-500 px-1.5 py-1">×</button>
                   </div>
@@ -1559,6 +1561,95 @@ function ConsultationTypeForm({
 }
 
 // --- Botones auxiliares ---
+// --- Franjas horarias por tipo de consulta ---
+const SCHED_DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
+
+function CtScheduleButton({ ctId, ctName }: { ctId: string; ctName: string }) {
+  const [open, setOpen] = useState(false)
+  const [schedules, setSchedules] = useState<CtSchedule[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+
+  function load() {
+    startTransition(async () => {
+      const data = await getSchedulesForType(ctId)
+      setSchedules(data)
+      setLoaded(true)
+    })
+  }
+
+  function handleOpen() { setOpen(true); if (!loaded) load() }
+
+  function addRow() {
+    setSchedules((prev) => [...prev, { id: 'new-' + Date.now(), day_of_week: 1, start_time: '08:00', end_time: '12:00' }])
+    setSaved(false)
+  }
+
+  function removeRow(idx: number) {
+    setSchedules((prev) => prev.filter((_, i) => i !== idx))
+    setSaved(false)
+  }
+
+  function updateRow(idx: number, field: string, value: string | number) {
+    setSchedules((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
+    setSaved(false)
+  }
+
+  function handleSave() {
+    setError(null)
+    startTransition(async () => {
+      const result = await saveSchedulesForType(ctId, schedules.map((s) => ({
+        day_of_week: s.day_of_week,
+        start_time: s.start_time.slice(0, 5),
+        end_time: s.end_time.slice(0, 5),
+      })))
+      if (result.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000) }
+      else setError(result.error ?? 'Error')
+    })
+  }
+
+  if (!open) {
+    return (
+      <button type="button" onClick={handleOpen} className="text-xs text-slate-400 hover:text-purple-700 px-1.5 py-1" title="Franjas horarias">
+        🕐
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-2 border border-purple-200 bg-purple-50/30 rounded-lg p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-purple-800">Franjas horarias — {ctName}</p>
+        <button type="button" onClick={() => setOpen(false)} className="text-xs text-slate-400">×</button>
+      </div>
+      <p className="text-[9px] text-slate-400">Si no hay franjas, el tipo se agenda en cualquier horario del doctor. Si agregas franjas, solo se ofrecen slots dentro de esas franjas.</p>
+      {!loaded ? <p className="text-xs text-slate-400">Cargando...</p> : (
+        <>
+          {schedules.map((s, i) => (
+            <div key={s.id} className="flex items-center gap-2">
+              <select value={s.day_of_week} onChange={(e) => updateRow(i, 'day_of_week', Number(e.target.value))} className="input-field text-xs py-1 w-16">
+                {SCHED_DAY_LABELS.map((d, di) => <option key={di} value={di}>{d}</option>)}
+              </select>
+              <input type="time" value={s.start_time.slice(0, 5)} onChange={(e) => updateRow(i, 'start_time', e.target.value)} className="input-field text-xs py-1 w-24" />
+              <span className="text-xs text-slate-400">a</span>
+              <input type="time" value={s.end_time.slice(0, 5)} onChange={(e) => updateRow(i, 'end_time', e.target.value)} className="input-field text-xs py-1 w-24" />
+              <button type="button" onClick={() => removeRow(i)} className="text-slate-300 hover:text-red-500 text-sm">×</button>
+            </div>
+          ))}
+          <button type="button" onClick={addRow} className="text-[11px] text-purple-700 hover:text-purple-800 font-medium">+ Agregar franja</button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={handleSave} disabled={isPending} className="bg-purple-700 hover:bg-purple-800 text-white text-xs font-medium py-1 px-3 rounded-lg disabled:opacity-50">{isPending ? '...' : 'Guardar'}</button>
+            {saved && <span className="text-xs text-emerald-600">Guardado</span>}
+            {error && <span className="text-xs text-red-600">{error}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function ToggleCtButton({ ct, onToggled }: { ct: ConsultationType; onToggled: (active: boolean) => void }) {
   const [isPending, startTransition] = useTransition()
   return (

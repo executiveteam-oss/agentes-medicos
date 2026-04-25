@@ -335,8 +335,38 @@ async function checkAvailability(
     }
   }
 
-  // Generar slots iterando sobre TODOS los bloques del día (soporta horarios partidos)
-  const allSlots = dayBlocks.flatMap((b) => generateTimeSlots(dateStr, b.start, b.end, duration))
+  // Filtrar por franjas preferidas del tipo de consulta (si las tiene)
+  let effectiveBlocks = dayBlocks
+  let hasPreferredSchedule = false
+
+  if (consultationTypeId) {
+    const dayNum = toZonedTime(parseISO(`${dateStr}T12:00:00-05:00`), TIMEZONE).getDay()
+    const { data: ctSchedules } = await supabaseAdmin
+      .from('consultation_type_schedules')
+      .select('start_time, end_time')
+      .eq('consultation_type_id', consultationTypeId)
+      .eq('day_of_week', dayNum)
+
+    if (ctSchedules && ctSchedules.length > 0) {
+      hasPreferredSchedule = true
+      // Intersectar franjas preferidas con bloques del doctor
+      const intersected: typeof dayBlocks = []
+      for (const sched of ctSchedules) {
+        const schedStart = (sched.start_time as string).slice(0, 5) // "09:00:00" → "09:00"
+        const schedEnd = (sched.end_time as string).slice(0, 5)
+        for (const block of dayBlocks) {
+          const iStart = block.start > schedStart ? block.start : schedStart
+          const iEnd = block.end < schedEnd ? block.end : schedEnd
+          if (iStart < iEnd) intersected.push({ start: iStart, end: iEnd })
+        }
+      }
+      effectiveBlocks = intersected
+      console.log(`[check_availability] Filtering by consultation_type_schedule: type=${consultationTypeId} day=${dayNum} → ${intersected.length} intersected blocks`)
+    }
+  }
+
+  // Generar slots iterando sobre todos los bloques efectivos
+  const allSlots = effectiveBlocks.flatMap((b) => generateTimeSlots(dateStr, b.start, b.end, duration))
 
   // Filtrar los que ya están ocupados
   const occupiedTimes = new Set(
@@ -359,8 +389,12 @@ async function checkAvailability(
         available: false,
         date: dateStr,
         dayOfWeek: spanishDayOfWeek(dateStr),
-        reason: 'No hay horarios disponibles para esta fecha',
-        suggestion: 'Puedes ofrecer al paciente unirse a la lista de espera o probar otro día',
+        reason: hasPreferredSchedule
+          ? 'preferred_schedule_full'
+          : 'No hay horarios disponibles para esta fecha',
+        suggestion: hasPreferredSchedule
+          ? 'Este tipo de consulta tiene franjas horarias específicas y están llenas. Escala a la secretaria con escalate_to_human.'
+          : 'Puedes ofrecer al paciente unirse a la lista de espera o probar otro día',
       },
     }
   }

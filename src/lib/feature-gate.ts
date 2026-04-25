@@ -28,7 +28,6 @@ const ALL_ENABLED: FeatureConfig = {
   vacations: true,
   cartera: true,
   facturacion: true,
-  estadisticas: true,
 }
 
 export interface FeatureGateResult {

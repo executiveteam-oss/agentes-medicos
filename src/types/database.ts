@@ -201,7 +201,6 @@ export interface FeatureConfig {
   vacations: boolean
   cartera: boolean
   facturacion: boolean
-  estadisticas: boolean
 }
 
 // --- NOTIFICACIONES ---

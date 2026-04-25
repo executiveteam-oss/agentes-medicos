@@ -68,7 +68,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // Filtrar nav items según permisos de lectura
   // Doctores: solo ven Agenda, Pacientes, No-Shows, Estadísticas, Configuración
   const isDoctor = isDoctorRole(session)
-  const DOCTOR_ALLOWED_MODULES: ModuleKey[] = ['agenda', 'patients', 'noshow', 'analytics', 'settings']
+  const DOCTOR_ALLOWED_MODULES: ModuleKey[] = ['agenda', 'patients', 'noshow', 'settings']
 
   // Leer feature_config de la clínica
   const { data: clinicFeatures } = await supabaseAdmin
@@ -82,7 +82,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const DEFAULT_FEATURES: FeatureConfig = {
     agent: true, reminders_24h: true, reminders_72h: true, docs_required: true,
     waitlist: true, reactivation: true, dashboard: true, virtual: true,
-    vacations: true, cartera: true, facturacion: true, estadisticas: true,
+    vacations: true, cartera: true, facturacion: true,
   }
   const features: FeatureConfig = featureConfig ? { ...DEFAULT_FEATURES, ...featureConfig } : DEFAULT_FEATURES
 

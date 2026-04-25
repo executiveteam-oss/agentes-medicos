@@ -205,7 +205,7 @@ export async function blockVacationDates(
 
     revalidatePath('/dashboard/whatsapp')
     revalidatePath('/dashboard')
-    revalidatePath('/dashboard/analytics')
+    revalidatePath('/dashboard/vacaciones')
     return { ok: true, doctorCount: doctors.length }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }
@@ -244,7 +244,7 @@ export async function saveVacationMessage(
     if (error) return { ok: false, error: 'Error guardando mensaje' }
 
     revalidatePath('/dashboard/whatsapp')
-    revalidatePath('/dashboard/analytics')
+    revalidatePath('/dashboard/vacaciones')
     return { ok: true }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }

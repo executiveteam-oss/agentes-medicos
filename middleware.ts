@@ -16,7 +16,6 @@ const ROUTE_MODULE_MAP: Record<string, string> = {
   '/dashboard/espera': 'espera',
   '/dashboard/patients': 'patients',
   '/dashboard/conversations': 'conversations',
-  '/dashboard/analytics': 'analytics',
   '/dashboard/settings': 'user_management',
 }
 

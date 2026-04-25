@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       const weekEnd = lastSunday.toISOString()
 
       // Métricas de la semana
-      const [completedRes, scheduledRes, noShowRes, newPatientsRes, insightRes] = await Promise.all([
+      const [completedRes, scheduledRes, noShowRes, newPatientsRes] = await Promise.all([
         supabaseAdmin
           .from('appointments')
           .select('id', { count: 'exact', head: true })
@@ -112,13 +112,6 @@ export async function GET(request: NextRequest) {
           .eq('clinic_id', clinic.id)
           .gte('created_at', weekStart)
           .lt('created_at', weekEnd),
-        supabaseAdmin
-          .from('clinic_insights')
-          .select('recommendations')
-          .eq('clinic_id', clinic.id)
-          .order('generated_at', { ascending: false })
-          .limit(1)
-          .single(),
       ])
 
       const completed = completedRes.count ?? 0
@@ -155,14 +148,7 @@ export async function GET(request: NextRequest) {
         message += '\n\n⚠️ Tu tasa de no-shows esta semana fue alta. Activa el recordatorio de 72h en Configuración.'
       }
 
-      // Top insight
-      const insightData = insightRes.data?.recommendations as Array<{ title: string; impact_cop: number }> | null
-      if (insightData && insightData.length > 0) {
-        const top = insightData[0]
-        message += `\n\n💡 Insight: ${top.title} — ${formatCOP(top.impact_cop)} potenciales`
-      }
-
-      message += `\n\nVer detalles completos:\ndashboard.omuwan.co/dashboard/analytics`
+      message += `\n\nVer detalles:\ndashboard.omuwan.co/dashboard`
 
       // Obtener teléfono del admin
       const adminPhone = (clinic.escalation_contact_phone || clinic.phone || '').trim()

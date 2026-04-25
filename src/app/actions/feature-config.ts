@@ -16,7 +16,6 @@ const DEFAULT_FEATURES: FeatureConfig = {
   waitlist: true,
   reactivation: true,
   dashboard: true,
-  insights: true,
   virtual: true,
   vacations: true,
   ai_assistant: true,

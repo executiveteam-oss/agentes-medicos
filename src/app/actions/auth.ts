@@ -135,7 +135,6 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
       waitlist: true,           // Core — incluido
       dashboard: true,          // Core — siempre activo
       reactivation: false,      // Plus — módulo pago
-      insights: false,          // Plus — módulo pago
       virtual: false,           // Plus — módulo pago
       vacations: false,         // Plus — módulo pago
       ai_assistant: false,      // Plus — módulo pago

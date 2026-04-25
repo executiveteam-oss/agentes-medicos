@@ -197,7 +197,6 @@ export interface FeatureConfig {
   waitlist: boolean
   reactivation: boolean
   dashboard: boolean
-  insights: boolean
   virtual: boolean
   vacations: boolean
   ai_assistant: boolean

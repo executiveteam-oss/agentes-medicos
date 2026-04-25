@@ -7,7 +7,6 @@ import type { FeatureConfig } from '@/types/database'
 
 /** Mapa de features → rutas o identificadores internos */
 export const FEATURE_MAP: Record<string, string> = {
-  insights: '/dashboard/insights',
   virtual: '/dashboard/settings/virtual',
   reactivation: 'reactivation_cron',
   waitlist: '/dashboard/espera',
@@ -25,7 +24,6 @@ const ALL_ENABLED: FeatureConfig = {
   waitlist: true,
   reactivation: true,
   dashboard: true,
-  insights: true,
   virtual: true,
   vacations: true,
   ai_assistant: true,

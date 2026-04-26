@@ -360,11 +360,52 @@ function CloseAgendaBtn({ onClose, disabled }: { onClose: (reason: string, until
 
 // ---- Schedule Editor ----
 
+function parseWorkingHours(raw: Record<string, unknown> | null): Record<string, Array<{ start: string; end: string }>> {
+  const result: Record<string, Array<{ start: string; end: string }>> = {}
+  for (const day of DAYS) result[day] = []
+
+  if (!raw || typeof raw !== 'object') return result
+
+  for (const day of DAYS) {
+    const val = (raw as Record<string, unknown>)[day]
+    if (!val) { result[day] = []; continue }
+
+    // Format: { active, blocks: [{start, end}] }
+    if (typeof val === 'object' && !Array.isArray(val)) {
+      const obj = val as Record<string, unknown>
+      if (Array.isArray(obj.blocks)) {
+        result[day] = (obj.blocks as Array<Record<string, unknown>>)
+          .filter((b) => typeof b.start === 'string' && typeof b.end === 'string')
+          .map((b) => ({ start: b.start as string, end: b.end as string }))
+      } else if (typeof obj.start === 'string' && typeof obj.end === 'string') {
+        // Old format: { start, end, active }
+        result[day] = obj.active !== false ? [{ start: obj.start, end: obj.end }] : []
+      }
+      continue
+    }
+
+    // Format: [{start, end}] directly
+    if (Array.isArray(val)) {
+      result[day] = (val as Array<Record<string, unknown>>)
+        .filter((b) => typeof b.start === 'string' && typeof b.end === 'string')
+        .map((b) => ({ start: b.start as string, end: b.end as string }))
+    }
+  }
+
+  return result
+}
+
+function toWorkingHoursForSave(hours: Record<string, Array<{ start: string; end: string }>>): Record<string, { active: boolean; blocks: Array<{ start: string; end: string }> }> {
+  const result: Record<string, { active: boolean; blocks: Array<{ start: string; end: string }> }> = {}
+  for (const day of DAYS) {
+    const blocks = hours[day] ?? []
+    result[day] = { active: blocks.length > 0, blocks }
+  }
+  return result
+}
+
 function ScheduleEditor({ doctorId, initialHours, onSaved, onError }: { doctorId: string; initialHours: Record<string, unknown> | null; onSaved: () => void; onError: (e: string) => void }) {
-  const wh = initialHours as Record<string, Array<{ start: string; end: string }>> | null
-  const [hours, setHours] = useState<Record<string, Array<{ start: string; end: string }>>>(
-    wh ?? Object.fromEntries(DAYS.map((d) => [d, []]))
-  )
+  const [hours, setHours] = useState(() => parseWorkingHours(initialHours))
   const [isPending, startTransition] = useTransition()
 
   function addBlock(day: string) {
@@ -384,7 +425,8 @@ function ScheduleEditor({ doctorId, initialHours, onSaved, onError }: { doctorId
 
   function handleSave() {
     startTransition(async () => {
-      const r = await updateDoctorWorkingHours(doctorId, hours as unknown as import('@/types/database').WorkingHours)
+      const forSave = toWorkingHoursForSave(hours)
+      const r = await updateDoctorWorkingHours(doctorId, forSave as unknown as import('@/types/database').WorkingHours)
       if (r.ok) onSaved()
       else onError(r.error ?? 'Error guardando horario')
     })

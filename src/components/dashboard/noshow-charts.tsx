@@ -1,8 +1,7 @@
 'use client'
 
 // ============================================================
-// NoShowCharts — Gráfico de no-shows por día de la semana
-// Solo recibe datos serializables desde el server component
+// NoShowCharts v2 — Grafico de no-shows por dia de la semana
 // ============================================================
 
 import {
@@ -29,8 +28,8 @@ interface NoShowChartsProps {
 export function NoShowCharts({ data }: NoShowChartsProps) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
-        No hay suficientes datos para mostrar el gráfico
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '240px' }}>
+        <p style={{ fontSize: '13px', color: 'var(--v2-text-subtle)' }}>No hay suficientes datos</p>
       </div>
     )
   }
@@ -38,37 +37,38 @@ export function NoShowCharts({ data }: NoShowChartsProps) {
   return (
     <ResponsiveContainer width="100%" height={240}>
       <BarChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="#E8E4F4" vertical={false} />
         <XAxis
           dataKey="dia"
-          stroke="#94a3b8"
-          tick={{ fontSize: 12, fill: '#64748b' }}
-          axisLine={{ stroke: '#e2e8f0' }}
+          stroke="#9590A8"
+          tick={{ fontSize: 12, fill: '#6B6580' }}
+          axisLine={{ stroke: '#E8E4F4' }}
           tickLine={false}
         />
         <YAxis
-          stroke="#94a3b8"
-          tick={{ fontSize: 12, fill: '#64748b' }}
+          stroke="#9590A8"
+          tick={{ fontSize: 12, fill: '#6B6580' }}
           axisLine={false}
           tickLine={false}
         />
         <Tooltip
           contentStyle={{
             backgroundColor: '#ffffff',
-            border: '1px solid #e2e8f0',
-            color: '#0f172a',
-            borderRadius: '10px',
+            border: '1px solid #E8E4F4',
+            color: '#1A1530',
+            borderRadius: '12px',
             fontSize: '12px',
-            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+            fontFamily: 'var(--font-manrope), sans-serif',
+            boxShadow: '0 8px 24px rgba(107, 91, 255, 0.08)',
           }}
           formatter={(value, name) => [
             String(value ?? ''),
             name === 'noShows' ? 'No-shows' : 'Completadas',
           ]}
-          cursor={{ fill: '#f1f5f9' }}
+          cursor={{ fill: 'rgba(107, 91, 255, 0.04)' }}
         />
-        <Bar dataKey="completadas" fill="#0f766e" name="completadas" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="noShows" fill="#dc2626" name="noShows" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="completadas" fill="#6B5BFF" name="completadas" radius={[4, 4, 0, 0]} opacity={0.8} />
+        <Bar dataKey="noShows" fill="#FF6BAA" name="noShows" radius={[4, 4, 0, 0]} opacity={0.9} />
       </BarChart>
     </ResponsiveContainer>
   )

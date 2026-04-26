@@ -330,3 +330,9 @@ body {
 .toggle-v2[data-active="true"]::after {
   transform: translateX(20px);
 }
+
+/* Sidebar logout button */
+.sidebar-logout-btn:hover {
+  background: var(--v2-red-soft) !important;
+  color: var(--v2-red) !important;
+}

@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { cn } from '@/lib/utils'
 import {
   CalendarDays,
   TrendingDown,
@@ -20,6 +19,9 @@ import {
   Lightbulb,
   Palmtree,
   Lock,
+  LayoutDashboard,
+  Sparkles,
+  Stethoscope,
 } from 'lucide-react'
 
 const ICON_MAP = {
@@ -38,45 +40,102 @@ const ICON_MAP = {
   Shield,
   Lightbulb,
   Palmtree,
+  LayoutDashboard,
+  Sparkles,
+  Stethoscope,
 } as const
 
-type IconName = keyof typeof ICON_MAP
+export type IconName = keyof typeof ICON_MAP
 
 interface NavLinkProps {
   href: string
   label: string
   iconName: IconName
   badge?: number
-  badgeColor?: 'blue' | 'red'
+  badgeColor?: 'blue' | 'red' | 'pink'
   locked?: boolean
 }
 
 export function NavLink({ href, label, iconName, badge, badgeColor = 'blue', locked = false }: NavLinkProps) {
   const pathname = usePathname()
-  // Activo exacto para /dashboard, prefijo para el resto
   const isActive = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
   const Icon = ICON_MAP[iconName]
 
   return (
     <Link
       href={href}
-      className={cn(
-        'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-        locked
-          ? 'text-white/30 hover:bg-white/5 hover:text-white/40'
-          : isActive
-            ? 'bg-white/15 text-white'
-            : 'text-white/60 hover:bg-white/10 hover:text-white'
-      )}
+      className="group block"
+      style={{ textDecoration: 'none' }}
     >
-      <Icon size={18} className={cn(iconName === 'Lightbulb' && !locked ? 'text-amber-300' : '', locked ? 'opacity-40' : '')} />
-      <span className="flex-1">{label}</span>
-      {locked && <Lock size={12} className="text-white/30" />}
-      {!locked && badge != null && badge > 0 && (
-        <span className={`${badgeColor === 'red' ? 'bg-red-500' : 'bg-blue-500'} text-white text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center`}>
-          {badge}
-        </span>
-      )}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+          padding: '9px 12px',
+          borderRadius: '9px',
+          fontSize: '13.5px',
+          fontWeight: isActive ? 700 : 500,
+          fontFamily: 'var(--font-manrope), sans-serif',
+          transition: 'all 0.15s ease',
+          cursor: locked ? 'default' : 'pointer',
+          ...(locked
+            ? {
+                color: 'var(--v2-text-subtle)',
+                opacity: 0.5,
+              }
+            : isActive
+              ? {
+                  background: 'linear-gradient(135deg, var(--v2-primary), #8676FF)',
+                  color: '#ffffff',
+                  boxShadow: '0 2px 8px rgba(107, 91, 255, 0.3)',
+                }
+              : {
+                  color: 'var(--v2-text-muted)',
+                  background: 'transparent',
+                }),
+        }}
+        onMouseEnter={(e) => {
+          if (!isActive && !locked) {
+            e.currentTarget.style.background = 'var(--v2-bg-soft)'
+            e.currentTarget.style.color = 'var(--v2-text)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!isActive && !locked) {
+            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.color = 'var(--v2-text-muted)'
+          }
+        }}
+      >
+        <Icon
+          size={16}
+          style={{
+            flexShrink: 0,
+            opacity: locked ? 0.4 : 1,
+            color: isActive ? '#ffffff' : locked ? 'var(--v2-text-subtle)' : 'var(--v2-text-subtle)',
+          }}
+        />
+        <span style={{ flex: 1 }}>{label}</span>
+        {locked && <Lock size={12} style={{ color: 'var(--v2-text-subtle)', opacity: 0.5 }} />}
+        {!locked && badge != null && badge > 0 && (
+          <span
+            style={{
+              background: badgeColor === 'red' || badgeColor === 'pink' ? 'var(--v2-pink)' : 'var(--v2-primary)',
+              color: '#ffffff',
+              fontSize: '10px',
+              fontWeight: 800,
+              padding: '1px 6px',
+              borderRadius: '999px',
+              minWidth: '18px',
+              textAlign: 'center',
+              lineHeight: '16px',
+            }}
+          >
+            {badge}
+          </span>
+        )}
+      </div>
     </Link>
   )
 }

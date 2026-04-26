@@ -1,16 +1,18 @@
 'use client'
 
 // ============================================================
-// ConversationChat — Vista de chat estilo WhatsApp
-// Muestra burbujas de mensajes y permite enviar como staff
+// ConversationChat v2 — Chat + Context panel + Realtime
 // ============================================================
 
 import { useState, useRef, useEffect, useTransition } from 'react'
 import { sendStaffMessage, updateConversationStatus, reopenConversation } from '@/app/actions/conversations'
-import { format, isToday, isYesterday } from 'date-fns'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
-import type { ConversationStatus } from '@/types/database'
+import { ChevronLeft, Send, Info, MoreVertical, Image, FileText, Mic, User, Calendar, AlertTriangle, X } from 'lucide-react'
+
+// ---- Types ----
 
 interface Message {
   id: string
@@ -22,78 +24,121 @@ interface Message {
 
 interface ConversationInfo {
   id: string
+  patient_id: string | null
   patient_name: string
   patient_phone: string
-  status: ConversationStatus
+  patient_eps: string | null
+  patient_no_show_count: number
+  patient_total_appointments: number
+  patient_document_type: string | null
+  patient_document_number: string | null
+  patient_date_of_birth: string | null
+  patient_created_at: string | null
+  status: 'active' | 'escalated' | 'resolved'
   escalated_to: string | null
   escalated_at: string | null
   created_at: string
+}
+
+interface NextAppointment {
+  id: string
+  starts_at: string
+  reason: string | null
+  doctor_name: string | null
 }
 
 interface Props {
   conversation: ConversationInfo
   initialMessages: Message[]
   canWrite: boolean
+  staffName: string
+  nextAppointment: NextAppointment | null
 }
 
-const STATUS_CONFIG: Record<ConversationStatus, { label: string; class: string }> = {
-  active: { label: 'Activa', class: 'badge-green' },
-  escalated: { label: 'Escalada', class: 'badge-red' },
-  resolved: { label: 'Resuelta', class: 'badge-slate' },
+// ---- Helpers ----
+
+function formatTime(dateStr: string): string {
+  return format(new Date(dateStr), 'h:mm a')
 }
 
-const ROLE_CONFIG: Record<string, { label: string; bubbleClass: string; align: 'left' | 'right' }> = {
-  patient: {
-    label: 'Paciente',
-    bubbleClass: 'bg-white border border-slate-200 text-slate-800',
-    align: 'left',
-  },
-  agent: {
-    label: 'Agente IA',
-    bubbleClass: 'bg-emerald-100 text-slate-800',
-    align: 'right',
-  },
-  staff: {
-    label: 'Staff',
-    bubbleClass: 'bg-blue-100 text-slate-800',
-    align: 'right',
-  },
-}
-
-function formatMessageTime(dateStr: string): string {
+function formatDateSep(dateStr: string): string {
   const date = new Date(dateStr)
-  return format(date, 'h:mm a')
+  if (isToday(date)) return 'HOY'
+  if (isYesterday(date)) return 'AYER'
+  return format(date, "EEE d MMM", { locale: es }).toUpperCase()
 }
 
-function formatDateSeparator(dateStr: string): string {
-  const date = new Date(dateStr)
-  if (isToday(date)) return 'Hoy'
-  if (isYesterday(date)) return 'Ayer'
-  return format(date, "EEEE d 'de' MMMM", { locale: es })
-}
-
-function shouldShowDateSeparator(current: string, previous: string | null): boolean {
+function needsDateSep(current: string, previous: string | null): boolean {
   if (!previous) return true
-  const a = new Date(current).toDateString()
-  const b = new Date(previous).toDateString()
-  return a !== b
+  return new Date(current).toDateString() !== new Date(previous).toDateString()
 }
 
-export function ConversationChat({ conversation, initialMessages, canWrite }: Props) {
+function getInitials(name: string): string {
+  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+}
+
+function formatPhone(phone: string): string {
+  return phone.replace('+57', '').replace(/(\d{3})(\d{3})(\d{4})/, '$1 $2 $3')
+}
+
+// ---- Main Component ----
+
+export function ConversationChat({ conversation, initialMessages, canWrite, staffName, nextAppointment }: Props) {
   const [messages, setMessages] = useState(initialMessages)
   const [status, setStatus] = useState(conversation.status)
   const [newMessage, setNewMessage] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [showContext, setShowContext] = useState(false)
+  const [showMenu, setShowMenu] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // Scroll al fondo cuando llegan nuevos mensajes
+  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  function showToast(msg: string) {
+  // Realtime: listen for new messages
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient()
+    const channel = supabase
+      .channel(`chat-${conversation.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversation.id}` },
+        (payload) => {
+          const newMsg = payload.new as Record<string, unknown>
+          const msg: Message = {
+            id: newMsg.id as string,
+            role: newMsg.role as Message['role'],
+            content: newMsg.content as string,
+            message_type: (newMsg.message_type as string) ?? 'text',
+            created_at: newMsg.created_at as string,
+          }
+          // Avoid duplicates (optimistic messages)
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msg.id)) return prev
+            // Remove temp messages that match this content
+            const filtered = prev.filter((m) => !m.id.startsWith('temp-'))
+            return [...filtered, msg]
+          })
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `id=eq.${conversation.id}` },
+        (payload) => {
+          const newStatus = (payload.new as Record<string, unknown>).status as string
+          if (newStatus) setStatus(newStatus as typeof status)
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [conversation.id])
+
+  function showToastMsg(msg: string) {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
@@ -102,7 +147,6 @@ export function ConversationChat({ conversation, initialMessages, canWrite }: Pr
     const text = newMessage.trim()
     if (!text || isPending) return
 
-    // Agregar mensaje optimista
     const optimisticMsg: Message = {
       id: `temp-${Date.now()}`,
       role: 'staff',
@@ -116,16 +160,13 @@ export function ConversationChat({ conversation, initialMessages, canWrite }: Pr
     startTransition(async () => {
       const result = await sendStaffMessage(conversation.id, text)
       if (result.ok && result.message) {
-        // Reemplazar mensaje optimista con el real
         const msg = result.message
         setMessages((prev) =>
           prev.map((m) => (m.id === optimisticMsg.id ? { ...msg, role: msg.role as Message['role'] } : m))
         )
-        showToast('Mensaje enviado')
       } else {
-        // Quitar mensaje optimista si falló
         setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id))
-        showToast(result.error ?? 'Error enviando mensaje')
+        showToastMsg(result.error ?? 'Error enviando mensaje')
       }
     })
 
@@ -139,226 +180,428 @@ export function ConversationChat({ conversation, initialMessages, canWrite }: Pr
     }
   }
 
-  function handleResolve() {
+  function handleAction(action: 'resolve' | 'escalate' | 'reopen') {
+    setShowMenu(false)
     startTransition(async () => {
-      const result = await updateConversationStatus(conversation.id, 'resolved')
-      if (result.ok) {
-        setStatus('resolved')
-        showToast('Conversación marcada como resuelta')
+      if (action === 'resolve') {
+        const r = await updateConversationStatus(conversation.id, 'resolved')
+        if (r.ok) { setStatus('resolved'); showToastMsg('Conversacion resuelta') }
+        else showToastMsg(r.error ?? 'Error')
+      } else if (action === 'escalate') {
+        const r = await updateConversationStatus(conversation.id, 'escalated', 'doctor')
+        if (r.ok) { setStatus('escalated'); showToastMsg('Conversacion escalada') }
+        else showToastMsg(r.error ?? 'Error')
       } else {
-        showToast(result.error ?? 'Error')
+        const r = await reopenConversation(conversation.id)
+        if (r.ok) { setStatus('active'); showToastMsg('Conversacion reabierta') }
+        else showToastMsg(r.error ?? 'Error')
       }
     })
   }
 
-  function handleEscalate() {
-    startTransition(async () => {
-      const result = await updateConversationStatus(conversation.id, 'escalated', 'doctor')
-      if (result.ok) {
-        setStatus('escalated')
-        showToast('Conversación escalada al médico')
-      } else {
-        showToast(result.error ?? 'Error')
-      }
-    })
-  }
-
-  function handleReopen() {
-    startTransition(async () => {
-      const result = await reopenConversation(conversation.id)
-      if (result.ok) {
-        setStatus('active')
-        showToast('Conversación reabierta')
-      } else {
-        showToast(result.error ?? 'Error')
-      }
-    })
-  }
-
-  const statusInfo = STATUS_CONFIG[status]
-  const phoneDisplay = conversation.patient_phone
-    .replace('+57', '')
-    .replace(/(\d{3})(\d{3})(\d{4})/, '$1 $2 $3')
+  const assistanceRate = conversation.patient_total_appointments > 0
+    ? Math.round(((conversation.patient_total_appointments - conversation.patient_no_show_count) / conversation.patient_total_appointments) * 100)
+    : 100
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-4 shrink-0">
-        <Link
-          href="/dashboard/conversations"
-          className="text-slate-400 hover:text-slate-600 transition-colors p-1"
+    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', fontFamily: 'var(--font-manrope), sans-serif' }}>
+      {/* ===== Chat column ===== */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        {/* Header */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '12px 18px',
+            background: 'var(--v2-bg-card)',
+            borderBottom: '1px solid var(--v2-border-soft)',
+            flexShrink: 0,
+          }}
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-          </svg>
-        </Link>
+          <Link href="/dashboard/conversations" style={{ color: 'var(--v2-text-subtle)', display: 'flex', textDecoration: 'none' }}>
+            <ChevronLeft size={20} />
+          </Link>
 
-        {/* Info del paciente */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className="text-sm font-semibold text-slate-900 truncate">{conversation.patient_name}</h1>
-            <span className={`badge ${statusInfo.class} text-[10px]`}>{statusInfo.label}</span>
+          <div
+            style={{
+              width: '36px', height: '36px', borderRadius: '50%',
+              background: 'linear-gradient(135deg, var(--v2-primary), #8676FF)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            }}
+          >
+            <span style={{ color: '#fff', fontSize: '12px', fontWeight: 700 }}>{getInitials(conversation.patient_name)}</span>
           </div>
-          <p className="text-xs text-slate-400">{phoneDisplay}</p>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--v2-text)' }}>{conversation.patient_name}</p>
+              <span
+                style={{
+                  fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px',
+                  background: status === 'escalated' ? 'var(--v2-amber-soft)' : status === 'resolved' ? 'var(--v2-bg-deeper)' : 'var(--v2-green-soft)',
+                  color: status === 'escalated' ? '#b07d00' : status === 'resolved' ? 'var(--v2-text-subtle)' : 'var(--v2-green-deep)',
+                }}
+              >
+                {status === 'escalated' ? 'ESCALADA' : status === 'resolved' ? 'RESUELTA' : 'ACTIVA'}
+              </span>
+            </div>
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>
+              {formatPhone(conversation.patient_phone)}
+              {conversation.patient_eps && <span> &middot; {conversation.patient_eps}</span>}
+              {nextAppointment && (
+                <span style={{ color: 'var(--v2-pink)', fontWeight: 600 }}>
+                  {' '}&middot; Cita {formatDistanceToNow(new Date(nextAppointment.starts_at), { addSuffix: true, locale: es })}
+                </span>
+              )}
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+            {status === 'escalated' && canWrite && (
+              <button
+                onClick={() => handleAction('reopen')}
+                disabled={isPending}
+                className="btn-v2-primary"
+                style={{ fontSize: '11px', padding: '6px 12px' }}
+              >
+                Tomar control
+              </button>
+            )}
+            <button
+              onClick={() => setShowContext(!showContext)}
+              className="lg:hidden"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '6px' }}
+            >
+              <Info size={18} />
+            </button>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '6px' }}
+              >
+                <MoreVertical size={18} />
+              </button>
+              {showMenu && (
+                <div
+                  style={{
+                    position: 'absolute', right: 0, top: '100%', zIndex: 10,
+                    background: 'var(--v2-bg-card)', border: '1px solid var(--v2-border-soft)',
+                    borderRadius: 'var(--v2-radius)', boxShadow: 'var(--v2-shadow)', padding: '4px', minWidth: '180px',
+                  }}
+                >
+                  {status === 'active' && (
+                    <>
+                      <MenuBtn onClick={() => handleAction('resolve')} label="Marcar resuelta" color="var(--v2-green-deep)" />
+                      <MenuBtn onClick={() => handleAction('escalate')} label="Escalar a medico" color="var(--v2-red)" />
+                    </>
+                  )}
+                  {(status === 'resolved' || status === 'escalated') && (
+                    <MenuBtn onClick={() => handleAction('reopen')} label="Reabrir conversacion" color="var(--v2-primary)" />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Acciones */}
-        {canWrite && (
-          <div className="flex items-center gap-2 shrink-0">
-            {status === 'active' && (
-              <>
-                <button
-                  onClick={handleResolve}
-                  disabled={isPending}
-                  className="text-xs font-medium text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  Marcar resuelta
-                </button>
-                <button
-                  onClick={handleEscalate}
-                  disabled={isPending}
-                  className="text-xs font-medium text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  Escalar a médico
-                </button>
-              </>
-            )}
-            {(status === 'resolved' || status === 'escalated') && (
-              <div className="flex flex-col items-end gap-0.5">
-                <button
-                  onClick={handleReopen}
-                  disabled={isPending}
-                  className="text-xs font-medium text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  Reabrir y pasar al agente
-                </button>
-                <span className="text-[10px] text-slate-400">El agente responderá al próximo mensaje</span>
-              </div>
-            )}
+        {/* Status banner */}
+        {status === 'escalated' && (
+          <div style={{ padding: '8px 18px', background: 'var(--v2-amber-soft)', borderBottom: '1px solid rgba(255,184,69,0.2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={14} style={{ color: '#b07d00' }} />
+            <p style={{ fontSize: '12px', color: '#b07d00', fontWeight: 500 }}>
+              El agente escalo esta conversacion{conversation.escalated_to ? ` a ${conversation.escalated_to}` : ''}. El agente no responde hasta reabrir.
+            </p>
           </div>
         )}
-      </div>
-
-      {/* Escalation banner */}
-      {status === 'escalated' && (
-        <div className="bg-red-50 border-b border-red-100 px-6 py-2">
-          <p className="text-xs text-red-700">
-            ⚠️ Conversación escalada{conversation.escalated_to ? ` a ${conversation.escalated_to}` : ''}.
-            El agente IA no responde hasta que se reabra.
-          </p>
-        </div>
-      )}
-      {status === 'resolved' && (
-        <div className="bg-slate-50 border-b border-slate-100 px-6 py-2">
-          <p className="text-xs text-slate-500">
-            ✅ Conversación marcada como resuelta
-          </p>
-        </div>
-      )}
-
-      {/* Mensajes */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 bg-slate-50 space-y-1">
-        {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-slate-400">Sin mensajes</p>
+        {status === 'resolved' && (
+          <div style={{ padding: '8px 18px', background: 'var(--v2-bg-soft)', borderBottom: '1px solid var(--v2-border-soft)' }}>
+            <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)' }}>✅ Conversacion marcada como resuelta</p>
           </div>
-        ) : (
-          messages.map((msg, idx) => {
-            const roleConfig = ROLE_CONFIG[msg.role] ?? ROLE_CONFIG.patient
-            const showDate = shouldShowDateSeparator(
-              msg.created_at,
-              idx > 0 ? messages[idx - 1].created_at : null
-            )
-            const isRight = roleConfig.align === 'right'
+        )}
 
-            return (
-              <div key={msg.id}>
-                {/* Separador de fecha */}
-                {showDate && (
-                  <div className="flex justify-center my-4">
-                    <span className="bg-white text-slate-400 text-xs px-3 py-1 rounded-full shadow-sm border border-slate-100">
-                      {formatDateSeparator(msg.created_at)}
-                    </span>
-                  </div>
-                )}
+        {/* Messages */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '16px 18px',
+            background: 'var(--v2-bg-tinted)',
+            backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(107, 91, 255, 0.02), transparent 70%)',
+          }}
+        >
+          {messages.length === 0 ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ fontSize: '28px', marginBottom: '8px' }}>💬</p>
+                <p style={{ fontSize: '13px', color: 'var(--v2-text-muted)' }}>Sin mensajes aun</p>
+                <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>Omu esta esperando que el paciente escriba</p>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {messages.map((msg, idx) => {
+                const isRight = msg.role !== 'patient'
+                const showDate = needsDateSep(msg.created_at, idx > 0 ? messages[idx - 1].created_at : null)
+                const showLabel = idx === 0 || messages[idx - 1].role !== msg.role
 
-                {/* Burbuja */}
-                <div className={`flex mb-1.5 ${isRight ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[75%] ${isRight ? 'items-end' : 'items-start'}`}>
-                    {/* Label del rol */}
-                    {(idx === 0 || messages[idx - 1].role !== msg.role) && (
-                      <p className={`text-[10px] font-medium mb-0.5 px-1 ${
-                        msg.role === 'patient'
-                          ? 'text-slate-400'
-                          : msg.role === 'staff'
-                            ? 'text-blue-500 text-right'
-                            : 'text-emerald-600 text-right'
-                      }`}>
-                        {roleConfig.label}
-                      </p>
+                return (
+                  <div key={msg.id}>
+                    {showDate && (
+                      <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0 8px' }}>
+                        <span style={{
+                          fontSize: '10px', fontWeight: 700, fontFamily: 'var(--font-jetbrains), monospace',
+                          color: 'var(--v2-text-subtle)', background: 'var(--v2-bg-card)',
+                          padding: '3px 12px', borderRadius: '999px', border: '1px solid var(--v2-border-soft)',
+                        }}>
+                          {formatDateSep(msg.created_at)}
+                        </span>
+                      </div>
                     )}
-                    <div className={`rounded-2xl px-3.5 py-2 ${roleConfig.bubbleClass} ${
-                      isRight ? 'rounded-tr-md' : 'rounded-tl-md'
-                    }`}>
-                      {msg.message_type !== 'text' && (
-                        <p className="text-xs text-slate-400 italic mb-1">
-                          [{msg.message_type === 'image' ? 'Imagen' : msg.message_type === 'document' ? 'Documento' : msg.message_type === 'audio' ? 'Audio' : msg.message_type}]
-                        </p>
-                      )}
-                      <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
-                      <p className={`text-[10px] mt-1 ${
-                        msg.role === 'patient' ? 'text-slate-400' : 'text-slate-400'
-                      } ${isRight ? 'text-right' : ''}`}>
-                        {formatMessageTime(msg.created_at)}
-                      </p>
+
+                    <div style={{ display: 'flex', justifyContent: isRight ? 'flex-end' : 'flex-start', marginBottom: '2px' }}>
+                      <div style={{ maxWidth: '75%' }}>
+                        {showLabel && (
+                          <p style={{
+                            fontSize: '10px', fontWeight: 600, marginBottom: '2px', paddingLeft: '4px',
+                            textAlign: isRight ? 'right' : 'left',
+                            color: msg.role === 'agent' ? 'var(--v2-primary)' : msg.role === 'staff' ? 'var(--v2-pink)' : 'var(--v2-text-subtle)',
+                          }}>
+                            {msg.role === 'agent' ? '🤖 Omu' : msg.role === 'staff' ? staffName : 'Paciente'}
+                          </p>
+                        )}
+                        <div
+                          style={{
+                            padding: '10px 14px',
+                            borderRadius: '16px',
+                            ...(msg.role === 'patient'
+                              ? {
+                                  background: 'var(--v2-bg-card)',
+                                  border: '1px solid var(--v2-border-soft)',
+                                  borderBottomLeftRadius: '4px',
+                                  boxShadow: 'var(--v2-shadow-sm)',
+                                }
+                              : msg.role === 'agent'
+                                ? {
+                                    background: 'linear-gradient(135deg, var(--v2-primary), #8676FF)',
+                                    color: '#fff',
+                                    borderBottomRightRadius: '4px',
+                                    boxShadow: '0 2px 8px rgba(107, 91, 255, 0.2)',
+                                  }
+                                : {
+                                    background: 'linear-gradient(135deg, var(--v2-pink), #FF8EC4)',
+                                    color: '#fff',
+                                    borderBottomRightRadius: '4px',
+                                    boxShadow: '0 2px 8px rgba(255, 107, 170, 0.2)',
+                                  }),
+                          }}
+                        >
+                          {msg.message_type !== 'text' && (
+                            <p style={{ fontSize: '11px', opacity: 0.7, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              {msg.message_type === 'image' ? <><Image size={12} /> Imagen</> : msg.message_type === 'document' ? <><FileText size={12} /> Documento</> : msg.message_type === 'audio' ? <><Mic size={12} /> Audio</> : `[${msg.message_type}]`}
+                            </p>
+                          )}
+                          <p style={{ fontSize: '13.5px', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                          <p style={{
+                            fontSize: '10px', marginTop: '4px', opacity: 0.6,
+                            textAlign: isRight ? 'right' : 'left',
+                          }}>
+                            {formatTime(msg.created_at)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            )
-          })
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+                )
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
 
-      {/* Input de mensaje */}
-      {canWrite && (
-        <div className="bg-white border-t border-slate-200 px-6 py-3 shrink-0">
-          <div className="flex items-end gap-3">
-            <div className="flex-1 relative">
+        {/* Input */}
+        {canWrite && (
+          <div style={{ padding: '12px 18px', background: 'var(--v2-bg-card)', borderTop: '1px solid var(--v2-border-soft)', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px' }}>
               <textarea
                 ref={inputRef}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Escribe un mensaje como staff..."
+                placeholder="Escribe un mensaje..."
                 rows={1}
-                className="input-field py-2.5 pr-4 text-sm resize-none max-h-32"
-                style={{ minHeight: '42px' }}
+                className="input-v2"
+                style={{ flex: 1, resize: 'none', minHeight: '42px', maxHeight: '120px' }}
               />
+              <button
+                onClick={handleSend}
+                disabled={isPending || !newMessage.trim()}
+                style={{
+                  width: '42px', height: '42px', borderRadius: 'var(--v2-radius)', border: 'none',
+                  background: isPending || !newMessage.trim() ? 'var(--v2-bg-deeper)' : 'linear-gradient(135deg, var(--v2-primary), var(--v2-primary-deep))',
+                  color: '#fff', cursor: isPending || !newMessage.trim() ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  boxShadow: newMessage.trim() ? '0 2px 8px rgba(107, 91, 255, 0.3)' : 'none',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <Send size={16} />
+              </button>
             </div>
-            <button
-              onClick={handleSend}
-              disabled={isPending || !newMessage.trim()}
-              className="btn-primary py-2.5 px-4 shrink-0 disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-              </svg>
+            <p style={{ fontSize: '10px', color: 'var(--v2-text-subtle)', marginTop: '6px' }}>
+              Respondiendo como <span style={{ fontWeight: 600, color: 'var(--v2-pink)' }}>{staffName}</span> (humano) &middot; Enter enviar, Shift+Enter nueva linea
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ===== Context panel (desktop: always, mobile: drawer) ===== */}
+      <div
+        className={showContext ? 'fixed inset-0 z-40 flex justify-end lg:relative lg:inset-auto lg:z-auto' : 'hidden lg:block'}
+        onClick={(e) => { if (e.target === e.currentTarget) setShowContext(false) }}
+        style={showContext ? { background: 'rgba(0,0,0,0.3)' } : undefined}
+      >
+        <div
+          style={{
+            width: '320px',
+            background: 'var(--v2-bg-card)',
+            borderLeft: '1px solid var(--v2-border-soft)',
+            overflowY: 'auto',
+            height: '100%',
+            flexShrink: 0,
+          }}
+        >
+          {/* Mobile close */}
+          <div className="lg:hidden" style={{ padding: '12px 16px', borderBottom: '1px solid var(--v2-border-soft)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>Info del paciente</span>
+            <button onClick={() => setShowContext(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)' }}>
+              <X size={18} />
             </button>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1.5">
-            Enter para enviar, Shift+Enter para nueva línea
-          </p>
+
+          {/* Patient info */}
+          <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--v2-border-soft)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+              <div
+                style={{
+                  width: '44px', height: '44px', borderRadius: '50%',
+                  background: 'linear-gradient(135deg, var(--v2-primary), var(--v2-pink))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}
+              >
+                <span style={{ color: '#fff', fontSize: '14px', fontWeight: 700 }}>{getInitials(conversation.patient_name)}</span>
+              </div>
+              <div>
+                <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--v2-text)' }}>{conversation.patient_name}</p>
+                <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>{formatPhone(conversation.patient_phone)}</p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+              {conversation.patient_eps && (
+                <span className="tag-v2 tag-v2-primary">{conversation.patient_eps}</span>
+              )}
+              {conversation.patient_total_appointments >= 5 && (
+                <span className="tag-v2 tag-v2-green">Paciente leal</span>
+              )}
+              {conversation.patient_no_show_count > 0 && (
+                <span className="tag-v2 tag-v2-red">{conversation.patient_no_show_count} no-show{conversation.patient_no_show_count > 1 ? 's' : ''}</span>
+              )}
+            </div>
+            {conversation.patient_id && (
+              <Link
+                href={`/dashboard/patients/${conversation.patient_id}`}
+                style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-primary)', textDecoration: 'none', marginTop: '12px' }}
+              >
+                Ver perfil completo →
+              </Link>
+            )}
+          </div>
+
+          {/* Next appointment */}
+          <div style={{ padding: '16px' }}>
+            <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--v2-text-subtle)', marginBottom: '8px' }}>
+              Proxima cita
+            </p>
+            {nextAppointment ? (
+              <div style={{ padding: '14px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-primary-soft)', border: '1px solid var(--v2-primary-soft)' }}>
+                <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-primary)', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  {formatDistanceToNow(new Date(nextAppointment.starts_at), { addSuffix: true, locale: es })}
+                </p>
+                <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--v2-text)' }}>
+                  {nextAppointment.reason ?? 'Consulta'}
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginTop: '2px' }}>
+                  {format(new Date(nextAppointment.starts_at), "EEEE d MMM · h:mm a", { locale: es })}
+                  {nextAppointment.doctor_name && ` · ${nextAppointment.doctor_name}`}
+                </p>
+              </div>
+            ) : (
+              <div style={{ padding: '14px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-bg-soft)', textAlign: 'center' }}>
+                <Calendar size={18} style={{ color: 'var(--v2-text-subtle)', margin: '0 auto 6px' }} />
+                <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)' }}>Sin citas proximas</p>
+              </div>
+            )}
+          </div>
+
+          {/* History stats */}
+          <div style={{ padding: '0 16px 20px' }}>
+            <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--v2-text-subtle)', marginBottom: '8px' }}>
+              Historial
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <StatRow label="Total citas" value={String(conversation.patient_total_appointments)} />
+              <StatRow label="No-shows" value={String(conversation.patient_no_show_count)} />
+              <StatRow label="Asistencia" value={`${assistanceRate}%`} />
+              {conversation.patient_created_at && (
+                <StatRow label="Paciente desde" value={format(new Date(conversation.patient_created_at), "MMM yyyy", { locale: es })} />
+              )}
+            </div>
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium">
+        <div
+          style={{
+            position: 'fixed', bottom: '24px', right: '24px', zIndex: 50,
+            padding: '10px 18px', borderRadius: 'var(--v2-radius)',
+            fontSize: '13px', fontWeight: 600, color: '#fff',
+            background: 'var(--v2-text)', boxShadow: 'var(--v2-shadow-lg)',
+          }}
+        >
           {toast}
         </div>
       )}
+    </div>
+  )
+}
+
+// ---- Sub-components ----
+
+function MenuBtn({ onClick, label, color }: { onClick: () => void; label: string; color: string }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
+        fontSize: '12.5px', fontWeight: 600, color, background: 'none', border: 'none',
+        cursor: 'pointer', borderRadius: '6px', transition: 'background 0.1s',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--v2-bg-soft)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
+    >
+      {label}
+    </button>
+  )
+}
+
+function StatRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>{label}</span>
+      <span style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text)' }}>{value}</span>
     </div>
   )
 }

@@ -1,20 +1,23 @@
 'use client'
 
 // ============================================================
-// ConversationsPanel — Lista filtrable de conversaciones
+// ConversationsPanel v2 — Lista filtrable con realtime
 // ============================================================
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
-import type { ConversationStatus } from '@/types/database'
+import { Search, MessageCircle } from 'lucide-react'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 interface ConversationEntry {
   id: string
+  patient_id: string | null
   patient_name: string
   patient_phone: string
-  status: ConversationStatus
+  patient_eps: string | null
+  status: 'active' | 'escalated' | 'resolved'
   last_message_at: string
   last_message_preview: string
   last_message_role: string
@@ -24,24 +27,65 @@ interface ConversationEntry {
 interface Props {
   entries: ConversationEntry[]
   counts: { all: number; active: number; escalated: number; resolved: number }
+  clinicId: string
 }
 
-const STATUS_CONFIG: Record<ConversationStatus | 'all', { label: string; class: string }> = {
-  all: { label: 'Todas', class: '' },
-  active: { label: 'Activas', class: 'badge-green' },
-  escalated: { label: 'Escaladas', class: 'badge-red' },
-  resolved: { label: 'Resueltas', class: 'badge-slate' },
+type FilterKey = 'all' | 'active' | 'escalated' | 'resolved'
+
+const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
+  { key: 'all', label: 'Todas', emoji: '' },
+  { key: 'active', label: 'Bot manejando', emoji: '🤖' },
+  { key: 'escalated', label: 'Atencion', emoji: '⚠️' },
+  { key: 'resolved', label: 'Resueltas', emoji: '✅' },
+]
+
+const AVATAR_GRADIENTS = [
+  'linear-gradient(135deg, #6B5BFF, #8676FF)',
+  'linear-gradient(135deg, #FF6BAA, #FF8EC4)',
+  'linear-gradient(135deg, #34C77B, #5DD99A)',
+  'linear-gradient(135deg, #FFB845, #FFCF7A)',
+  'linear-gradient(135deg, #5444E5, #6B5BFF)',
+]
+
+function getAvatarGradient(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length]
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  patient: 'Paciente',
-  agent: 'Agente',
-  staff: 'Staff',
+function getInitials(name: string): string {
+  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
 }
 
-export function ConversationsPanel({ entries, counts }: Props) {
-  const [filter, setFilter] = useState<ConversationStatus | 'all'>('all')
+export function ConversationsPanel({ entries: initialEntries, counts: initialCounts, clinicId }: Props) {
+  const [entries, setEntries] = useState(initialEntries)
+  const [counts, setCounts] = useState(initialCounts)
+  const [filter, setFilter] = useState<FilterKey>('all')
   const [search, setSearch] = useState('')
+
+  // Sync with server if props change (navigation)
+  useEffect(() => {
+    setEntries(initialEntries)
+    setCounts(initialCounts)
+  }, [initialEntries, initialCounts])
+
+  // Realtime: listen for conversation changes
+  useEffect(() => {
+    const supabase = createSupabaseBrowserClient()
+    const channel = supabase
+      .channel('conv-list-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversations', filter: `clinic_id=eq.${clinicId}` },
+        () => {
+          // Simple approach: reload page on any conversation change
+          window.location.reload()
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [clinicId])
 
   const filtered = entries.filter((e) => {
     if (filter !== 'all' && e.status !== filter) return false
@@ -53,114 +97,210 @@ export function ConversationsPanel({ entries, counts }: Props) {
   })
 
   return (
-    <>
-      {/* Stat cards */}
-      <div className="grid grid-cols-4 gap-4">
-        {(['all', 'active', 'escalated', 'resolved'] as const).map((key) => (
-          <button
-            key={key}
-            onClick={() => setFilter(key)}
-            className={`card p-4 text-left transition-all ${
-              filter === key ? 'ring-2 ring-blue-500 ring-offset-1' : 'hover:border-slate-300'
-            }`}
-          >
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-2">
-              {STATUS_CONFIG[key].label}
-            </p>
-            <p className="text-2xl font-semibold text-slate-900">{counts[key]}</p>
-          </button>
-        ))}
-      </div>
-
-      {/* Barra de búsqueda */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
-          <div className="relative flex-1">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
+    <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }}>
+      {/* Search + Filter card */}
+      <div
+        style={{
+          background: 'var(--v2-bg-card)',
+          border: '1px solid var(--v2-border-soft)',
+          borderRadius: 'var(--v2-radius-lg)',
+          boxShadow: 'var(--v2-shadow-sm)',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Search */}
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--v2-border-soft)' }}>
+          <div style={{ position: 'relative' }}>
+            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--v2-text-subtle)' }} />
             <input
               type="text"
-              placeholder="Buscar por nombre o teléfono..."
+              placeholder="Buscar por nombre o telefono..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="input-field pl-10 py-2 text-sm"
+              className="input-v2"
+              style={{ paddingLeft: '38px' }}
             />
           </div>
-          <span className="text-xs text-slate-400">{filtered.length} conversaciones</span>
         </div>
 
-        {/* Lista */}
+        {/* Filter tabs */}
+        <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--v2-border-soft)', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          {FILTERS.map((f) => {
+            const count = counts[f.key]
+            const isActive = filter === f.key
+            return (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: '999px',
+                  fontSize: '12.5px',
+                  fontWeight: isActive ? 700 : 500,
+                  border: 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  fontFamily: 'var(--font-manrope), sans-serif',
+                  ...(isActive
+                    ? {
+                        background: 'linear-gradient(135deg, var(--v2-primary), #8676FF)',
+                        color: '#fff',
+                        boxShadow: '0 2px 6px rgba(107, 91, 255, 0.25)',
+                      }
+                    : {
+                        background: 'var(--v2-bg-soft)',
+                        color: 'var(--v2-text-muted)',
+                      }),
+                }}
+              >
+                {f.emoji && <span>{f.emoji}</span>}
+                {f.label}
+                <span
+                  style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    borderRadius: '999px',
+                    ...(isActive
+                      ? { background: 'rgba(255,255,255,0.25)', color: '#fff' }
+                      : {
+                          background: f.key === 'escalated' && count > 0 ? 'var(--v2-pink-soft)' : 'var(--v2-bg-deeper)',
+                          color: f.key === 'escalated' && count > 0 ? 'var(--v2-pink)' : 'var(--v2-text-subtle)',
+                        }),
+                  }}
+                >
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* List */}
         {filtered.length === 0 ? (
-          <div className="p-16 text-center">
-            <p className="text-4xl mb-3">💬</p>
-            <p className="text-slate-900 font-medium mb-1">
-              {search ? 'Sin resultados' : 'No hay conversaciones'}
+          <div style={{ padding: '64px 24px', textAlign: 'center' }}>
+            <MessageCircle size={40} style={{ color: 'var(--v2-primary)', opacity: 0.3, margin: '0 auto 12px' }} />
+            <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--v2-text-muted)' }}>
+              {search ? 'Sin resultados' : filter !== 'all' ? `No hay conversaciones ${FILTERS.find((f) => f.key === filter)?.label.toLowerCase()}` : 'Aun no hay conversaciones'}
             </p>
-            <p className="text-slate-500 text-sm">
-              {search
-                ? 'Intenta con otro término de búsqueda'
-                : 'Las conversaciones con pacientes aparecerán aquí'}
+            <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>
+              {search ? 'Intenta con otro termino' : 'Las conversaciones de pacientes via WhatsApp apareceran aqui'}
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
-            {filtered.map((entry) => {
-              const statusInfo = STATUS_CONFIG[entry.status]
+          <div>
+            {filtered.map((entry, idx) => {
               const isUnread = entry.last_message_role === 'patient'
-              const timeAgo = formatDistanceToNow(new Date(entry.last_message_at), {
-                addSuffix: true,
-                locale: es,
-              })
+              const timeAgo = formatDistanceToNow(new Date(entry.last_message_at), { addSuffix: true, locale: es })
 
               return (
                 <Link
                   key={entry.id}
                   href={`/dashboard/conversations/${entry.id}`}
-                  className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '14px 18px',
+                    borderBottom: idx < filtered.length - 1 ? '1px solid var(--v2-border-soft)' : 'none',
+                    textDecoration: 'none',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--v2-primary-tint)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                 >
-                  {/* Avatar con indicador */}
-                  <div className="relative shrink-0">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${
-                      entry.status === 'escalated' ? 'bg-red-100 text-red-700'
-                        : isUnread ? 'bg-blue-100 text-blue-700'
-                          : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      {entry.patient_name.split(' ').filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}
+                  {/* Avatar */}
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <div
+                      style={{
+                        width: '44px',
+                        height: '44px',
+                        borderRadius: '50%',
+                        background: getAvatarGradient(entry.patient_name),
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: isUnread ? '0 0 0 2px var(--v2-bg-card), 0 0 0 4px var(--v2-primary-soft)' : 'none',
+                      }}
+                    >
+                      <span style={{ color: '#fff', fontSize: '13px', fontWeight: 700 }}>{getInitials(entry.patient_name)}</span>
                     </div>
-                    {entry.status === 'escalated' ? (
-                      <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full border-2 border-white" />
-                    ) : isUnread ? (
-                      <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-blue-500 rounded-full border-2 border-white" />
-                    ) : null}
+                    {/* Status dot */}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        bottom: '0',
+                        right: '0',
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '50%',
+                        border: '2px solid var(--v2-bg-card)',
+                        background: entry.status === 'escalated' ? 'var(--v2-amber)' : entry.status === 'resolved' ? 'var(--v2-text-subtle)' : 'var(--v2-primary)',
+                      }}
+                    />
                   </div>
 
-                  {/* Contenido */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <p className={`text-sm truncate ${isUnread ? 'font-semibold text-slate-900' : 'font-medium text-slate-700'}`}>
+                  {/* Center */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                      <p style={{
+                        fontSize: '13.5px',
+                        fontWeight: isUnread ? 700 : 600,
+                        color: 'var(--v2-text)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
                         {entry.patient_name}
                       </p>
-                      {entry.status === 'escalated' ? (
-                        <span className="badge badge-red text-[10px] whitespace-nowrap">🚨 Urgente</span>
-                      ) : (
-                        <span className={`badge ${statusInfo.class} text-[10px]`}>{statusInfo.label}</span>
+                      {entry.status === 'escalated' && (
+                        <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-amber-soft)', color: '#b07d00' }}>
+                          ESC
+                        </span>
+                      )}
+                      {entry.last_message_role === 'staff' && (
+                        <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-pink-soft)', color: 'var(--v2-pink)' }}>
+                          TU
+                        </span>
                       )}
                     </div>
-                    <p className={`text-xs truncate ${isUnread ? 'text-slate-700' : 'text-slate-400'}`}>
-                      {entry.last_message_role && (
-                        <span className="text-slate-400">{ROLE_LABELS[entry.last_message_role] ?? entry.last_message_role}: </span>
-                      )}
+                    <p style={{
+                      fontSize: '12px',
+                      color: isUnread ? 'var(--v2-text)' : 'var(--v2-text-subtle)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {entry.last_message_role === 'agent' && '🤖 '}
                       {entry.last_message_preview || 'Sin mensajes'}
                     </p>
                   </div>
 
-                  {/* Metadata */}
-                  <div className="text-right shrink-0">
-                    <p className={`text-xs ${isUnread ? 'text-blue-600 font-medium' : 'text-slate-400'}`}>
+                  {/* Right */}
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{
+                      fontSize: '11px',
+                      fontFamily: 'var(--font-jetbrains), monospace',
+                      fontWeight: 500,
+                      color: isUnread ? 'var(--v2-primary)' : 'var(--v2-text-subtle)',
+                    }}>
                       {timeAgo}
                     </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5">{entry.message_count} msgs</p>
+                    {isUnread && (
+                      <div
+                        style={{
+                          width: '8px',
+                          height: '8px',
+                          borderRadius: '50%',
+                          background: 'var(--v2-pink)',
+                          marginLeft: 'auto',
+                          marginTop: '4px',
+                        }}
+                      />
+                    )}
                   </div>
                 </Link>
               )
@@ -168,6 +308,6 @@ export function ConversationsPanel({ entries, counts }: Props) {
           </div>
         )}
       </div>
-    </>
+    </div>
   )
 }

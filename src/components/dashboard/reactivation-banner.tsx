@@ -1,26 +1,21 @@
 'use client'
 
 // ============================================================
-// ReactivationBanner — Banner de reactivación en detalle de paciente
-// Muestra frecuencia de visita, días sin visita, y botón de recordatorio
+// ReactivationBanner v2 — Frecuencia de visita + alerta inactividad
 // ============================================================
 
 import { useState, useTransition } from 'react'
 import { sendManualReactivation } from '@/app/actions/reactivation'
+import { AlertCircle, Check, Send } from 'lucide-react'
 
 interface Props {
   patientId: string
   visitFrequencyDays: number | null
   daysSinceLastVisit: number | null
-  frequencyLabel: string | null  // "cada 2 semanas", etc.
+  frequencyLabel: string | null
 }
 
-export function ReactivationBanner({
-  patientId,
-  visitFrequencyDays,
-  daysSinceLastVisit,
-  frequencyLabel,
-}: Props) {
+export function ReactivationBanner({ patientId, visitFrequencyDays, daysSinceLastVisit, frequencyLabel }: Props) {
   const [isPending, startTransition] = useTransition()
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,78 +28,92 @@ export function ReactivationBanner({
     setError(null)
     startTransition(async () => {
       const result = await sendManualReactivation(patientId)
-      if (result.ok) {
-        setSent(true)
-      } else {
-        setError(result.error ?? 'Error enviando mensaje')
-      }
+      if (result.ok) setSent(true)
+      else setError(result.error ?? 'Error enviando mensaje')
     })
   }
 
-  return (
-    <div className="space-y-3">
-      {/* Info de frecuencia */}
-      <div className="card p-5">
-        <h2 className="text-sm font-semibold text-slate-900 mb-3">Frecuencia de visita</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-0.5">Frecuencia habitual</p>
-            <p className="text-sm font-medium text-slate-700">
-              {frequencyLabel ?? 'Sin datos suficientes'}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-0.5">Última visita</p>
-            <p className={`text-sm font-medium ${isOverdue ? 'text-amber-600' : 'text-slate-700'}`}>
-              {daysSinceLastVisit !== null
-                ? `Hace ${daysSinceLastVisit} días`
-                : 'Sin visitas'}
-            </p>
-          </div>
-          {visitFrequencyDays && (
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-0.5">Próxima visita esperada</p>
-              <p className={`text-sm font-medium ${isOverdue ? 'text-red-600' : 'text-slate-700'}`}>
-                {daysSinceLastVisit !== null
-                  ? daysSinceLastVisit > visitFrequencyDays
-                    ? `Vencida hace ${daysSinceLastVisit - visitFrequencyDays} días`
-                    : `En ${visitFrequencyDays - daysSinceLastVisit} días`
-                  : '-'}
-              </p>
-            </div>
+  if (!isOverdue) {
+    // Show frequency info card only (no alert)
+    if (!frequencyLabel && daysSinceLastVisit === null) return null
+    return (
+      <div
+        style={{
+          background: 'var(--v2-bg-card)',
+          border: '1px solid var(--v2-border-soft)',
+          borderRadius: 'var(--v2-radius-lg)',
+          boxShadow: 'var(--v2-shadow-sm)',
+          padding: '16px 20px',
+          fontFamily: 'var(--font-manrope), sans-serif',
+        }}
+      >
+        <p style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--v2-text-subtle)', marginBottom: '8px' }}>
+          Frecuencia de visita
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px', fontSize: '13px' }}>
+          <InfoBlock label="Habitual" value={frequencyLabel ?? 'Sin datos'} />
+          <InfoBlock label="Ultima visita" value={daysSinceLastVisit !== null ? `Hace ${daysSinceLastVisit} dias` : 'Sin visitas'} />
+          {visitFrequencyDays && daysSinceLastVisit !== null && (
+            <InfoBlock label="Proxima esperada" value={daysSinceLastVisit > visitFrequencyDays ? `Vencida hace ${daysSinceLastVisit - visitFrequencyDays}d` : `En ${visitFrequencyDays - daysSinceLastVisit}d`} valueColor={daysSinceLastVisit > visitFrequencyDays ? 'var(--v2-amber)' : undefined} />
           )}
         </div>
       </div>
+    )
+  }
 
-      {/* Overdue banner */}
-      {isOverdue && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-amber-800">
-              Este paciente no ha vuelto en más tiempo del habitual
-            </p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              {visitFrequencyDays
-                ? `Frecuencia habitual: cada ${visitFrequencyDays} días · Última visita: hace ${daysSinceLastVisit} días`
-                : `Última visita: hace ${daysSinceLastVisit} días`}
-            </p>
-          </div>
-          {sent ? (
-            <span className="badge bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap shrink-0">
-              Recordatorio enviado
-            </span>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={isPending}
-              className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap shrink-0 disabled:opacity-50"
-            >
-              {isPending ? 'Enviando...' : 'Enviar recordatorio ahora'}
-            </button>
-          )}
-          {error && <p className="text-xs text-red-600">{error}</p>}
+  // Overdue alert
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '16px',
+        padding: '16px 20px',
+        borderRadius: 'var(--v2-radius-lg)',
+        background: 'var(--v2-amber-soft)',
+        border: '1px solid rgba(255,184,69,0.3)',
+        fontFamily: 'var(--font-manrope), sans-serif',
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: 1, minWidth: 0 }}>
+        <AlertCircle size={18} style={{ color: '#b07d00', flexShrink: 0, marginTop: '1px' }} />
+        <div>
+          <p style={{ fontSize: '13px', fontWeight: 700, color: '#b07d00' }}>
+            Paciente inactivo
+          </p>
+          <p style={{ fontSize: '12px', color: '#b07d00', opacity: 0.8, marginTop: '2px' }}>
+            Ultima visita hace {daysSinceLastVisit} dias.
+            {frequencyLabel && ` Suele agendar ${frequencyLabel}.`}
+          </p>
         </div>
+      </div>
+
+      {sent ? (
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600, color: 'var(--v2-green-deep)', background: 'var(--v2-green-soft)', padding: '6px 12px', borderRadius: '8px', flexShrink: 0 }}>
+          <Check size={14} /> Enviado
+        </span>
+      ) : (
+        <button
+          onClick={handleSend}
+          disabled={isPending}
+          className="btn-v2-primary"
+          style={{ fontSize: '12px', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, opacity: isPending ? 0.6 : 1 }}
+        >
+          <Send size={13} /> {isPending ? 'Enviando...' : 'Enviar recordatorio'}
+        </button>
       )}
+      {error && <p style={{ fontSize: '11px', color: 'var(--v2-red)', width: '100%' }}>{error}</p>}
+    </div>
+  )
+}
+
+function InfoBlock({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+  return (
+    <div>
+      <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-text-subtle)' }}>{label}</p>
+      <p style={{ fontSize: '13px', fontWeight: 600, color: valueColor ?? 'var(--v2-text)' }}>{value}</p>
     </div>
   )
 }

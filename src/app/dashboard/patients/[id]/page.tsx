@@ -1,5 +1,5 @@
 // ============================================================
-// Detalle de paciente — Perfil, citas y conversaciones
+// Detalle de paciente v2 — Hero + KPIs + Tabs
 // Ruta: /dashboard/patients/[id]
 // ============================================================
 
@@ -9,31 +9,10 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getPatientDetail } from '@/app/actions/patients'
 import { formatFrequency } from '@/app/actions/reactivation'
-import { ReactivationBanner } from '@/components/dashboard/reactivation-banner'
-import { formatCOP, formatPhone, formatTimeForPatient } from '@/lib/utils/dates'
-import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
-
-const STATUS_LABELS: Record<string, { label: string; class: string }> = {
-  confirmed: { label: 'Confirmada', class: 'badge-blue' },
-  completed: { label: 'Completada', class: 'badge-green' },
-  no_show: { label: 'No-show', class: 'badge-red' },
-  cancelled: { label: 'Cancelada', class: 'badge-slate' },
-  rescheduled: { label: 'Reagendada', class: 'badge-amber' },
-}
-
-const PAYMENT_COLORS: Record<string, string> = {
-  EPS: 'badge-blue',
-  Particular: 'badge-green',
-  Póliza: 'badge-slate',
-  ARL: 'badge-amber',
-}
-
-const CONV_STATUS: Record<string, { label: string; class: string }> = {
-  active: { label: 'Activa', class: 'badge-green' },
-  resolved: { label: 'Resuelta', class: 'badge-slate' },
-  escalated: { label: 'Escalada', class: 'badge-red' },
-}
+import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getUserSession } from '@/lib/session'
+import { PatientDetailV2 } from '@/components/dashboard/patient-detail-v2'
+import { redirect } from 'next/navigation'
 
 export default async function PatientDetailPage({
   params,
@@ -41,207 +20,47 @@ export default async function PatientDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const result = await getPatientDetail(id)
+  const session = await getUserSession()
+  if (!session) redirect('/login')
 
+  const result = await getPatientDetail(id)
   if (!result) notFound()
 
   const { patient, appointments, conversations } = result
 
-  const noShowRate = patient.total_appointments > 0
-    ? Math.round((patient.no_show_count / patient.total_appointments) * 100)
-    : 0
+  // Get doctor with most appointments
+  const doctorCounts: Record<string, { name: string; count: number }> = {}
+  for (const a of appointments) {
+    if (a.doctor_name) {
+      if (!doctorCounts[a.doctor_name]) doctorCounts[a.doctor_name] = { name: a.doctor_name, count: 0 }
+      doctorCounts[a.doctor_name].count++
+    }
+  }
+  const topDoctor = Object.values(doctorCounts).sort((a, b) => b.count - a.count)[0] ?? null
+
+  // Check for existing conversation
+  const { data: lastConv } = await supabaseAdmin
+    .from('conversations')
+    .select('id')
+    .eq('clinic_id', session.clinicId)
+    .eq('patient_id', id)
+    .order('last_message_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const conversationId = lastConv?.id as string | null
+
+  // Frequency label
+  const frequencyLabel = patient.visit_frequency_days ? await formatFrequency(patient.visit_frequency_days) : null
 
   return (
-    <div className="p-6 lg:p-8 space-y-6">
-      {/* Breadcrumb + Back */}
-      <div className="flex items-center gap-2 text-sm">
-        <Link href="/dashboard/patients" className="text-blue-700 hover:text-blue-800 hover:underline">
-          Pacientes
-        </Link>
-        <span className="text-slate-300">/</span>
-        <span className="text-slate-500 truncate">{patient.name}</span>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{patient.name}</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{formatPhone(patient.phone)}</p>
-        </div>
-        <div className="flex gap-2">
-          <span className={`badge ${patient.eps && patient.eps !== 'Particular' ? 'badge-blue' : 'badge-slate'}`}>
-            {patient.eps ?? 'Particular'}
-          </span>
-        </div>
-      </div>
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MiniStat label="Total citas" value={String(patient.total_appointments)} />
-        <MiniStat
-          label="No-shows"
-          value={`${patient.no_show_count} (${noShowRate}%)`}
-          valueClass={noShowRate > 30 ? 'text-red-600' : noShowRate > 15 ? 'text-amber-600' : undefined}
-        />
-        <MiniStat
-          label="Paciente desde"
-          value={format(new Date(patient.created_at), "d MMM yyyy", { locale: es })}
-        />
-      </div>
-
-      {/* Profile card */}
-      <div className="card p-5">
-        <h2 className="text-sm font-semibold text-slate-900 mb-4">Información personal</h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-          <InfoItem label="Documento" value={`${patient.document_type} ${patient.document_number ?? 'No registrado'}`} />
-          <InfoItem label="Fecha de nacimiento" value={patient.date_of_birth ? format(new Date(patient.date_of_birth + 'T12:00:00'), "d MMM yyyy", { locale: es }) : 'No registrada'} />
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-0.5">Email</p>
-            {patient.email ? (
-              <p className="text-sm font-medium text-slate-700">{patient.email}</p>
-            ) : (
-              <Link
-                href={`/dashboard/patients?edit=${patient.id}&focus=email`}
-                className="text-sm text-blue-600 hover:text-blue-700 hover:underline"
-              >
-                Sin correo — Agregar
-              </Link>
-            )}
-          </div>
-          <InfoItem label="EPS" value={patient.eps ?? 'Particular'} />
-        </div>
-        {patient.notes && (
-          <div className="mt-4 p-3 bg-slate-50 rounded-lg">
-            <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-1">Notas</p>
-            <p className="text-slate-700 text-sm">{patient.notes}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Frecuencia de visita + alerta de reactivación */}
-      {patient.total_appointments >= 1 && (
-        <ReactivationBanner
-          patientId={patient.id}
-          visitFrequencyDays={patient.visit_frequency_days}
-          daysSinceLastVisit={patient.days_since_last_visit}
-          frequencyLabel={patient.visit_frequency_days ? await formatFrequency(patient.visit_frequency_days) : null}
-        />
-      )}
-
-      {/* Appointments */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">Historial de citas</h2>
-          {appointments.length > 0 && (
-            <span className="badge badge-blue">{appointments.length}</span>
-          )}
-        </div>
-        {appointments.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-slate-500 text-sm">No hay citas registradas</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50">
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Fecha</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Motivo</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Doctor</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Estado</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Pago</th>
-                  <th className="text-left py-3 px-5 text-xs font-medium uppercase tracking-wider text-slate-500">Docs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {appointments.map((a) => {
-                  const statusInfo = STATUS_LABELS[a.status] ?? { label: a.status, class: 'badge-slate' }
-                  return (
-                    <tr key={a.id} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-5 text-sm text-slate-900">
-                        <span className="font-medium">{format(new Date(a.starts_at), "d MMM yyyy", { locale: es })}</span>
-                        <span className="text-slate-400 ml-1.5">{formatTimeForPatient(a.starts_at)}</span>
-                      </td>
-                      <td className="py-3 px-5 text-slate-600 text-sm">{a.reason ?? '-'}</td>
-                      <td className="py-3 px-5 text-slate-600 text-sm">{a.doctor_name ?? '-'}</td>
-                      <td className="py-3 px-5">
-                        <span className={`badge ${statusInfo.class}`}>{statusInfo.label}</span>
-                      </td>
-                      <td className="py-3 px-5">
-                        <span className={`badge ${PAYMENT_COLORS[a.payment_type] ?? 'badge-slate'}`}>{a.payment_type}</span>
-                      </td>
-                      <td className="py-3 px-5">
-                        {a.documents_requested ? (
-                          a.documents_received
-                            ? <span className="badge badge-green">Recibidos</span>
-                            : <span className="badge badge-amber">Pendientes</span>
-                        ) : (
-                          <span className="text-slate-300 text-xs">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Conversations */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">Conversaciones WhatsApp</h2>
-          {conversations.length > 0 && (
-            <span className="badge badge-blue">{conversations.length}</span>
-          )}
-        </div>
-        {conversations.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-slate-500 text-sm">No hay conversaciones registradas</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-100">
-            {conversations.map((c) => {
-              const convStatus = CONV_STATUS[c.status] ?? { label: c.status, class: 'badge-slate' }
-              return (
-                <div key={c.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <span className={`badge ${convStatus.class}`}>{convStatus.label}</span>
-                    <span className="text-slate-500 text-sm">{c.message_count} mensajes</span>
-                  </div>
-                  <span className="text-slate-400 text-xs">
-                    {format(new Date(c.last_message_at), "d MMM yyyy, h:mm a", { locale: es })}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-    </div>
-  )
-}
-
-// ============================================================
-// Sub-components
-// ============================================================
-
-function MiniStat({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
-  return (
-    <div className="card p-4">
-      <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-1">{label}</p>
-      <p className={`text-lg font-semibold ${valueClass ?? 'text-slate-900'}`}>{value}</p>
-    </div>
-  )
-}
-
-function InfoItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-0.5">{label}</p>
-      <p className="text-sm font-medium text-slate-700">{value}</p>
-    </div>
+    <PatientDetailV2
+      patient={patient}
+      appointments={appointments}
+      conversations={conversations}
+      topDoctorName={topDoctor?.name ?? null}
+      conversationId={conversationId}
+      frequencyLabel={frequencyLabel}
+    />
   )
 }

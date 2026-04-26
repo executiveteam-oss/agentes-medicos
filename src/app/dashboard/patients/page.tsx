@@ -1,5 +1,5 @@
 // ============================================================
-// Directorio de pacientes — Carga todos, filtra client-side
+// Pacientes v2 — Directorio de pacientes
 // Ruta: /dashboard/patients
 // ============================================================
 
@@ -10,7 +10,7 @@ import { getUserSession } from '@/lib/session'
 import { getRestrictedDoctorId, isDoctorUnlinked } from '@/lib/doctor-filter'
 import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-banner'
 import { redirect } from 'next/navigation'
-import { PatientsTable } from '@/components/dashboard/patients-table'
+import { PatientsListV2 } from '@/components/dashboard/patients-list-v2'
 
 export default async function PatientsPage() {
   const session = await getUserSession()
@@ -19,49 +19,75 @@ export default async function PatientsPage() {
 
   const restrictDoctorId = getRestrictedDoctorId(session)
 
-  let patients: { id: string; name: string; phone: string; eps: string | null; total_appointments: number; no_show_count: number }[]
+  let patients: { id: string; name: string; phone: string; eps: string | null; total_appointments: number; no_show_count: number; created_at: string }[]
 
   if (restrictDoctorId) {
-    // Doctor role: solo pacientes que han tenido citas con este doctor
     const { data: aptPatientIds } = await supabaseAdmin
       .from('appointments')
       .select('patient_id')
       .eq('clinic_id', session.clinicId)
       .eq('doctor_id', restrictDoctorId)
 
-    const uniquePatientIds = [...new Set((aptPatientIds ?? []).map((a) => a.patient_id).filter(Boolean))]
+    const uniqueIds = [...new Set((aptPatientIds ?? []).map((a) => a.patient_id).filter(Boolean))]
 
-    if (uniquePatientIds.length === 0) {
+    if (uniqueIds.length === 0) {
       patients = []
     } else {
       const { data } = await supabaseAdmin
         .from('patients')
-        .select('id, name, phone, eps, total_appointments, no_show_count')
+        .select('id, name, phone, eps, total_appointments, no_show_count, created_at')
         .eq('clinic_id', session.clinicId)
-        .in('id', uniquePatientIds)
+        .in('id', uniqueIds)
         .order('name', { ascending: true })
       patients = data ?? []
     }
   } else {
     const { data } = await supabaseAdmin
       .from('patients')
-      .select('id, name, phone, eps, total_appointments, no_show_count')
+      .select('id, name, phone, eps, total_appointments, no_show_count, created_at')
       .eq('clinic_id', session.clinicId)
       .order('name', { ascending: true })
       .limit(500)
     patients = data ?? []
   }
 
+  // Count active this month
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const activeThisMonth = patients.filter((p) => new Date(p.created_at) >= monthStart).length
+
   return (
-    <div className="p-6 lg:p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Pacientes</h1>
-        <p className="text-slate-500 text-sm">
-          {restrictDoctorId ? 'Pacientes que han tenido citas contigo' : 'Directorio de pacientes del consultorio'}
-        </p>
+    <div className="space-y-6">
+      {/* Header */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+        <div>
+          <h1
+            className="text-2xl sm:text-3xl"
+            style={{ fontWeight: 800, fontFamily: 'var(--font-manrope), sans-serif', color: 'var(--v2-text)', letterSpacing: '-0.02em' }}
+          >
+            Tus{' '}
+            <span
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontStyle: 'italic',
+                fontWeight: 400,
+                background: 'linear-gradient(135deg, var(--v2-primary), var(--v2-pink))',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+              }}
+            >
+              pacientes
+            </span>
+          </h1>
+          <p style={{ fontSize: '13.5px', color: 'var(--v2-text-muted)', marginTop: '4px', fontFamily: 'var(--font-manrope), sans-serif' }}>
+            {patients.length} registrados
+            {restrictDoctorId ? ' (tus pacientes)' : ` · ${activeThisMonth} nuevos este mes`}
+          </p>
+        </div>
       </div>
 
-      <PatientsTable initialPatients={patients} />
+      <PatientsListV2 initialPatients={patients} />
     </div>
   )
 }

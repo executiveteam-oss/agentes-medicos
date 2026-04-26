@@ -31,6 +31,7 @@ interface NavItem {
 const ALL_NAV_ITEMS: NavItem[] = [
   // Operacion
   { href: '/dashboard', label: 'Dashboard', iconName: 'LayoutDashboard', module: 'agenda', section: 'operation' },
+  { href: '/dashboard/agenda', label: 'Agenda', iconName: 'CalendarDays', module: 'agenda', section: 'operation' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations', section: 'operation' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients', section: 'operation' },
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow', section: 'operation' },

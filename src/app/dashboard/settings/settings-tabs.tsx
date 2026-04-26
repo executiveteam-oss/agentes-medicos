@@ -18,8 +18,7 @@ import {
 const ALL_TABS = [
   { href: '/dashboard/settings/clinic', label: 'Consultorio', icon: Building2, doctorVisible: true, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/plan', label: 'Plan', icon: CreditCard, doctorVisible: false, superAdminOnly: false, external: false },
-  // TODO: link a /dashboard/settings/doctors cuando se cree en sub-fase 3B.2.2
-  { href: '/dashboard/whatsapp#doctores', label: 'Medicos', icon: Stethoscope, doctorVisible: false, superAdminOnly: false, external: true },
+  { href: '/dashboard/settings/doctors', label: 'Medicos', icon: Stethoscope, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/whatsapp', label: 'WhatsApp', icon: MessageSquare, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/integrations', label: 'Integraciones', icon: Plug, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/users', label: 'Equipo', icon: Users, doctorVisible: false, superAdminOnly: false, external: false },

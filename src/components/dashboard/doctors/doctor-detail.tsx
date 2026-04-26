@@ -22,6 +22,7 @@ import {
   deleteConsultationType,
   toggleConsultationType,
 } from '@/app/actions/consultation-types'
+import { getSchedulesForType, saveSchedulesForType, type CtSchedule } from '@/app/actions/consultation-type-schedules'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
 import type { ConsultationType } from '@/types/database'
 import type { BlockedDate } from '@/app/actions/blocked-dates'
@@ -548,10 +549,165 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
         <button onClick={() => setBookable(!bookable)} className="toggle-v2" data-active={bookable ? 'true' : 'false'} />
         <span style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Agendable por WhatsApp</span>
       </div>
-      <div style={{ display: 'flex', gap: '8px' }}>
+
+      {/* Schedules section */}
+      <CtSchedulesEditor ctId={ct.id} />
+
+      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
         <button onClick={handleSave} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '12px', padding: '7px 14px' }}>{isPending ? 'Guardando...' : 'Guardar'}</button>
         <button onClick={onDelete} disabled={isPending} style={{ fontSize: '12px', color: 'var(--v2-red)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Eliminar</button>
       </div>
+    </div>
+  )
+}
+
+// ---- Consultation Type Schedules Editor ----
+
+const SCHED_DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
+
+function CtSchedulesEditor({ ctId }: { ctId: string }) {
+  const [schedules, setSchedules] = useState<CtSchedule[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+
+  function load() {
+    setLoading(true)
+    startTransition(async () => {
+      const data = await getSchedulesForType(ctId)
+      setSchedules(data)
+      setLoaded(true)
+      setLoading(false)
+    })
+  }
+
+  // Load on mount
+  if (!loaded && !loading) load()
+
+  function addRow() {
+    setSchedules((prev) => [...prev, { id: 'new-' + Date.now(), day_of_week: 1, start_time: '08:00', end_time: '12:00' }])
+    setDirty(true); setSaved(false)
+  }
+
+  function removeRow(idx: number) {
+    setSchedules((prev) => prev.filter((_, i) => i !== idx))
+    setDirty(true); setSaved(false)
+  }
+
+  function updateRow(idx: number, field: string, value: string | number) {
+    setSchedules((prev) => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
+    setDirty(true); setSaved(false)
+  }
+
+  function validate(): string | null {
+    for (const s of schedules) {
+      if (s.start_time >= s.end_time) return `Hora inicio debe ser menor que fin (${SCHED_DAY_LABELS[s.day_of_week]})`
+    }
+    // Check overlaps per day
+    const byDay = new Map<number, Array<{ start: string; end: string }>>()
+    for (const s of schedules) {
+      const existing = byDay.get(s.day_of_week) ?? []
+      for (const e of existing) {
+        if (s.start_time < e.end && s.end_time > e.start) {
+          return `Franjas se solapan en ${SCHED_DAY_LABELS[s.day_of_week]}`
+        }
+      }
+      existing.push({ start: s.start_time, end: s.end_time })
+      byDay.set(s.day_of_week, existing)
+    }
+    return null
+  }
+
+  function handleSave() {
+    const validationError = validate()
+    if (validationError) { setError(validationError); return }
+    setError(null)
+    startTransition(async () => {
+      const result = await saveSchedulesForType(ctId, schedules.map((s) => ({
+        day_of_week: s.day_of_week,
+        start_time: s.start_time.slice(0, 5),
+        end_time: s.end_time.slice(0, 5),
+      })))
+      if (result.ok) { setSaved(true); setDirty(false); setTimeout(() => setSaved(false), 2000) }
+      else setError(result.error ?? 'Error guardando franjas')
+    })
+  }
+
+  return (
+    <div style={{ marginTop: '14px', padding: '14px 16px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-bg-soft)', border: '1px solid var(--v2-border-soft)' }}>
+      <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--v2-primary)', marginBottom: '4px' }}>Franjas horarias</p>
+      <p style={{ fontSize: '10px', color: 'var(--v2-text-subtle)', marginBottom: '10px' }}>
+        Sin franjas = se agenda en cualquier horario. Con franjas = solo dentro de ellas.
+      </p>
+
+      {loading && !loaded && <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>Cargando...</p>}
+
+      {loaded && (
+        <>
+          {schedules.length === 0 && (
+            <p style={{ fontSize: '11px', fontStyle: 'italic', color: 'var(--v2-text-subtle)', marginBottom: '8px' }}>Sin franjas · Se agenda en cualquier horario del doctor</p>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {schedules.map((s, i) => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <select
+                  value={s.day_of_week}
+                  onChange={(e) => updateRow(i, 'day_of_week', Number(e.target.value))}
+                  className="input-v2"
+                  style={{ fontSize: '11px', padding: '5px 8px', width: '70px' }}
+                >
+                  {SCHED_DAY_LABELS.map((d, di) => <option key={di} value={di}>{d}</option>)}
+                </select>
+                <input
+                  type="time"
+                  value={s.start_time.slice(0, 5)}
+                  onChange={(e) => updateRow(i, 'start_time', e.target.value)}
+                  className="input-v2"
+                  style={{ fontSize: '11px', padding: '5px 8px', width: '90px', fontFamily: 'var(--font-jetbrains), monospace' }}
+                />
+                <span style={{ fontSize: '11px', fontWeight: 600, fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-subtle)' }}>—</span>
+                <input
+                  type="time"
+                  value={s.end_time.slice(0, 5)}
+                  onChange={(e) => updateRow(i, 'end_time', e.target.value)}
+                  className="input-v2"
+                  style={{ fontSize: '11px', padding: '5px 8px', width: '90px', fontFamily: 'var(--font-jetbrains), monospace' }}
+                />
+                <button
+                  onClick={() => removeRow(i)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '4px', fontSize: '14px', lineHeight: 1 }}
+                  title="Eliminar franja"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={addRow}
+            style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-primary)', background: 'none', border: '1px dashed var(--v2-border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer', marginTop: '8px' }}
+          >
+            + Agregar franja
+          </button>
+
+          {error && <p style={{ fontSize: '11px', color: 'var(--v2-red)', marginTop: '6px' }}>{error}</p>}
+
+          {dirty && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+              <button onClick={handleSave} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '5px 12px' }}>
+                {isPending ? 'Guardando...' : 'Guardar franjas'}
+              </button>
+              {saved && <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-green-deep)' }}>Guardado ✓</span>}
+            </div>
+          )}
+          {!dirty && saved && <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-green-deep)', marginTop: '6px', display: 'block' }}>Guardado ✓</span>}
+        </>
+      )}
     </div>
   )
 }

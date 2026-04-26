@@ -104,6 +104,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                   const hourAppts = appointments.filter((a) =>
                     getColombiaDateStr(a.starts_at) === dateStr && getColombiaHour(a.starts_at) === hour
                   )
+                  const groupCount = hourAppts.length
                   return (
                     <div
                       key={colIdx}
@@ -116,26 +117,29 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         background: isToday ? 'rgba(107,91,255,0.02)' : 'transparent',
                       }}
                     >
-                      {hourAppts.map((apt) => {
+                      {hourAppts.map((apt, aptIdx) => {
                         const colors = getBlockColor(apt)
                         const minutes = getColombiaMinutes(apt.starts_at)
                         const topOffset = (minutes / 60) * 100
                         const patientName = apt.patient?.name ?? apt.reason ?? 'Cita'
+                        const widthPct = 100 / groupCount
+                        const leftPct = widthPct * aptIdx
+                        const isCompact = groupCount >= 2
+                        const isVeryCompact = groupCount >= 3
                         return (
                           <button
                             key={apt.id}
                             onClick={() => setExpandedApt(expandedApt === apt.id ? null : apt.id)}
                             style={{
                               position: 'absolute',
-                              left: '2px',
-                              right: '2px',
+                              width: `calc(${widthPct}% - 2px)`,
+                              left: `${leftPct}%`,
                               top: `${topOffset}%`,
                               minHeight: '22px',
                               maxHeight: '95%',
                               background: colors.bg,
-                              borderLeft: `3px solid ${colors.border}`,
-                              borderRadius: '4px',
-                              padding: '2px 6px',
+                              borderRadius: '3px',
+                              padding: isCompact ? '1px 3px' : '2px 6px',
                               cursor: 'pointer',
                               overflow: 'hidden',
                               zIndex: 10,
@@ -146,13 +150,17 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                               borderLeftStyle: 'solid',
                               borderLeftWidth: '3px',
                               borderLeftColor: colors.border,
+                              borderRight: aptIdx < groupCount - 1 ? '1px solid rgba(255,255,255,0.7)' : 'none',
                             }}
                             onMouseEnter={(e) => { e.currentTarget.style.boxShadow = 'var(--v2-shadow-sm)' }}
                             onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none' }}
                             title={`${formatTimeForPatient(apt.starts_at)} — ${patientName}`}
                           >
-                            <p style={{ fontSize: '10px', fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-                              {formatTimeForPatient(apt.starts_at)} {patientName}
+                            <p style={{ fontSize: isVeryCompact ? '8px' : '10px', fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
+                              {isVeryCompact
+                                ? (apt.patient?.name ?? 'Cita').split(' ').map((w) => w[0]).join('').slice(0, 3)
+                                : `${formatTimeForPatient(apt.starts_at)} ${patientName}`
+                              }
                             </p>
                           </button>
                         )

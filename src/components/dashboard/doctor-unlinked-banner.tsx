@@ -1,26 +1,55 @@
 // ============================================================
-// Banner para doctores sin doctor_id vinculado
-// Se muestra cuando un usuario con rol Doctor no tiene
-// su cuenta vinculada a un registro de doctor en la clínica.
+// Banner para doctores sin doctor_id vinculado (v2)
 // ============================================================
+
+import { AlertTriangle } from 'lucide-react'
 
 export function DoctorUnlinkedBanner() {
   return (
-    <div className="p-6 lg:p-8">
-      <div className="card p-12 text-center max-w-lg mx-auto">
-        <div className="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto mb-4">
-          <span className="text-3xl">🔗</span>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+      <div
+        style={{
+          background: 'var(--v2-bg-card)',
+          border: '1px solid var(--v2-border-soft)',
+          borderRadius: 'var(--v2-radius-xl)',
+          boxShadow: 'var(--v2-shadow)',
+          padding: '48px 40px',
+          textAlign: 'center',
+          maxWidth: '440px',
+          width: '100%',
+          fontFamily: 'var(--font-manrope), sans-serif',
+        }}
+      >
+        <div
+          style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '16px',
+            background: 'var(--v2-amber-soft)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px',
+          }}
+        >
+          <AlertTriangle size={24} style={{ color: '#b07d00' }} />
         </div>
-        <h2 className="text-lg font-semibold text-slate-900 mb-2">
+        <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--v2-text)', marginBottom: '8px' }}>
           Cuenta no vinculada
         </h2>
-        <p className="text-slate-500 text-sm leading-relaxed">
-          Tu cuenta aún no está vinculada a un médico.
-          Contacta al administrador del consultorio para completar tu configuración.
+        <p style={{ fontSize: '14px', color: 'var(--v2-text-muted)', lineHeight: 1.5 }}>
+          Tu cuenta aun no esta vinculada a un medico. Contacta al administrador del consultorio para completar tu configuracion.
         </p>
-        <div className="mt-6 bg-slate-50 rounded-lg px-4 py-3">
-          <p className="text-xs text-slate-400">
-            El administrador debe ir a Configuración → Usuarios y vincular tu cuenta con tu perfil de médico.
+        <div
+          style={{
+            marginTop: '20px',
+            background: 'var(--v2-bg-soft)',
+            borderRadius: 'var(--v2-radius)',
+            padding: '12px 16px',
+          }}
+        >
+          <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)' }}>
+            El administrador debe ir a Configuracion → Usuarios y vincular tu cuenta con tu perfil de medico.
           </p>
         </div>
       </div>

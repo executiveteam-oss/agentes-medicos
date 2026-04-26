@@ -10,7 +10,6 @@ import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-ban
 import { nowColombia } from '@/lib/utils/dates'
 import { festivosProximos } from '@/lib/utils/festivos'
 import { NewAppointmentButton } from '@/components/dashboard/dashboard-actions'
-import { CalendarView } from '@/components/dashboard/calendar-view'
 import {
   HeroGreeting,
   KPIRow,
@@ -19,7 +18,6 @@ import {
   AgentWeekCard,
 } from '@/components/dashboard/dashboard-v2'
 import type { DashboardKPI, UpcomingAppointment, EscalatedConversation } from '@/components/dashboard/dashboard-v2'
-import type { CalendarAppointment, CalendarDoctor } from '@/components/dashboard/calendar-view'
 import { redirect } from 'next/navigation'
 import { format, startOfWeek, endOfWeek } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -33,10 +31,10 @@ function getInitials(name: string): string {
   return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
 }
 
-function getGreetingTime(): string {
+function getGreeting(): string {
   const h = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })).getHours()
-  if (h < 12) return 'Buenos dias'
-  if (h < 18) return 'Buenas tardes'
+  if (h >= 5 && h < 12) return 'Buenos dias'
+  if (h >= 12 && h < 19) return 'Buenas tardes'
   return 'Buenas noches'
 }
 
@@ -72,35 +70,25 @@ export default async function DashboardPage() {
 
   const activeDoctors = doctorsRes.data ?? []
 
-  // ---- Date range for calendar (month + padding) ----
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-  const rangeStart = new Date(monthStart)
-  rangeStart.setDate(rangeStart.getDate() - 7)
-  const rangeEnd = new Date(monthEnd)
-  rangeEnd.setDate(rangeEnd.getDate() + 7)
+  // ---- Today's appointments query (only today, not full month) ----
+  const todayStartISO = new Date(new Date(`${today}T00:00:00-05:00`)).toISOString()
+  const todayEndISO = new Date(new Date(`${today}T23:59:59-05:00`)).toISOString()
 
-  const rangeStartStr = format(rangeStart, 'yyyy-MM-dd')
-  const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd')
-
-  // ---- Appointments query ----
-  let aptsQuery = supabaseAdmin
+  let todayAptsQuery = supabaseAdmin
     .from('appointments')
     .select(`
-      id, starts_at, ends_at, status, reason, reminder_24h_sent, reminder_confirmed,
-      payment_type, doctor_id, modality, virtual_link,
-      documents_requested, documents_received, free_text_reason,
-      patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
-      doctors(name, specialty)
+      id, starts_at, ends_at, status, reason, payment_type, doctor_id, free_text_reason,
+      patients(id, name, phone),
+      doctors(name)
     `)
     .eq('clinic_id', clinic.id)
     .in('status', ['confirmed', 'rescheduled', 'completed', 'no_show', 'blocked_external'])
-    .gte('starts_at', `${rangeStartStr}T00:00:00-05:00`)
-    .lte('starts_at', `${rangeEndStr}T23:59:59-05:00`)
+    .gte('starts_at', todayStartISO)
+    .lte('starts_at', todayEndISO)
     .order('starts_at', { ascending: true })
 
   if (restrictDoctorId) {
-    aptsQuery = aptsQuery.eq('doctor_id', restrictDoctorId)
+    todayAptsQuery = todayAptsQuery.eq('doctor_id', restrictDoctorId)
   }
 
   // ---- No-show stats ----
@@ -118,14 +106,11 @@ export default async function DashboardPage() {
     .eq('status', 'no_show')
   if (restrictDoctorId) noShowQuery = noShowQuery.eq('doctor_id', restrictDoctorId)
 
-  // ---- Week stats: messages & appointments booked by agent ----
+  // ---- Week stats ----
   const weekStart = startOfWeek(now, { weekStartsOn: 1 })
   const weekEnd = endOfWeek(now, { weekStartsOn: 1 })
   const weekStartISO = new Date(weekStart.getTime() + 5 * 60 * 60 * 1000).toISOString()
   const weekEndISO = new Date(weekEnd.getTime() + 5 * 60 * 60 * 1000 + 24 * 60 * 60 * 1000 - 1).toISOString()
-
-  const todayStartISO = new Date(new Date(`${today}T00:00:00-05:00`)).toISOString()
-  const todayEndISO = new Date(new Date(`${today}T23:59:59-05:00`)).toISOString()
 
   // ---- Escalated conversations ----
   const escalatedQuery = supabaseAdmin
@@ -138,7 +123,7 @@ export default async function DashboardPage() {
 
   // ---- Run all queries in parallel ----
   const [
-    aptsRes,
+    todayAptsRes,
     allTimeRes,
     noShowRes,
     agentMsgTodayRes,
@@ -146,65 +131,39 @@ export default async function DashboardPage() {
     agentBookedRes,
     escalatedRes,
   ] = await Promise.all([
-    aptsQuery,
+    todayAptsQuery,
     allTimeQuery,
     noShowQuery,
-    // Agent messages today
-    supabaseAdmin
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('role', 'agent')
-      .gte('created_at', todayStartISO)
-      .lte('created_at', todayEndISO),
-    // Agent messages this week (resolved = agent role)
-    supabaseAdmin
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('role', 'agent')
-      .gte('created_at', weekStartISO)
-      .lte('created_at', weekEndISO),
-    // Appointments booked by agent this week
-    supabaseAdmin
-      .from('appointments')
-      .select('id', { count: 'exact', head: true })
-      .eq('clinic_id', clinic.id)
-      .eq('source', 'whatsapp_agent')
-      .gte('created_at', weekStartISO)
-      .lte('created_at', weekEndISO),
+    supabaseAdmin.from('messages').select('id', { count: 'exact', head: true }).eq('role', 'agent').gte('created_at', todayStartISO).lte('created_at', todayEndISO),
+    supabaseAdmin.from('messages').select('id', { count: 'exact', head: true }).eq('role', 'agent').gte('created_at', weekStartISO).lte('created_at', weekEndISO),
+    supabaseAdmin.from('appointments').select('id', { count: 'exact', head: true }).eq('clinic_id', clinic.id).eq('source', 'whatsapp_agent').gte('created_at', weekStartISO).lte('created_at', weekEndISO),
     escalatedQuery,
   ])
 
-  // ---- Map appointments ----
-  const appointments: CalendarAppointment[] = (aptsRes.data ?? []).map((apt) => {
+  // ---- Map today's appointments ----
+  interface TodayApt {
+    id: string
+    starts_at: string
+    status: string
+    reason: string | null
+    payment_type: string
+    free_text_reason: string | null
+    patient: { id: string; name: string; phone: string } | null
+    doctor: { name: string } | null
+  }
+
+  const todayAppts: TodayApt[] = (todayAptsRes.data ?? []).map((apt) => {
     const raw = apt as Record<string, unknown>
-    const patients = raw.patients as CalendarAppointment['patient']
-    const doctorsRel = raw.doctors as CalendarAppointment['doctor']
     return {
       id: apt.id as string,
       starts_at: apt.starts_at as string,
-      ends_at: apt.ends_at as string,
       status: apt.status as string,
       reason: (apt.reason as string) ?? null,
-      reminder_24h_sent: (apt.reminder_24h_sent as boolean) ?? false,
-      reminder_confirmed: (raw.reminder_confirmed as boolean | null) ?? null,
       payment_type: (apt.payment_type as string) ?? 'Particular',
-      modality: (raw.modality as string) ?? 'presencial',
-      virtual_link: (raw.virtual_link as string) ?? null,
-      documents_requested: (raw.documents_requested as boolean) ?? false,
-      documents_received: (raw.documents_received as boolean) ?? false,
       free_text_reason: (raw.free_text_reason as string) ?? null,
-      doctor_id: (raw.doctor_id as string) ?? null,
-      patient: patients ?? null,
-      doctor: doctorsRel ?? null,
+      patient: raw.patients as TodayApt['patient'],
+      doctor: raw.doctors as TodayApt['doctor'],
     }
-  })
-
-  // ---- Today's appointments ----
-  const todayAppts = appointments.filter((a) => {
-    const d = new Date(a.starts_at)
-    const col = new Date(d.getTime() - 5 * 60 * 60 * 1000)
-    const colStr = `${col.getUTCFullYear()}-${String(col.getUTCMonth() + 1).padStart(2, '0')}-${String(col.getUTCDate()).padStart(2, '0')}`
-    return colStr === today
   })
 
   // ---- KPIs ----
@@ -249,10 +208,11 @@ export default async function DashboardPage() {
   })
 
   // KPI data
+  const todayNonExternal = todayAppts.filter((a) => a.status !== 'blocked_external')
   const kpis: DashboardKPI[] = [
     {
       label: 'Citas hoy',
-      value: todayAppts.filter((a) => a.status !== 'blocked_external').length,
+      value: todayNonExternal.length,
       detail: `${todayAppts.filter((a) => a.status === 'completed').length} completadas`,
       icon: 'calendar',
       color: 'primary',
@@ -281,13 +241,6 @@ export default async function DashboardPage() {
     },
   ]
 
-  // Calendar doctors
-  const calendarDoctors: CalendarDoctor[] = activeDoctors.map((d) => ({
-    id: d.id as string,
-    name: d.name as string,
-    agenda_closed: (d.agenda_closed as boolean) ?? false,
-  }))
-
   // Setup checklist
   const setupProgress = !restrictDoctorId ? await getSetupProgress().catch(() => null) : null
 
@@ -303,14 +256,16 @@ export default async function DashboardPage() {
     .maybeSingle()
   const isaludIntegration = isalud as { sync_status: string; last_synced_at: string | null; sync_error: string | null } | null
 
-  // Day line
-  const dayLine = `${format(now, "EEEE d 'de' MMMM", { locale: es })} · ${todayAppts.filter((a) => a.status !== 'blocked_external').length} citas hoy`
+  // Dynamic greeting + day line
+  const greeting = getGreeting()
+  const dayLine = `${format(now, "EEEE d 'de' MMMM", { locale: es })} · ${todayNonExternal.length} citas hoy`
 
   return (
     <div className="space-y-6">
       {/* Hero */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <HeroGreeting
+          greeting={greeting}
           firstName={firstName}
           dayLine={dayLine}
           agentActive={true}
@@ -362,22 +317,11 @@ export default async function DashboardPage() {
           <EscalatedCard conversations={escalated} />
           <AgentWeekCard
             messagesResolved={agentMsgWeek}
-            avgResponseTime="< 1m"
+            avgResponseTime="< 1 min"
             appointmentsBooked={agentBooked}
           />
         </div>
       </div>
-
-      {/* Calendar (existing component, untouched) */}
-      <CalendarView
-        appointments={appointments}
-        initialDate={today}
-        clinicName={clinic.name ?? ''}
-        doctors={calendarDoctors}
-        restrictDoctorId={session.doctorId}
-        userRole={session.role.name}
-        clinicId={clinic.id}
-      />
     </div>
   )
 }

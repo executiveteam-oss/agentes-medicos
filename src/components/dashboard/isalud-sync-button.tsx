@@ -1,11 +1,11 @@
 'use client'
 
 // ============================================================
-// iSalud Sync Button + Import Modal
-// Shows in Agenda page — import or sync status
+// iSalud Sync Button + Import Modal (v2)
 // ============================================================
 
 import { useState, useEffect } from 'react'
+import { RefreshCw, Upload, X, Check, Loader2, Trash2 } from 'lucide-react'
 
 interface SyncIntegration {
   sync_status: string
@@ -33,11 +33,14 @@ export function ISaludSyncButton({ integration }: { integration: SyncIntegration
       : 'Nunca'
 
     return (
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex items-center gap-2 text-sm">
-          <div className="w-2 h-2 rounded-full bg-emerald-500" />
-          <span className="text-slate-600">iSalud</span>
-          <span className="text-slate-400 text-xs">Sync: {lastSync}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontFamily: 'var(--font-manrope), sans-serif' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: 'var(--v2-green)' }} />
+            <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: 'var(--v2-green)' }} />
+          </span>
+          <span style={{ fontWeight: 600, color: 'var(--v2-text)' }}>iSalud</span>
+          <span style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>Sync: {lastSync}</span>
         </div>
         <button
           onClick={async () => {
@@ -50,60 +53,76 @@ export function ISaludSyncButton({ integration }: { integration: SyncIntegration
             setSyncing(false)
           }}
           disabled={syncing || deleting}
-          className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          style={{
+            fontSize: '11px',
+            fontWeight: 600,
+            padding: '4px 10px',
+            borderRadius: '8px',
+            border: '1px solid var(--v2-border)',
+            background: 'var(--v2-bg-soft)',
+            color: 'var(--v2-text-muted)',
+            cursor: syncing ? 'not-allowed' : 'pointer',
+            opacity: syncing ? 0.6 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            fontFamily: 'var(--font-manrope), sans-serif',
+          }}
         >
-          {syncing ? 'Sincronizando...' : 'Forzar sync'}
+          <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
+          {syncing ? 'Sync...' : 'Sync'}
         </button>
         <button
           onClick={() => setShowModal(true)}
           disabled={deleting}
-          className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
         >
-          Cambiar credenciales
+          Credenciales
         </button>
         {!confirmDelete ? (
           <button
             onClick={() => setConfirmDelete(true)}
             disabled={deleting}
-            className="text-xs text-red-400 hover:text-red-600 transition-colors"
+            style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
           >
-            Eliminar
+            <Trash2 size={12} />
           </button>
         ) : (
-          <span className="flex items-center gap-1.5">
-            <span className="text-xs text-red-600">¿Seguro?</span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '11px', color: 'var(--v2-red)' }}>¿Seguro?</span>
             <button
               onClick={async () => {
                 setDeleting(true)
                 await fetch('/api/sync/isalud', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete' }) })
                 window.location.reload()
               }}
-              className="text-xs text-red-600 font-semibold hover:text-red-800"
+              style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-red)', background: 'none', border: 'none', cursor: 'pointer' }}
             >
-              Sí, eliminar
+              Si
             </button>
-            <button onClick={() => setConfirmDelete(false)} className="text-xs text-slate-400 hover:text-slate-600">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
               No
             </button>
           </span>
         )}
-        {syncMsg && <span className="text-xs text-emerald-600">{syncMsg}</span>}
+        {syncMsg && <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-green-deep)' }}>{syncMsg}</span>}
         {showModal && <ISaludImportModal onClose={() => setShowModal(false)} />}
       </div>
     )
   }
 
-  // No integration — show import button + modal
   return (
     <>
       <button
         onClick={() => setShowModal(true)}
-        className="inline-flex items-center gap-2 bg-[#028090] hover:bg-[#026d7a] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        className="btn-v2-secondary"
+        style={{ fontSize: '13px', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-        </svg>
-        Importar agenda desde iSalud
+        <Upload size={14} />
+        Importar iSalud
       </button>
       {showModal && <ISaludImportModal onClose={() => setShowModal(false)} />}
     </>
@@ -124,13 +143,10 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
       setError('Todos los campos son requeridos')
       return
     }
-
     setStep('importing')
     setProgress('Conectando con iSalud...')
     setError('')
-
     try {
-      // Test connection first
       const testRes = await fetch('/api/sync/isalud', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -138,20 +154,16 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
       })
       const testData = await testRes.json()
       if (!testData.ok) { setError(testData.error ?? 'No se pudo conectar'); setStep('error'); return }
-
-      setProgress('Importando médicos y bloqueando citas (puede tomar unos minutos)...')
-
+      setProgress('Importando medicos y bloqueando citas...')
       const importRes = await fetch('/api/sync/isalud', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'import', credentials: { subdomain, username, password } }),
       })
       const importData = await importRes.json() as ImportResult
-
       if (importData.errors.length > 0 && importData.appointments_blocked === 0 && importData.doctors_created === 0) {
         setError(importData.errors[0]); setStep('error'); return
       }
-
       setResult(importData)
       setStep('done')
     } catch (err) {
@@ -160,128 +172,113 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
     }
   }
 
-  // Prevent body scroll
   useEffect(() => {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-[480px] w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900">Importar desde iSalud</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 50,
+        background: 'rgba(26, 21, 48, 0.5)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '16px',
+      }}
+    >
+      <div
+        style={{
+          background: 'var(--v2-bg-card)',
+          borderRadius: 'var(--v2-radius-xl)',
+          boxShadow: 'var(--v2-shadow-lg)',
+          maxWidth: '480px',
+          width: '100%',
+          padding: '24px',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          fontFamily: 'var(--font-manrope), sans-serif',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+          <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--v2-text)' }}>Importar desde iSalud</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '4px' }}>
+            <X size={18} />
           </button>
         </div>
 
         {step === 'form' && (
-          <div className="space-y-4">
-            <p className="text-sm text-slate-500">
-              Conecta tu cuenta de iSalud para importar médicos y bloquear citas existentes automáticamente.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <p style={{ fontSize: '13.5px', color: 'var(--v2-text-muted)' }}>
+              Conecta tu cuenta de iSalud para importar medicos y bloquear citas existentes.
             </p>
-
             <div>
-              <label className="label">Subdominio iSalud</label>
-              <div className="flex items-center gap-0">
-                <span className="text-sm text-slate-400 bg-slate-50 border border-r-0 border-slate-200 rounded-l-lg px-3 py-2">https://</span>
-                <input
-                  type="text"
-                  value={subdomain}
-                  onChange={(e) => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  className="input-field rounded-l-none border-l-0 flex-1"
-                  placeholder="algia"
-                />
-                <span className="text-sm text-slate-400 bg-slate-50 border border-l-0 border-slate-200 rounded-r-lg px-3 py-2">.isalud.co</span>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>Subdominio iSalud</label>
+              <div style={{ display: 'flex' }}>
+                <span style={{ fontSize: '13px', color: 'var(--v2-text-subtle)', background: 'var(--v2-bg-soft)', border: '1.5px solid var(--v2-border)', borderRight: 'none', borderRadius: 'var(--v2-radius) 0 0 var(--v2-radius)', padding: '10px 12px' }}>https://</span>
+                <input className="input-v2" value={subdomain} onChange={(e) => setSubdomain(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} placeholder="algia" style={{ borderRadius: '0', borderLeft: 'none', borderRight: 'none', flex: 1 }} />
+                <span style={{ fontSize: '13px', color: 'var(--v2-text-subtle)', background: 'var(--v2-bg-soft)', border: '1.5px solid var(--v2-border)', borderLeft: 'none', borderRadius: '0 var(--v2-radius) var(--v2-radius) 0', padding: '10px 12px' }}>.isalud.co</span>
               </div>
             </div>
-
             <div>
-              <label className="label">Usuario de iSalud</label>
-              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="input-field" placeholder="admin" autoComplete="off" />
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>Usuario</label>
+              <input className="input-v2" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="admin" autoComplete="off" />
             </div>
-
             <div>
-              <label className="label">Contraseña de iSalud</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} className="input-field" placeholder="••••••••" />
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>Contrasena</label>
+              <input className="input-v2" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
             </div>
-
             {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+              <div style={{ padding: '10px 14px', background: 'var(--v2-red-soft)', border: '1px solid rgba(255,87,87,0.3)', borderRadius: 'var(--v2-radius)', fontSize: '13px', color: 'var(--v2-red)' }}>
+                {error}
+              </div>
             )}
-
-            <button onClick={handleImport} className="w-full btn-primary">
-              Conectar e importar
-            </button>
-
-            <p className="text-xs text-slate-400 text-center">
-              Las credenciales se guardan encriptadas y solo se usan para sincronizar la agenda.
-            </p>
+            <button onClick={handleImport} className="btn-v2-primary" style={{ width: '100%' }}>Conectar e importar</button>
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', textAlign: 'center' }}>Las credenciales se guardan encriptadas.</p>
           </div>
         )}
 
         {step === 'importing' && (
-          <div className="text-center py-8 space-y-4">
-            <div className="w-12 h-12 rounded-full bg-[#028090]/10 flex items-center justify-center mx-auto">
-              <svg className="w-6 h-6 text-[#028090] animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-            </div>
-            <p className="text-sm text-slate-600">{progress}</p>
-            <p className="text-xs text-slate-400">No cierres esta ventana</p>
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <Loader2 size={32} className="animate-spin" style={{ color: 'var(--v2-primary)', margin: '0 auto 16px' }} />
+            <p style={{ fontSize: '14px', color: 'var(--v2-text-muted)' }}>{progress}</p>
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '8px' }}>No cierres esta ventana</p>
           </div>
         )}
 
         {step === 'done' && result && (
-          <div className="space-y-4">
-            <div className="text-center">
-              <div className="w-12 h-12 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-3">
-                <svg className="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--v2-green-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                <Check size={24} style={{ color: 'var(--v2-green)' }} />
               </div>
-              <h3 className="text-lg font-semibold text-slate-900">¡Importación completa!</h3>
+              <h3 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--v2-text)' }}>Importacion completa</h3>
             </div>
-
-            <div className="bg-slate-50 rounded-lg p-4 space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-slate-500">Médicos importados</span><span className="font-semibold">{result.doctors_created}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Médicos existentes</span><span className="font-semibold">{result.doctors_existing}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Citas bloqueadas (60 días)</span><span className="font-semibold">{result.appointments_blocked}</span></div>
+            <div style={{ background: 'var(--v2-bg-soft)', borderRadius: 'var(--v2-radius)', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--v2-text-muted)' }}>Medicos importados</span><span style={{ fontWeight: 700 }}>{result.doctors_created}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--v2-text-muted)' }}>Medicos existentes</span><span style={{ fontWeight: 700 }}>{result.doctors_existing}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--v2-text-muted)' }}>Citas bloqueadas (60 dias)</span><span style={{ fontWeight: 700 }}>{result.appointments_blocked}</span></div>
             </div>
-
             {result.errors.length > 0 && (
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
+              <div style={{ padding: '10px 14px', background: 'var(--v2-amber-soft)', borderRadius: 'var(--v2-radius)', fontSize: '12px', color: '#b07d00' }}>
                 {result.errors.length} advertencias
               </div>
             )}
-
-            <div className="bg-[#028090]/5 border border-[#028090]/20 rounded-lg p-3 text-xs text-[#028090]">
-              Sincronización automática activada. Los slots de iSalud no aparecerán como disponibles en el agente WhatsApp.
+            <div style={{ padding: '10px 14px', background: 'var(--v2-primary-tint)', border: '1px solid var(--v2-primary-soft)', borderRadius: 'var(--v2-radius)', fontSize: '12px', color: 'var(--v2-primary)' }}>
+              Sincronizacion automatica activada. Los slots de iSalud no apareceran como disponibles.
             </div>
-
-            <button onClick={() => window.location.reload()} className="w-full btn-primary">
-              Cerrar
-            </button>
+            <button onClick={() => window.location.reload()} className="btn-v2-primary" style={{ width: '100%' }}>Cerrar</button>
           </div>
         )}
 
         {step === 'error' && (
-          <div className="space-y-4">
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ padding: '14px', background: 'var(--v2-red-soft)', border: '1px solid rgba(255,87,87,0.3)', borderRadius: 'var(--v2-radius)', fontSize: '13px', color: 'var(--v2-red)' }}>
               {error}
             </div>
-            <div className="flex gap-3">
-              <button onClick={() => { setStep('form'); setError('') }} className="btn-secondary flex-1">
-                Intentar de nuevo
-              </button>
-              <button onClick={onClose} className="btn-secondary flex-1">
-                Cerrar
-              </button>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button onClick={() => { setStep('form'); setError('') }} className="btn-v2-secondary" style={{ flex: 1 }}>Reintentar</button>
+              <button onClick={onClose} className="btn-v2-ghost" style={{ flex: 1 }}>Cerrar</button>
             </div>
           </div>
         )}

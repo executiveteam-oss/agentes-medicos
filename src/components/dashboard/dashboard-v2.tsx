@@ -42,11 +42,13 @@ export interface EscalatedConversation {
 // ---- Hero Greeting ----
 
 export function HeroGreeting({
+  greeting,
   firstName,
   dayLine,
   agentActive,
   agentMessages,
 }: {
+  greeting: string
   firstName: string
   dayLine: string
   agentActive: boolean
@@ -59,7 +61,7 @@ export function HeroGreeting({
           className="text-2xl sm:text-3xl font-extrabold"
           style={{ fontFamily: 'var(--font-manrope), sans-serif', color: 'var(--v2-text)', letterSpacing: '-0.02em' }}
         >
-          Buenos dias,{' '}
+          {greeting},{' '}
           <span
             style={{
               fontFamily: "'Instrument Serif', Georgia, serif",

@@ -1,13 +1,14 @@
 'use client'
 
 // ============================================================
-// Widget: Guía de activación post-onboarding
+// Widget: Guia de activacion post-onboarding (v2)
 // Muestra checklist de pasos para configurar el consultorio
-// Se colapsa y desaparece 3 días después de completar todo
+// Se colapsa y desaparece 3 dias despues de completar todo
 // ============================================================
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { ChevronDown, Check, PartyPopper, Zap } from 'lucide-react'
 import type { SetupProgress } from '@/app/actions/setup-progress'
 
 interface Props {
@@ -23,7 +24,7 @@ interface Step {
 
 const STEPS: Step[] = [
   { key: 'clinic_data_complete', label: 'Completa los datos del consultorio', href: '/dashboard/settings/clinic' },
-  { key: 'doctors_added', label: 'Agrega tus médicos', href: '/dashboard/settings/whatsapp' },
+  { key: 'doctors_added', label: 'Agrega tus medicos', href: '/dashboard/settings/whatsapp' },
   { key: 'consultation_types_added', label: 'Configura tipos de consulta', href: '/dashboard/settings/whatsapp' },
   { key: 'whatsapp_connected', label: 'Conecta WhatsApp', href: '/dashboard/settings/whatsapp' },
   { key: 'team_invited', label: 'Invita a tu equipo', href: '/dashboard/settings/users', optional: true },
@@ -32,7 +33,6 @@ const STEPS: Step[] = [
 export function SetupChecklist({ progress }: Props) {
   const [collapsed, setCollapsed] = useState(false)
 
-  // Si se completó hace más de 3 días, no mostrar
   if (progress.completed_at) {
     const completedDate = new Date(progress.completed_at)
     const threeDaysLater = new Date(completedDate.getTime() + 3 * 24 * 60 * 60 * 1000)
@@ -42,78 +42,148 @@ export function SetupChecklist({ progress }: Props) {
   const completedCount = STEPS.filter((s) => progress[s.key]).length
   const totalSteps = STEPS.length
   const percentage = Math.round((completedCount / totalSteps) * 100)
-  const allRequiredDone = progress.completed_at !== null
+  const allDone = progress.completed_at !== null
 
   return (
-    <div className="card border-blue-200 bg-gradient-to-r from-blue-50 to-white overflow-hidden">
-      {/* Header — siempre visible, click para colapsar */}
+    <div
+      style={{
+        background: 'var(--v2-bg-card)',
+        border: '1px solid var(--v2-border-soft)',
+        borderRadius: 'var(--v2-radius-lg)',
+        boxShadow: 'var(--v2-shadow-sm)',
+        overflow: 'hidden',
+        fontFamily: 'var(--font-manrope), sans-serif',
+      }}
+    >
+      {/* Header */}
       <button
         type="button"
         onClick={() => setCollapsed(!collapsed)}
-        className="w-full px-5 py-4 flex items-center justify-between text-left"
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 20px',
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
       >
-        <div className="flex items-center gap-3">
-          <span className="text-xl">{allRequiredDone ? '🎉' : '⚡'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {allDone ? (
+            <PartyPopper size={18} style={{ color: 'var(--v2-green)' }} />
+          ) : (
+            <Zap size={18} style={{ color: 'var(--v2-primary)' }} />
+          )}
           <div>
-            {allRequiredDone ? (
-              <p className="text-sm font-semibold text-emerald-700">
-                ¡Tu consultorio está listo! Tu agente de WhatsApp está activo.
+            {allDone ? (
+              <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--v2-green-deep)' }}>
+                Tu consultorio esta listo — tu agente WhatsApp esta activo.
               </p>
             ) : (
-              <p className="text-sm font-semibold text-slate-900">
-                Activa tu consultorio — {completedCount}/{totalSteps} pasos
+              <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--v2-text)' }}>
+                Configura tu clinica
+                <span style={{ fontWeight: 500, color: 'var(--v2-text-subtle)', marginLeft: '8px' }}>
+                  {completedCount} de {totalSteps} pasos
+                </span>
               </p>
             )}
           </div>
         </div>
-        <svg
-          className={`w-5 h-5 text-slate-400 transition-transform ${collapsed ? '' : 'rotate-180'}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+        <ChevronDown
+          size={18}
+          style={{
+            color: 'var(--v2-text-subtle)',
+            transition: 'transform 0.2s',
+            transform: collapsed ? 'none' : 'rotate(180deg)',
+          }}
+        />
       </button>
 
       {/* Progress bar */}
-      <div className="px-5 pb-1">
-        <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+      <div style={{ padding: '0 20px 6px' }}>
+        <div style={{ height: '6px', background: 'var(--v2-bg-deeper)', borderRadius: '999px', overflow: 'hidden' }}>
           <div
-            className="h-full bg-emerald-500 rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${percentage}%` }}
+            style={{
+              height: '100%',
+              borderRadius: '999px',
+              background: allDone
+                ? 'var(--v2-green)'
+                : 'linear-gradient(90deg, var(--v2-primary), var(--v2-pink))',
+              width: `${percentage}%`,
+              transition: 'width 0.7s ease-out',
+            }}
           />
         </div>
       </div>
 
-      {/* Steps — colapsable */}
+      {/* Steps */}
       {!collapsed && (
-        <div className="px-5 pb-5 pt-3 space-y-2">
+        <div style={{ padding: '10px 20px 18px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {STEPS.map((step) => {
             const done = progress[step.key]
             return (
-              <div key={step.key} className="flex items-center gap-3">
+              <div key={step.key} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {done ? (
-                  <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs flex-shrink-0">
-                    ✓
-                  </span>
+                  <div
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      background: 'var(--v2-green-soft)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Check size={12} style={{ color: 'var(--v2-green)' }} />
+                  </div>
                 ) : (
-                  <span className="w-5 h-5 rounded border-2 border-slate-300 flex-shrink-0" />
+                  <div
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      border: '2px solid var(--v2-border)',
+                      flexShrink: 0,
+                    }}
+                  />
                 )}
 
                 {done ? (
-                  <span className="text-sm text-slate-400 line-through">{step.label}</span>
+                  <span style={{ fontSize: '13.5px', color: 'var(--v2-text-subtle)', textDecoration: 'line-through' }}>
+                    {step.label}
+                  </span>
                 ) : (
                   <Link
                     href={step.href}
-                    className="text-sm text-blue-700 hover:text-blue-900 font-medium hover:underline"
+                    style={{
+                      fontSize: '13.5px',
+                      fontWeight: 600,
+                      color: 'var(--v2-primary)',
+                      textDecoration: 'none',
+                    }}
                   >
                     {step.label}
                   </Link>
                 )}
 
                 {step.optional && !done && (
-                  <span className="text-[10px] uppercase tracking-wider text-slate-400 font-medium bg-slate-100 px-1.5 py-0.5 rounded">
+                  <span
+                    style={{
+                      fontSize: '9px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.06em',
+                      color: 'var(--v2-text-subtle)',
+                      background: 'var(--v2-bg-soft)',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                    }}
+                  >
                     Opcional
                   </span>
                 )}

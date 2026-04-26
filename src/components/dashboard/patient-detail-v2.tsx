@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ChevronRight, Calendar, MessageSquare, Phone, Mail, FileText, StickyNote, User } from 'lucide-react'
+import { ChevronRight, Calendar, MessageSquare, Phone, Mail, FileText, StickyNote, User, Plus } from 'lucide-react'
 import { ReactivationBanner } from '@/components/dashboard/reactivation-banner'
 import { formatPhone, formatTimeForPatient } from '@/lib/utils/dates'
 import { format, formatDistanceToNow } from 'date-fns'
@@ -169,6 +169,13 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
 
           {/* Actions */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flexShrink: 0 }}>
+            <button
+              onClick={() => { window.location.href = `/dashboard/agenda?patientId=${patient.id}` }}
+              className="btn-v2-primary"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '13px', padding: '10px 18px' }}
+            >
+              <Plus size={14} /> Nueva cita
+            </button>
             <a
               href={waLink}
               target={conversationId ? undefined : '_blank'}

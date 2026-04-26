@@ -1,23 +1,27 @@
 // ============================================================
-// DASHBOARD — Agenda con vista Día / Semana / Mes
+// DASHBOARD v2 — Hero, KPIs, Proximas Citas, Escalaciones
 // Ruta: /dashboard
-//
-// Carga todas las citas del mes actual (con padding para semanas)
-// y las pasa al componente CalendarView para renderizar.
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
 import { isDoctorUnlinked, getRestrictedDoctorId } from '@/lib/doctor-filter'
 import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-banner'
-import { nowColombia, formatCOP } from '@/lib/utils/dates'
+import { nowColombia } from '@/lib/utils/dates'
 import { festivosProximos } from '@/lib/utils/festivos'
 import { NewAppointmentButton } from '@/components/dashboard/dashboard-actions'
 import { CalendarView } from '@/components/dashboard/calendar-view'
-import { DashboardStats } from '@/components/dashboard/dashboard-stats'
+import {
+  HeroGreeting,
+  KPIRow,
+  UpcomingAppointmentsList,
+  EscalatedCard,
+  AgentWeekCard,
+} from '@/components/dashboard/dashboard-v2'
+import type { DashboardKPI, UpcomingAppointment, EscalatedConversation } from '@/components/dashboard/dashboard-v2'
 import type { CalendarAppointment, CalendarDoctor } from '@/components/dashboard/calendar-view'
 import { redirect } from 'next/navigation'
-import { format } from 'date-fns'
+import { format, startOfWeek, endOfWeek } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { getSetupProgress } from '@/app/actions/setup-progress'
 import { SetupChecklist } from '@/components/dashboard/setup-checklist'
@@ -25,45 +29,50 @@ import { ISaludSyncButton } from '@/components/dashboard/isalud-sync-button'
 
 export const dynamic = 'force-dynamic'
 
+function getInitials(name: string): string {
+  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+}
+
+function getGreetingTime(): string {
+  const h = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })).getHours()
+  if (h < 12) return 'Buenos dias'
+  if (h < 18) return 'Buenas tardes'
+  return 'Buenas noches'
+}
+
 export default async function DashboardPage() {
   const now = nowColombia()
   const today = format(now, 'yyyy-MM-dd')
-  const todayFormatted = format(now, "EEEE d 'de' MMMM 'de' yyyy", { locale: es })
 
   const session = await getUserSession()
   if (!session) redirect('/login')
   if (isDoctorUnlinked(session)) return <DoctorUnlinkedBanner />
 
   const restrictDoctorId = getRestrictedDoctorId(session)
+  const firstName = session.fullName.split(' ')[0] ?? session.fullName
 
-  const { data: clinic } = await supabaseAdmin
-    .from('clinics')
-    .select('*')
-    .eq('id', session.clinicId)
-    .single()
+  // ---- Parallel queries ----
+  const [clinicRes, doctorsRes] = await Promise.all([
+    supabaseAdmin.from('clinics').select('*').eq('id', session.clinicId).single(),
+    supabaseAdmin.from('doctors').select('id, name, specialty, agenda_closed').eq('clinic_id', session.clinicId).eq('is_active', true).order('name'),
+  ])
 
+  const clinic = clinicRes.data
   if (!clinic) {
     return (
-      <div className="p-8">
-        <div className="card p-12 text-center">
+      <div className="space-y-6">
+        <div className="card-v2 p-12 text-center">
           <p className="text-4xl mb-4">🏥</p>
-          <p className="text-slate-900 font-semibold text-lg mb-1">No hay clínica configurada</p>
-          <p className="text-slate-500 text-sm">Completa el onboarding para empezar</p>
+          <p className="text-lg font-semibold" style={{ color: 'var(--v2-text)' }}>No hay clinica configurada</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--v2-text-muted)' }}>Completa el onboarding para empezar</p>
         </div>
       </div>
     )
   }
 
-  // Doctores activos (para el modal de nueva cita)
-  const { data: activeDoctors } = await supabaseAdmin
-    .from('doctors')
-    .select('id, name, specialty, agenda_closed')
-    .eq('clinic_id', clinic.id)
-    .eq('is_active', true)
-    .order('name')
+  const activeDoctors = doctorsRes.data ?? []
 
-  // Rango de carga: desde 7 días antes del inicio del mes hasta 7 días después del fin
-  // Esto asegura que las vistas de semana en los bordes del mes tengan datos
+  // ---- Date range for calendar (month + padding) ----
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
   const rangeStart = new Date(monthStart)
@@ -74,7 +83,7 @@ export default async function DashboardPage() {
   const rangeStartStr = format(rangeStart, 'yyyy-MM-dd')
   const rangeEndStr = format(rangeEnd, 'yyyy-MM-dd')
 
-  // Citas del rango con datos del paciente y doctor
+  // ---- Appointments query ----
   let aptsQuery = supabaseAdmin
     .from('appointments')
     .select(`
@@ -94,16 +103,79 @@ export default async function DashboardPage() {
     aptsQuery = aptsQuery.eq('doctor_id', restrictDoctorId)
   }
 
-  const { data: rawAppointments, error: aptsError } = await aptsQuery
-  console.log(`[Dashboard] Raw query: ${rawAppointments?.length ?? 0} rows, error: ${aptsError?.message ?? 'none'}, range: ${rangeStartStr} → ${rangeEndStr}`)
-  if (rawAppointments && rawAppointments.length > 0) {
-    const rawStatusCounts: Record<string, number> = {}
-    rawAppointments.forEach((a) => { rawStatusCounts[String(a.status)] = (rawStatusCounts[String(a.status)] ?? 0) + 1 })
-    console.log(`[Dashboard] Raw status counts: ${JSON.stringify(rawStatusCounts)}`)
-  }
+  // ---- No-show stats ----
+  let allTimeQuery = supabaseAdmin
+    .from('appointments')
+    .select('id', { count: 'exact', head: true })
+    .eq('clinic_id', clinic.id)
+    .in('status', ['completed', 'no_show'])
+  if (restrictDoctorId) allTimeQuery = allTimeQuery.eq('doctor_id', restrictDoctorId)
 
-  // Mapear a la interfaz del calendario
-  const appointments: CalendarAppointment[] = (rawAppointments ?? []).map((apt) => {
+  let noShowQuery = supabaseAdmin
+    .from('appointments')
+    .select('id', { count: 'exact', head: true })
+    .eq('clinic_id', clinic.id)
+    .eq('status', 'no_show')
+  if (restrictDoctorId) noShowQuery = noShowQuery.eq('doctor_id', restrictDoctorId)
+
+  // ---- Week stats: messages & appointments booked by agent ----
+  const weekStart = startOfWeek(now, { weekStartsOn: 1 })
+  const weekEnd = endOfWeek(now, { weekStartsOn: 1 })
+  const weekStartISO = new Date(weekStart.getTime() + 5 * 60 * 60 * 1000).toISOString()
+  const weekEndISO = new Date(weekEnd.getTime() + 5 * 60 * 60 * 1000 + 24 * 60 * 60 * 1000 - 1).toISOString()
+
+  const todayStartISO = new Date(new Date(`${today}T00:00:00-05:00`)).toISOString()
+  const todayEndISO = new Date(new Date(`${today}T23:59:59-05:00`)).toISOString()
+
+  // ---- Escalated conversations ----
+  const escalatedQuery = supabaseAdmin
+    .from('conversations')
+    .select('id, last_message_at, patients(name)')
+    .eq('clinic_id', session.clinicId)
+    .eq('status', 'escalated')
+    .order('last_message_at', { ascending: false })
+    .limit(5)
+
+  // ---- Run all queries in parallel ----
+  const [
+    aptsRes,
+    allTimeRes,
+    noShowRes,
+    agentMsgTodayRes,
+    agentMsgWeekRes,
+    agentBookedRes,
+    escalatedRes,
+  ] = await Promise.all([
+    aptsQuery,
+    allTimeQuery,
+    noShowQuery,
+    // Agent messages today
+    supabaseAdmin
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'agent')
+      .gte('created_at', todayStartISO)
+      .lte('created_at', todayEndISO),
+    // Agent messages this week (resolved = agent role)
+    supabaseAdmin
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('role', 'agent')
+      .gte('created_at', weekStartISO)
+      .lte('created_at', weekEndISO),
+    // Appointments booked by agent this week
+    supabaseAdmin
+      .from('appointments')
+      .select('id', { count: 'exact', head: true })
+      .eq('clinic_id', clinic.id)
+      .eq('source', 'whatsapp_agent')
+      .gte('created_at', weekStartISO)
+      .lte('created_at', weekEndISO),
+    escalatedQuery,
+  ])
+
+  // ---- Map appointments ----
+  const appointments: CalendarAppointment[] = (aptsRes.data ?? []).map((apt) => {
     const raw = apt as Record<string, unknown>
     const patients = raw.patients as CalendarAppointment['patient']
     const doctorsRel = raw.doctors as CalendarAppointment['doctor']
@@ -127,55 +199,102 @@ export default async function DashboardPage() {
     }
   })
 
-  // Debug: count by status
-  const statusCounts: Record<string, number> = {}
-  appointments.forEach((a) => { statusCounts[a.status] = (statusCounts[a.status] ?? 0) + 1 })
-  console.log(`[Dashboard] ${appointments.length} appointments loaded: ${JSON.stringify(statusCounts)}, range: ${rangeStartStr} → ${rangeEndStr}`)
-
-  // Doctors list for calendar tabs
-  const calendarDoctors: CalendarDoctor[] = (activeDoctors ?? []).map((d) => ({
-    id: d.id as string,
-    name: d.name as string,
-    agenda_closed: (d.agenda_closed as boolean) ?? false,
-  }))
-
-  // Estadísticas rápidas
+  // ---- Today's appointments ----
   const todayAppts = appointments.filter((a) => {
     const d = new Date(a.starts_at)
     const col = new Date(d.getTime() - 5 * 60 * 60 * 1000)
     const colStr = `${col.getUTCFullYear()}-${String(col.getUTCMonth() + 1).padStart(2, '0')}-${String(col.getUTCDate()).padStart(2, '0')}`
     return colStr === today
   })
-  const completedToday = todayAppts.filter((a) => a.status === 'completed').length
-  const dailyGoal = clinic.daily_goal_appointments ?? 8
 
-  let allTimeQuery = supabaseAdmin
-    .from('appointments')
-    .select('id', { count: 'exact', head: true })
-    .eq('clinic_id', clinic.id)
-    .in('status', ['completed', 'no_show'])
-  if (restrictDoctorId) allTimeQuery = allTimeQuery.eq('doctor_id', restrictDoctorId)
-  const { count: totalAllTime } = await allTimeQuery
+  // ---- KPIs ----
+  const totalAllTime = allTimeRes.count ?? 0
+  const totalNoShows = noShowRes.count ?? 0
+  const noShowRate = totalAllTime > 0 ? Math.round((totalNoShows / totalAllTime) * 100) : 0
 
-  let noShowQuery = supabaseAdmin
-    .from('appointments')
-    .select('id', { count: 'exact', head: true })
-    .eq('clinic_id', clinic.id)
-    .eq('status', 'no_show')
-  if (restrictDoctorId) noShowQuery = noShowQuery.eq('doctor_id', restrictDoctorId)
-  const { count: totalNoShows } = await noShowQuery
+  const activeConvCount = (escalatedRes.data ?? []).length
+  const agentMsgToday = agentMsgTodayRes.count ?? 0
+  const agentMsgWeek = agentMsgWeekRes.count ?? 0
+  const agentBooked = agentBookedRes.count ?? 0
 
-  const noShowRate = totalAllTime && totalAllTime > 0
-    ? Math.round(((totalNoShows ?? 0) / totalAllTime) * 100)
-    : 0
+  // Upcoming: confirmed/rescheduled today, starting from now
+  const nowISO = now.toISOString()
+  const upcomingAppts = todayAppts
+    .filter((a) => (a.status === 'confirmed' || a.status === 'rescheduled') && a.starts_at > nowISO)
+    .slice(0, 8)
 
-  // Checklist de activación (solo para admins)
+  const upcoming: UpcomingAppointment[] = upcomingAppts.map((a) => ({
+    id: a.id,
+    startsAt: a.starts_at,
+    patientName: a.patient?.name ?? 'Paciente',
+    patientInitials: getInitials(a.patient?.name ?? 'P'),
+    reason: a.reason ?? a.free_text_reason,
+    doctorName: a.doctor?.name ?? null,
+    paymentType: a.payment_type,
+    status: a.status,
+  }))
+
+  // Escalated conversations
+  const escalated: EscalatedConversation[] = (escalatedRes.data ?? []).map((conv) => {
+    const raw = conv as Record<string, unknown>
+    const patient = raw.patients as { name: string } | null
+    const name = patient?.name ?? 'Paciente'
+    return {
+      id: conv.id as string,
+      patientName: name,
+      patientInitials: getInitials(name),
+      lastMessage: 'Conversacion escalada — requiere atencion',
+      timeAgo: conv.last_message_at as string,
+    }
+  })
+
+  // KPI data
+  const kpis: DashboardKPI[] = [
+    {
+      label: 'Citas hoy',
+      value: todayAppts.filter((a) => a.status !== 'blocked_external').length,
+      detail: `${todayAppts.filter((a) => a.status === 'completed').length} completadas`,
+      icon: 'calendar',
+      color: 'primary',
+    },
+    {
+      label: 'Tasa no-show',
+      value: `${noShowRate}%`,
+      detail: `${totalNoShows} de ${totalAllTime} citas`,
+      icon: 'trending-down',
+      color: noShowRate <= 15 ? 'green' : 'pink',
+      trend: noShowRate <= 15 ? { value: '↓ Bien', positive: true } : undefined,
+    },
+    {
+      label: 'Chats activos',
+      value: activeConvCount,
+      detail: activeConvCount > 0 ? 'Escaladas pendientes' : 'Sin escalaciones',
+      icon: 'message',
+      color: 'pink',
+    },
+    {
+      label: 'Proximas hoy',
+      value: upcomingAppts.length,
+      detail: 'Citas restantes del dia',
+      icon: 'clock',
+      color: 'amber',
+    },
+  ]
+
+  // Calendar doctors
+  const calendarDoctors: CalendarDoctor[] = activeDoctors.map((d) => ({
+    id: d.id as string,
+    name: d.name as string,
+    agenda_closed: (d.agenda_closed as boolean) ?? false,
+  }))
+
+  // Setup checklist
   const setupProgress = !restrictDoctorId ? await getSetupProgress().catch(() => null) : null
 
-  // Festivos en los próximos 3 días
+  // Festivos
   const festivosAlert = festivosProximos(3)
 
-  // iSalud integration status
+  // iSalud
   const { data: isalud } = await supabaseAdmin
     .from('sync_integrations')
     .select('sync_status, last_synced_at, sync_error')
@@ -184,49 +303,47 @@ export default async function DashboardPage() {
     .maybeSingle()
   const isaludIntegration = isalud as { sync_status: string; last_synced_at: string | null; sync_error: string | null } | null
 
+  // Day line
+  const dayLine = `${format(now, "EEEE d 'de' MMMM", { locale: es })} · ${todayAppts.filter((a) => a.status !== 'blocked_external').length} citas hoy`
+
   return (
-    <div className="p-6 lg:p-8 space-y-6">
-      {/* Top bar */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{clinic.name}</h1>
-          {Array.isArray(clinic.specialty) && clinic.specialty.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {clinic.specialty.map((spec: string) => (
-                <span key={spec} className="badge badge-blue">{spec}</span>
-              ))}
-            </div>
-          )}
-          <p className="text-slate-500 capitalize text-sm mt-1">{todayFormatted}</p>
-        </div>
+    <div className="space-y-6">
+      {/* Hero */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <HeroGreeting
+          firstName={firstName}
+          dayLine={dayLine}
+          agentActive={true}
+          agentMessages={agentMsgToday}
+        />
         {!restrictDoctorId && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <ISaludSyncButton integration={isaludIntegration} />
             <NewAppointmentButton
-              doctors={(activeDoctors ?? []) as { id: string; name: string; specialty: string | null }[]}
+              doctors={activeDoctors as { id: string; name: string; specialty: string | null }[]}
               minBookingAdvanceHours={clinic.min_booking_advance_hours ?? 24}
             />
           </div>
         )}
       </div>
 
-      {/* Alerta festivos */}
+      {/* Festivos alert */}
       {festivosAlert.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-            <span className="text-sm">📅</span>
-          </div>
-          <p className="text-amber-800 text-sm font-medium">
-            Festivo próximo: {festivosAlert.map((f) => `${f.nombre} (${f.fecha})`).join(', ')}
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-xl"
+          style={{ background: 'var(--v2-amber-soft)', border: '1px solid rgba(255, 184, 69, 0.3)' }}
+        >
+          <span className="text-sm">📅</span>
+          <p className="text-sm font-medium" style={{ color: '#b07d00' }}>
+            Festivo proximo: {festivosAlert.map((f) => `${f.nombre} (${f.fecha})`).join(', ')}
           </p>
         </div>
       )}
 
-      {/* Checklist de activación */}
+      {/* Setup checklist */}
       {setupProgress && !setupProgress.completed_at && (
         <SetupChecklist progress={setupProgress} />
       )}
-      {/* Show celebration for 3 days after completion */}
       {setupProgress?.completed_at && (() => {
         const completed = new Date(setupProgress.completed_at!)
         const threeDays = new Date(completed.getTime() + 3 * 24 * 60 * 60 * 1000)
@@ -235,17 +352,23 @@ export default async function DashboardPage() {
         <SetupChecklist progress={setupProgress} />
       )}
 
-      {/* Banner punto de equilibrio + stats (actualización en tiempo real) */}
-      <DashboardStats
-        initialTodayCount={todayAppts.length}
-        initialCompletedToday={completedToday}
-        dailyGoal={dailyGoal}
-        noShowRate={noShowRate}
-        clinicId={clinic.id}
-        todayDateStr={today}
-      />
+      {/* KPIs */}
+      <KPIRow kpis={kpis} />
 
-      {/* Calendario */}
+      {/* Main grid: left (upcoming) + right (attention + agent) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6">
+        <UpcomingAppointmentsList appointments={upcoming} />
+        <div className="space-y-6">
+          <EscalatedCard conversations={escalated} />
+          <AgentWeekCard
+            messagesResolved={agentMsgWeek}
+            avgResponseTime="< 1m"
+            appointmentsBooked={agentBooked}
+          />
+        </div>
+      </div>
+
+      {/* Calendar (existing component, untouched) */}
       <CalendarView
         appointments={appointments}
         initialDate={today}

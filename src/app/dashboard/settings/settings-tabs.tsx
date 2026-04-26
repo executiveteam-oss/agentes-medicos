@@ -2,19 +2,31 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import {
+  Building2,
+  CreditCard,
+  Stethoscope,
+  MessageSquare,
+  Plug,
+  Users,
+  Shield,
+  Bell,
+  FileText,
+  ServerCog,
+} from 'lucide-react'
 
 const ALL_TABS = [
-  { href: '/dashboard/settings/clinic', label: 'Consultorio', doctorVisible: true, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/plan', label: 'Mi plan', doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/whatsapp#doctores', label: 'Médicos', doctorVisible: false, superAdminOnly: false, external: true },
-  { href: '/dashboard/settings/whatsapp', label: 'WhatsApp', doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/integrations', label: 'Integraciones', doctorVisible: false, superAdminOnly: false, external: false },
-  // Importación de iSalud movida a WhatsApp → Doctores → cada médico → "Importar desde iSalud"
-  { href: '/dashboard/settings/users', label: 'Usuarios', doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/roles', label: 'Roles y permisos', doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/notifications', label: 'Notificaciones', doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/legal', label: 'Contrato y Legal', doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/system-status', label: 'Sistema', doctorVisible: false, superAdminOnly: true, external: false },
+  { href: '/dashboard/settings/clinic', label: 'Consultorio', icon: Building2, doctorVisible: true, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/plan', label: 'Plan', icon: CreditCard, doctorVisible: false, superAdminOnly: false, external: false },
+  // TODO: link a /dashboard/settings/doctors cuando se cree en sub-fase 3B.2.2
+  { href: '/dashboard/whatsapp#doctores', label: 'Medicos', icon: Stethoscope, doctorVisible: false, superAdminOnly: false, external: true },
+  { href: '/dashboard/settings/whatsapp', label: 'WhatsApp', icon: MessageSquare, doctorVisible: false, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/integrations', label: 'Integraciones', icon: Plug, doctorVisible: false, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/users', label: 'Equipo', icon: Users, doctorVisible: false, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/roles', label: 'Permisos', icon: Shield, doctorVisible: false, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/notifications', label: 'Notificaciones', icon: Bell, doctorVisible: false, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/legal', label: 'Legal', icon: FileText, doctorVisible: false, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/system-status', label: 'Sistema', icon: ServerCog, doctorVisible: false, superAdminOnly: true, external: false },
 ]
 
 export function SettingsTabs({ isDoctor = false, isSuperAdmin = false }: { isDoctor?: boolean; isSuperAdmin?: boolean }) {
@@ -24,19 +36,50 @@ export function SettingsTabs({ isDoctor = false, isSuperAdmin = false }: { isDoc
     .filter((t) => !t.superAdminOnly || isSuperAdmin)
 
   return (
-    <div className="flex border-b border-slate-200 overflow-x-auto">
+    <div
+      style={{
+        display: 'flex',
+        gap: '4px',
+        padding: '5px',
+        borderRadius: 'var(--v2-radius-lg)',
+        background: 'var(--v2-bg-card)',
+        border: '1px solid var(--v2-border-soft)',
+        boxShadow: 'var(--v2-shadow-sm)',
+        overflowX: 'auto',
+      }}
+    >
       {tabs.map((tab) => {
-        const isActive = pathname === tab.href || pathname.startsWith(tab.href + '/')
+        const isActive = !tab.external && (pathname === tab.href || pathname.startsWith(tab.href + '/'))
+        const Icon = tab.icon
         return (
           <Link
             key={tab.href}
             href={tab.href}
-            className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px ${
-              isActive
-                ? 'text-blue-700 border-blue-700'
-                : 'text-slate-500 border-transparent hover:text-slate-900 hover:border-slate-300'
-            }`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '9px 16px',
+              borderRadius: '10px',
+              fontSize: '12.5px',
+              fontWeight: isActive ? 700 : 600,
+              whiteSpace: 'nowrap',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-manrope), sans-serif',
+              transition: 'all 0.15s',
+              ...(isActive
+                ? {
+                    background: 'linear-gradient(135deg, var(--v2-primary), #8676FF)',
+                    color: '#fff',
+                    boxShadow: '0 2px 6px rgba(107, 91, 255, 0.25)',
+                  }
+                : {
+                    color: 'var(--v2-text-muted)',
+                    background: 'transparent',
+                  }),
+            }}
           >
+            <Icon size={14} />
             {tab.label}
           </Link>
         )

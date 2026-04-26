@@ -34,7 +34,7 @@ function Toggle({
           aria-checked={checked}
           onClick={() => onChange(!checked)}
           className={`relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors ${
-            checked ? 'bg-blue-600' : 'bg-slate-300'
+            checked ? 'bg-[var(--v2-primary)]' : 'bg-[var(--v2-bg-deeper)]'
           }`}
         >
           <span
@@ -84,7 +84,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
   return (
     <div className="space-y-6">
       {/* Recordatorios de citas */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Recordatorios de citas</h3>
         <p className="text-xs text-slate-400 mb-5">
           Mensajes automáticos por WhatsApp antes de cada cita.
@@ -133,7 +133,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
       </div>
 
       {/* Reportes */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Reportes</h3>
         <p className="text-xs text-slate-400 mb-5">
           Resúmenes automáticos enviados por WhatsApp.
@@ -156,7 +156,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
                 type="time"
                 value={data.morning_report_hour}
                 onChange={(e) => update('morning_report_hour', e.target.value)}
-                className="input-field w-32"
+                className="input-v2 w-32"
               />
             </div>
           )}
@@ -171,7 +171,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
       </div>
 
       {/* Alertas */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Alertas</h3>
         <p className="text-xs text-slate-400 mb-5">
           Notificaciones automáticas cuando se detectan problemas.
@@ -196,7 +196,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
                 max={120}
                 value={data.noshow_alert_threshold}
                 onChange={(e) => update('noshow_alert_threshold', Number(e.target.value) || 30)}
-                className="input-field w-24"
+                className="input-v2 w-24"
               />
               <p className="text-xs text-slate-400 mt-1">
                 Se alerta si el paciente no llega {data.noshow_alert_threshold} minutos después de la hora
@@ -222,7 +222,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
                 max={180}
                 value={data.overdue_billing_days}
                 onChange={(e) => update('overdue_billing_days', Number(e.target.value) || 30)}
-                className="input-field w-24"
+                className="input-v2 w-24"
               />
             </div>
           )}
@@ -235,7 +235,7 @@ export function NotificationSettingsForm({ initialData }: Props) {
           type="button"
           onClick={handleSave}
           disabled={isPending}
-          className="btn-primary"
+          className="btn-v2-primary"
         >
           {isPending ? 'Guardando...' : 'Guardar notificaciones'}
         </button>

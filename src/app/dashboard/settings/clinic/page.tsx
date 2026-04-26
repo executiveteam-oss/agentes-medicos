@@ -20,7 +20,6 @@ export default async function ClinicSettingsPage() {
         website: '',
         specialty: [],
         consultation_price: null,
-        daily_goal_appointments: 10,
         min_booking_advance_hours: 24,
         max_booking_advance_days: 60,
         address: '',

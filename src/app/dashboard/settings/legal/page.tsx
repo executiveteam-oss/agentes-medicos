@@ -17,7 +17,7 @@ export default async function LegalSettingsPage() {
   return (
     <div className="space-y-6">
       {/* Estado del contrato */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Contrato de servicio</h3>
         <p className="text-xs text-slate-400 mb-5">
           Términos y condiciones del uso de Omuwan en tu consultorio.
@@ -38,7 +38,7 @@ export default async function LegalSettingsPage() {
       </div>
 
       {/* Cumplimiento legal */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Cumplimiento normativo</h3>
         <p className="text-xs text-slate-400 mb-5">
           Omuwan cumple con la normatividad colombiana del sector salud.
@@ -74,7 +74,7 @@ export default async function LegalSettingsPage() {
       </div>
 
       {/* Política de privacidad del agente */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Aviso de privacidad del agente</h3>
         <p className="text-xs text-slate-400 mb-5">
           El agente envía automáticamente un aviso de privacidad en el primer contacto con cada paciente nuevo,

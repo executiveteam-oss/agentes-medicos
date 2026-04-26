@@ -48,7 +48,7 @@ function SpecialtyInput({
         {values.map((tag) => (
           <span
             key={tag}
-            className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full"
+            className="tag-v2 tag-v2-primary"
           >
             {tag}
             <button
@@ -68,7 +68,7 @@ function SpecialtyInput({
         onKeyDown={handleKeyDown}
         onBlur={addTag}
         placeholder="Escribe y presiona Enter para agregar"
-        className="input-field w-full"
+        className="input-v2 w-full"
       />
     </div>
   )
@@ -104,7 +104,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
   return (
     <div className="space-y-6">
       {/* --- Información general --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Información general</h3>
         <p className="text-xs text-slate-400 mb-5">
           Datos principales de tu consultorio. El nombre y teléfono se usan en el agente de WhatsApp.
@@ -121,7 +121,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
               value={data.name}
               onChange={(e) => update('name', e.target.value)}
               placeholder="Consultorio Dra. López"
-              className="input-field w-full"
+              className="input-v2 w-full"
             />
           </div>
 
@@ -135,7 +135,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
               value={data.agent_name}
               onChange={(e) => update('agent_name', e.target.value)}
               placeholder="Ej: Sofía, Caro, Ana..."
-              className="input-field w-full"
+              className="input-v2 w-full"
             />
             <p className="text-[10px] text-slate-400 mt-1">
               Este nombre usará el agente cuando se presente en WhatsApp. Si lo dejas vacío, será &quot;Asistente&quot;.
@@ -164,7 +164,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.phone}
                 onChange={(e) => update('phone', e.target.value)}
                 placeholder="3XX XXX XXXX"
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
             <div>
@@ -177,7 +177,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.contact_email}
                 onChange={(e) => update('contact_email', e.target.value)}
                 placeholder="contacto@consultorio.com"
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
           </div>
@@ -194,7 +194,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.website}
                 onChange={(e) => update('website', e.target.value)}
                 placeholder="https://www.miconsultorio.com"
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
             <div>
@@ -207,7 +207,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.logo_url}
                 onChange={(e) => update('logo_url', e.target.value)}
                 placeholder="https://..."
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
           </div>
@@ -215,7 +215,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* --- Consulta --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Consulta</h3>
         <p className="text-xs text-slate-400 mb-5">
           El agente usa el precio para responder preguntas de pacientes.
@@ -225,7 +225,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* --- Reglas de agendamiento --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Reglas de agendamiento</h3>
         <p className="text-xs text-slate-400 mb-5">
           Controla con cuánta anticipación los pacientes pueden agendar citas por WhatsApp.
@@ -249,7 +249,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                   update('min_booking_advance_hours', Number(val))
                 }
               }}
-              className="input-field w-full"
+              className="input-v2 w-full"
             >
               <option value="0">Mismo día (0h)</option>
               <option value="24">24 horas (1 día)</option>
@@ -267,7 +267,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                   max={720}
                   value={data.min_booking_advance_hours}
                   onChange={(e) => update('min_booking_advance_hours', Math.max(0, Number(e.target.value) || 0))}
-                  className="input-field w-full"
+                  className="input-v2 w-full"
                   placeholder="Horas de anticipación"
                 />
                 <p className="text-xs text-slate-400 mt-1">Horas de anticipación mínima</p>
@@ -283,7 +283,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
             <select
               value={data.max_booking_advance_days}
               onChange={(e) => update('max_booking_advance_days', Number(e.target.value))}
-              className="input-field w-full"
+              className="input-v2 w-full"
             >
               <option value={15}>15 días</option>
               <option value={30}>30 días</option>
@@ -298,7 +298,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* --- Consultas virtuales --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Consultas virtuales</h3>
         <p className="text-xs text-slate-400 mb-5">
           Configura la plataforma para tus consultas por videollamada. El agente enviará el enlace al paciente.
@@ -334,7 +334,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 <select
                   value={data.virtual_config.platform}
                   onChange={(e) => update('virtual_config', { ...data.virtual_config, platform: e.target.value as 'google_meet' | 'zoom' | 'teams' | 'custom' | 'isalud' })}
-                  className="input-field w-full"
+                  className="input-v2 w-full"
                 >
                   <option value="google_meet">Google Meet</option>
                   <option value="zoom">Zoom</option>
@@ -359,7 +359,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                       : data.virtual_config.platform === 'teams' ? 'https://teams.microsoft.com/l/meetup-join/...'
                       : 'https://...'
                     }
-                    className="input-field w-full"
+                    className="input-v2 w-full"
                   />
                   <p className="text-xs text-slate-400 mt-1">
                     {data.virtual_config.platform === 'custom'
@@ -396,7 +396,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                   onChange={(e) => update('virtual_config', { ...data.virtual_config, instructions: e.target.value || null })}
                   rows={2}
                   placeholder="Ingresa al enlace 5 minutos antes de tu cita. Asegúrate de tener buena conexión a internet."
-                  className="input-field w-full resize-none"
+                  className="input-v2 w-full resize-none"
                 />
               </div>
             </>
@@ -405,7 +405,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* --- Alertas de escalamiento --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Alertas de escalamiento</h3>
         <p className="text-xs text-slate-400 mb-5">
           Cuando un paciente necesite atención urgente, enviaremos un WhatsApp a este número.
@@ -421,7 +421,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
             value={data.escalation_contact_phone}
             onChange={(e) => update('escalation_contact_phone', e.target.value)}
             placeholder="+57 3XX XXX XXXX"
-            className="input-field w-full"
+            className="input-v2 w-full"
           />
           <p className="text-xs text-slate-400 mt-1">
             Este número recibirá un WhatsApp cuando un paciente necesite atención urgente
@@ -430,7 +430,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* --- Política de cancelación --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Política de cancelación</h3>
         <p className="text-xs text-slate-400 mb-4">
           Si configuras una política, el agente la informará al paciente antes de cancelar una cita.
@@ -439,13 +439,13 @@ export function ClinicSettingsForm({ initialData }: Props) {
           value={data.cancellation_policy}
           onChange={(e) => update('cancellation_policy', e.target.value)}
           placeholder="Ej: Las cancelaciones deben realizarse con mínimo 24 horas de anticipación. Cancelaciones de último momento pueden generar un cobro."
-          className="input-field w-full"
+          className="input-v2 w-full"
           rows={3}
         />
       </div>
 
       {/* --- Mensaje de bienvenida --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Mensaje de bienvenida</h3>
         <p className="text-xs text-slate-400 mb-4">
           Este es el primer mensaje que reciben tus pacientes al escribirte por WhatsApp. Si lo dejas vacío, el agente genera uno automáticamente.
@@ -454,13 +454,13 @@ export function ClinicSettingsForm({ initialData }: Props) {
           value={data.welcome_message}
           onChange={(e) => update('welcome_message', e.target.value)}
           placeholder="Ej: ¡Hola! Soy el asistente virtual de Algia Clínica. Estoy aquí para ayudarte a agendar tu cita. ¿Con qué especialidad necesitas atención?"
-          className="input-field w-full"
+          className="input-v2 w-full"
           rows={3}
         />
       </div>
 
       {/* --- Ubicación --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Ubicación</h3>
         <p className="text-xs text-slate-400 mb-5">
           Esta información aparece cuando el agente confirma citas por WhatsApp.
@@ -477,7 +477,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
               value={data.address}
               onChange={(e) => update('address', e.target.value)}
               placeholder="Calle 10 # 5-23"
-              className="input-field w-full"
+              className="input-v2 w-full"
             />
           </div>
 
@@ -492,7 +492,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.city}
                 onChange={(e) => update('city', e.target.value)}
                 placeholder="Pereira"
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
             <div>
@@ -504,7 +504,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.department}
                 onChange={(e) => update('department', e.target.value)}
                 placeholder="Risaralda"
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
           </div>
@@ -520,7 +520,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
               value={data.building}
               onChange={(e) => update('building', e.target.value)}
               placeholder="Torre Médica Los Alpes"
-              className="input-field w-full"
+              className="input-v2 w-full"
             />
           </div>
 
@@ -536,7 +536,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.floor}
                 onChange={(e) => update('floor', e.target.value)}
                 placeholder="Piso 3"
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
             <div>
@@ -549,7 +549,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
                 value={data.office}
                 onChange={(e) => update('office', e.target.value)}
                 placeholder="Consultorio 302"
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
             </div>
           </div>
@@ -575,7 +575,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* --- Información de la clínica (contexto del agente) --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Información adicional del consultorio</h3>
         <p className="text-xs text-slate-400 mb-3">
           Describe información que el agente debe saber para responder preguntas del paciente: dirección, horarios, parqueadero, copagos, servicios, etc.
@@ -584,14 +584,14 @@ export function ClinicSettingsForm({ initialData }: Props) {
           value={data.clinic_info}
           onChange={(e) => update('clinic_info', e.target.value)}
           rows={6}
-          className="input-field w-full resize-y"
+          className="input-v2 w-full resize-y"
           placeholder={"Ejemplo:\n- Dirección: Oval Médica, piso 11, consultorio 1104\n- Horarios: lunes a viernes 7 AM a 6 PM\n- Parqueadero: disponible en el edificio\n- Copagos: dependen del plan, la secretaria los confirma"}
         />
         <p className="text-[10px] text-slate-400 mt-1">Todo lo que pongas aquí lo usará el agente para responder preguntas del paciente. Si no sabe la respuesta, escalará a un humano.</p>
       </div>
 
       {/* --- Notificaciones por especialidad --- */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Notificaciones por especialidad</h3>
         <p className="text-xs text-slate-400 mb-4">
           Cuando se cancele o reagende una cita, se envía WhatsApp al número asignado a la especialidad del doctor. Si no hay número configurado, se usa el teléfono de escalamiento.
@@ -600,17 +600,23 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* Sticky save bar — siempre visible al fondo de la pantalla */}
-      <div className="sticky bottom-0 -mx-5 px-5 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 z-10">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isPending}
-          className="btn-primary"
-        >
-          {isPending ? 'Guardando...' : 'Guardar configuración'}
+      <div
+        className="sticky bottom-0 -mx-5 px-5 py-3 z-10"
+        style={{
+          background: 'rgba(26, 21, 48, 0.95)',
+          backdropFilter: 'blur(12px)',
+          borderTop: '1px solid rgba(255,255,255,0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          borderRadius: '0 0 var(--v2-radius-lg) var(--v2-radius-lg)',
+        }}
+      >
+        <button type="button" onClick={handleSave} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '13px' }}>
+          {isPending ? 'Guardando...' : 'Guardar cambios'}
         </button>
-        {saved && <span className="text-sm text-emerald-600 font-medium">Guardado ✓</span>}
-        {error && <span className="text-sm text-red-600 font-medium">{error}</span>}
+        {saved && <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--v2-green)' }}>Guardado ✓</span>}
+        {error && <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--v2-red)' }}>{error}</span>}
       </div>
     </div>
   )
@@ -673,14 +679,14 @@ function SpecialtyNotificationsSection({ specialties }: { specialties: string[] 
 
       {showAdd ? (
         <div className="border border-blue-200 bg-blue-50/30 rounded-lg p-3 space-y-2">
-          <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-field w-full text-xs py-1">
+          <select value={specialty} onChange={(e) => setSpecialty(e.target.value)} className="input-v2 w-full text-xs py-1">
             <option value="">Seleccionar especialidad...</option>
             {specialties.filter((s) => !items.some((i) => i.specialty_name === s)).map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
-          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Teléfono WhatsApp (ej: 3101234567)" className="input-field w-full text-xs py-1" />
-          <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Nombre del contacto (opcional)" className="input-field w-full text-xs py-1" />
+          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Teléfono WhatsApp (ej: 3101234567)" className="input-v2 w-full text-xs py-1" />
+          <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Nombre del contacto (opcional)" className="input-v2 w-full text-xs py-1" />
           {error && <p className="text-red-600 text-[10px]">{error}</p>}
           <div className="flex gap-2">
             <button type="button" onClick={handleSave} disabled={isPending} className="bg-blue-700 hover:bg-blue-800 text-white text-xs font-medium py-1 px-3 rounded-lg disabled:opacity-50">{isPending ? 'Guardando...' : 'Guardar'}</button>

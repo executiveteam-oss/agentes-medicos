@@ -1,5 +1,5 @@
 // ============================================================
-// Layout compartido de Configuración — Tabs de navegación
+// Layout de Configuracion v2 — Sub-nav con tabs gradient
 // ============================================================
 
 import { getUserSession } from '@/lib/session'
@@ -12,17 +12,19 @@ export default async function SettingsLayout({ children }: { children: React.Rea
   const isSuperAdmin = session?.email === 'executive.team@loncocapital.com'
 
   return (
-    <div className="p-6 lg:p-8 max-w-4xl">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Configuración</h1>
-        <p className="text-slate-500 text-sm mt-1">
-          {isDoctor ? 'Tu perfil y preferencias' : 'Administra tu consultorio, equipo y preferencias'}
+    <div className="max-w-4xl" style={{ fontFamily: 'var(--font-manrope), sans-serif' }}>
+      <div style={{ marginBottom: '20px' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--v2-text)', letterSpacing: '-0.025em' }}>
+          Configuracion
+        </h1>
+        <p style={{ fontSize: '13.5px', color: 'var(--v2-text-muted)', marginTop: '4px' }}>
+          {isDoctor ? 'Tu perfil y preferencias' : 'Personaliza tu clinica, agente y operacion'}
         </p>
       </div>
 
       <SettingsTabs isDoctor={isDoctor} isSuperAdmin={isSuperAdmin} />
 
-      <div className="mt-6">
+      <div style={{ marginTop: '20px' }}>
         {children}
       </div>
     </div>

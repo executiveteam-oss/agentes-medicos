@@ -26,7 +26,6 @@ export interface ClinicSettingsData {
   website: string
   specialty: string[]
   consultation_price: number | null
-  daily_goal_appointments: number
   min_booking_advance_hours: number
   max_booking_advance_days: number
   address: string
@@ -54,7 +53,7 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
       .from('clinics')
       .select(`
         name, agent_name, phone, contact_email, website, specialty,
-        consultation_price, daily_goal_appointments,
+        consultation_price,
         min_booking_advance_hours, max_booking_advance_days,
         address, city, department, building, floor, office, logo_url,
         virtual_config, escalation_contact_phone, cancellation_policy, welcome_message, clinic_info
@@ -72,7 +71,6 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
       website: data.website ?? '',
       specialty: data.specialty ?? [],
       consultation_price: data.consultation_price,
-      daily_goal_appointments: data.daily_goal_appointments ?? 10,
       min_booking_advance_hours: data.min_booking_advance_hours ?? 24,
       max_booking_advance_days: data.max_booking_advance_days ?? 60,
       address: data.address ?? '',
@@ -118,7 +116,6 @@ export async function saveClinicSettings(
         website: input.website.trim() || null,
         specialty,
         consultation_price: input.consultation_price,
-        daily_goal_appointments: input.daily_goal_appointments,
         min_booking_advance_hours: input.min_booking_advance_hours,
         max_booking_advance_days: input.max_booking_advance_days,
         address: input.address.trim() || null,

@@ -89,7 +89,7 @@ export function PlanSettingsForm({ data }: Props) {
   return (
     <div className="space-y-6">
       {/* Plan actual */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Tu plan actual</h3>
@@ -125,7 +125,7 @@ export function PlanSettingsForm({ data }: Props) {
       </div>
 
       {/* Core features */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Incluido en tu plan Core</h3>
         <p className="text-xs text-slate-400 mb-4">Estas funciones están siempre activas.</p>
 
@@ -150,7 +150,7 @@ export function PlanSettingsForm({ data }: Props) {
       </div>
 
       {/* Plus modules */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Módulos Plus</h3>
         <p className="text-xs text-slate-400 mb-4">Activa módulos adicionales para potenciar tu consultorio.</p>
 

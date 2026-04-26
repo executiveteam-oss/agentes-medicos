@@ -153,7 +153,6 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
         subscription_status: 'trial',
         subscription_plan: subscriptionPlan,
         trial_ends_at: trialEndsAt.toISOString(),
-        daily_goal_appointments: cfgCitas ? Math.round(cfgCitas / 22) : 8,
         feature_config: featureConfig as unknown as Record<string, unknown>,
         preferred_plan: cfgPlan,
         preferred_plan_price: cfgPlanPrice,

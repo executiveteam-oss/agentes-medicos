@@ -16,9 +16,10 @@ interface Props {
   setExpandedApt: (id: string | null) => void
   doctors: { id: string; name: string }[]
   doctorFilter: string
+  onEmptySlotClick?: (date: string, hour: number) => void
 }
 
-export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, doctors, doctorFilter }: Props) {
+export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, doctors, doctorFilter, onEmptySlotClick }: Props) {
   const monday = getMonday(selectedDate)
   const weekDates = getWeekDates(monday)
   const showingAll = doctorFilter === 'all'
@@ -108,6 +109,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                   return (
                     <div
                       key={colIdx}
+                      className="group"
                       style={{
                         borderLeft: '1px solid var(--v2-border-soft)',
                         borderBottom: '1px solid var(--v2-border-soft)',
@@ -115,8 +117,33 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         position: 'relative',
                         padding: '1px',
                         background: isToday ? 'rgba(107,91,255,0.02)' : 'transparent',
+                        cursor: hourAppts.length === 0 && onEmptySlotClick ? 'pointer' : 'default',
+                      }}
+                      onClick={() => {
+                        if (hourAppts.length === 0 && onEmptySlotClick) {
+                          onEmptySlotClick(dateStr, hour)
+                        }
                       }}
                     >
+                      {/* Empty slot hover label */}
+                      {hourAppts.length === 0 && onEmptySlotClick && (
+                        <span
+                          className="hidden group-hover:flex"
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '10px',
+                            fontWeight: 600,
+                            color: 'var(--v2-primary)',
+                            background: 'var(--v2-primary-tint)',
+                            borderRadius: '2px',
+                          }}
+                        >
+                          + Agendar
+                        </span>
+                      )}
                       {hourAppts.map((apt, aptIdx) => {
                         const colors = getBlockColor(apt)
                         const minutes = getColombiaMinutes(apt.starts_at)

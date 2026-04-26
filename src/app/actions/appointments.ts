@@ -358,3 +358,43 @@ export async function updateAppointmentFromDashboard(
     return { ok: false, error: 'Error de permisos o sesión' }
   }
 }
+
+/** Fetch a single appointment with patient+doctor joins for realtime calendar */
+export async function getAppointmentForCalendar(appointmentId: string) {
+  const clinicId = await getSessionClinicId()
+
+  const { data: apt } = await supabaseAdmin
+    .from('appointments')
+    .select(`
+      id, starts_at, ends_at, status, reason, reminder_24h_sent, reminder_confirmed,
+      payment_type, doctor_id, modality, virtual_link,
+      documents_requested, documents_received, free_text_reason,
+      patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
+      doctors(name, specialty)
+    `)
+    .eq('id', appointmentId)
+    .eq('clinic_id', clinicId)
+    .maybeSingle()
+
+  if (!apt) return null
+
+  const raw = apt as Record<string, unknown>
+  return {
+    id: apt.id as string,
+    starts_at: apt.starts_at as string,
+    ends_at: apt.ends_at as string,
+    status: apt.status as string,
+    reason: (apt.reason as string) ?? null,
+    reminder_24h_sent: (apt.reminder_24h_sent as boolean) ?? false,
+    reminder_confirmed: (raw.reminder_confirmed as boolean | null) ?? null,
+    payment_type: (apt.payment_type as string) ?? 'Particular',
+    modality: (raw.modality as string) ?? 'presencial',
+    virtual_link: (raw.virtual_link as string) ?? null,
+    documents_requested: (raw.documents_requested as boolean) ?? false,
+    documents_received: (raw.documents_received as boolean) ?? false,
+    free_text_reason: (raw.free_text_reason as string) ?? null,
+    doctor_id: (raw.doctor_id as string) ?? null,
+    patient: raw.patients as { id: string; name: string; phone: string; no_show_probability: number; no_show_count: number; total_appointments: number; document_type: string; document_number: string | null; date_of_birth: string | null; doctor_notes: string | null; data_consent_at: string | null } | null,
+    doctor: raw.doctors as { name: string; specialty: string | null } | null,
+  }
+}

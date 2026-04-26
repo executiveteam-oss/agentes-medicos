@@ -12,6 +12,8 @@ import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { DayView } from './calendar/day-view'
 import { WeekView } from './calendar/week-view'
 import { MonthView } from './calendar/month-view'
+import { getAppointmentForCalendar } from '@/app/actions/appointments'
+import { AppointmentFormModal } from './appointment-form-modal'
 import type { CalendarAppointment, CalendarDoctor, ViewMode } from './calendar/types'
 import { parseLocalDate, toDateStr, getColombiaDateStr, DAYS_FULL_ES, MONTHS_ES, getMonday, DOCTOR_COLORS } from './calendar/types'
 
@@ -41,6 +43,8 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
   const [selectedDate, setSelectedDate] = useState(urlDate ? parseLocalDate(urlDate) : parseLocalDate(initialDate))
   const [expandedApt, setExpandedApt] = useState<string | null>(null)
   const [appointments, setAppointments] = useState(initialAppointments)
+  const [showNewAptModal, setShowNewAptModal] = useState(false)
+  const [newAptPrefill, setNewAptPrefill] = useState<{ date: string; time: string; doctor_id: string } | null>(null)
 
   const isDoctor = userRole.toLowerCase() === 'doctor' || userRole.toLowerCase() === 'médico'
   const defaultFilter = restrictDoctorId ? restrictDoctorId : 'all'
@@ -121,29 +125,46 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
 
     if (eventType === 'INSERT') {
       const newApt = payload.new
+      const aptId = newApt.id as string
+      // Avoid duplicates
       setAppointments((prev) => {
-        if (prev.some((a) => a.id === newApt.id)) return prev
+        if (prev.some((a) => a.id === aptId)) return prev
+        return prev
+      })
+      // Fetch full data with patient/doctor joins
+      getAppointmentForCalendar(aptId).then((fullApt) => {
+        if (fullApt) {
+          setAppointments((prev) => {
+            if (prev.some((a) => a.id === aptId)) return prev
+            return [...prev, fullApt as CalendarAppointment].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+          })
+        }
+      }).catch(() => {
+        // Fallback: append with minimal data
         const apt: CalendarAppointment = {
-          id: newApt.id as string,
+          id: aptId,
           starts_at: newApt.starts_at as string,
           ends_at: newApt.ends_at as string,
           status: newApt.status as string,
           reason: (newApt.reason as string | null) ?? null,
-          reminder_24h_sent: (newApt.reminder_24h_sent as boolean) ?? false,
-          reminder_confirmed: (newApt.reminder_confirmed as boolean | null) ?? null,
+          reminder_24h_sent: false,
+          reminder_confirmed: null,
           payment_type: (newApt.payment_type as string) ?? 'Particular',
           doctor_id: (newApt.doctor_id as string | null) ?? null,
-          modality: (newApt.modality as string) ?? 'presencial',
-          virtual_link: (newApt.virtual_link as string | null) ?? null,
-          documents_requested: (newApt.documents_requested as boolean) ?? false,
-          documents_received: (newApt.documents_received as boolean) ?? false,
-          free_text_reason: (newApt.free_text_reason as string | null) ?? null,
+          modality: 'presencial',
+          virtual_link: null,
+          documents_requested: false,
+          documents_received: false,
+          free_text_reason: null,
           patient: null,
           doctor: doctors.find((d) => d.id === newApt.doctor_id)
             ? { name: doctors.find((d) => d.id === newApt.doctor_id)!.name, specialty: null }
             : null,
         }
-        return [...prev, apt].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+        setAppointments((prev) => {
+          if (prev.some((a) => a.id === aptId)) return prev
+          return [...prev, apt].sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+        })
       })
     }
   }, [doctors])
@@ -186,6 +207,15 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
 
   function goToday() {
     changeDate(parseLocalDate(initialDate))
+  }
+
+  function handleEmptySlotClick(date: string, hour: number) {
+    setNewAptPrefill({
+      date,
+      time: `${String(hour).padStart(2, '0')}:00`,
+      doctor_id: doctorFilter !== 'all' ? doctorFilter : (doctors[0]?.id ?? ''),
+    })
+    setShowNewAptModal(true)
   }
 
   function getTitle(): string {
@@ -351,6 +381,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           setExpandedApt={setExpandedApt}
           doctors={doctors}
           doctorFilter={doctorFilter}
+          onEmptySlotClick={handleEmptySlotClick}
         />
       )}
       {view === 'month' && (
@@ -363,6 +394,30 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           doctorFilter={doctorFilter}
         />
       )}
+
+      {/* New appointment modal from empty slot click */}
+      <AppointmentFormModal
+        isOpen={showNewAptModal}
+        onClose={() => { setShowNewAptModal(false); setNewAptPrefill(null) }}
+        doctors={doctors as { id: string; name: string; specialty: string | null }[]}
+        initialData={newAptPrefill ? {
+          id: '',
+          patient_id: '',
+          patient_name: '',
+          doctor_id: newAptPrefill.doctor_id,
+          date: newAptPrefill.date,
+          time: newAptPrefill.time,
+          duration_minutes: 30,
+          reason: '',
+          payment_type: 'Particular' as const,
+          eps_name: '',
+        } : undefined}
+        onSaved={() => {
+          setShowNewAptModal(false)
+          setNewAptPrefill(null)
+          window.location.reload()
+        }}
+      />
     </div>
   )
 }

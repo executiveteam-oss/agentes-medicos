@@ -37,7 +37,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow', section: 'operation' },
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', section: 'operation', featureKey: 'waitlist' },
   // Configuracion
-  { href: '/dashboard/whatsapp', label: 'Tu agente', iconName: 'Sparkles', module: 'whatsapp', section: 'config' },
+  { href: '/dashboard/tu-agente', label: 'Tu agente', iconName: 'Sparkles', module: 'whatsapp', section: 'config' },
   { href: '/dashboard/vacaciones', label: 'Vacaciones', iconName: 'Palmtree', module: 'agenda', section: 'config' },
   { href: '/dashboard/stradmed', label: 'Finanzas', iconName: 'CreditCard', module: 'settings', section: 'config' },
   { href: '/dashboard/legal', label: 'Legal', iconName: 'Shield', module: 'settings', section: 'config' },

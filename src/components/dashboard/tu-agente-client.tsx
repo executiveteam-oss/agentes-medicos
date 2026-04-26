@@ -7,8 +7,7 @@
 import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
 import { MessageSquare, Zap, Calendar, CheckCircle, Sparkles, Play, ExternalLink, Clock, AlertTriangle, Shield } from 'lucide-react'
-import { saveWhatsAppConfig } from '@/app/actions/whatsapp'
-import { saveClinicSettings } from '@/app/actions/clinic'
+import { updateAgentPersonality, updateEscalationKeywords, updateAutomations } from '@/app/actions/agent-config'
 import type { WhatsAppAutomations } from '@/types/database'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -61,53 +60,61 @@ export function TuAgenteClient(props: Props) {
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
-  function saveKeywords(newKeywords: string[]) {
-    setKeywords(newKeywords)
-    startTransition(async () => {
-      // Load current config, update keywords, save back
-      const res = await fetch('/api/sync/isalud', { method: 'HEAD' }).catch(() => null) // dummy to keep session
-      // Use the save action with full config
-      // Since we only have keywords, we need to save via the existing saveWhatsAppConfig
-      // which expects full config. We'll construct it from what we have.
-      // This is a known limitation — ideally we'd have a partial update action.
-      showToast('Keywords guardadas')
-    })
-  }
-
   function handleAddKeyword() {
     const input = keywordRef.current
     if (!input) return
     const kw = input.value.trim().toLowerCase()
     if (kw && !keywords.includes(kw)) {
       const newKw = [...keywords, kw]
+      const prevKw = [...keywords]
       setKeywords(newKw)
       input.value = ''
-      showToast('Keyword agregada')
+      startTransition(async () => {
+        const result = await updateEscalationKeywords(newKw)
+        if (result.success) showToast('Keyword guardada')
+        else { setKeywords(prevKw); showToast(result.error ?? 'Error guardando') }
+      })
     }
   }
 
   function handleRemoveKeyword(kw: string) {
-    setKeywords((prev) => prev.filter((k) => k !== kw))
-    showToast('Keyword eliminada')
+    const newKw = keywords.filter((k) => k !== kw)
+    const prevKw = [...keywords]
+    setKeywords(newKw)
+    startTransition(async () => {
+      const result = await updateEscalationKeywords(newKw)
+      if (result.success) showToast('Keyword eliminada')
+      else { setKeywords(prevKw); showToast(result.error ?? 'Error guardando') }
+    })
   }
 
-  async function handlePersonalityChange(key: string) {
+  function handlePersonalityChange(key: string) {
     const opt = PERSONALITY_OPTIONS.find((o) => o.key === key)
     if (!opt) return
+    const prevKey = personalityKey
     setPersonalityKey(key)
     startTransition(async () => {
-      // Update agent_personality in clinics table via a targeted fetch
-      const res = await fetch('/api/webhooks/whatsapp', { method: 'HEAD' }).catch(() => null)
-      showToast('Tono actualizado')
+      const result = await updateAgentPersonality(opt.dbValue)
+      if (result.success) showToast('Tono actualizado')
+      else { setPersonalityKey(prevKey); showToast(result.error ?? 'Error guardando') }
     })
   }
 
   function handleToggleAutomation(field: 'post_consulta' | 'reactivacion') {
-    setAutomations((prev) => ({
-      ...prev,
-      [field]: { ...prev[field], enabled: !prev[field].enabled },
-    }))
-    showToast('Automatizacion actualizada')
+    const prevAuto = { ...automations }
+    const newAuto = {
+      ...automations,
+      [field]: { ...automations[field], enabled: !automations[field].enabled },
+    }
+    setAutomations(newAuto)
+    startTransition(async () => {
+      const result = await updateAutomations({
+        post_consulta: newAuto.post_consulta.enabled,
+        reactivacion: newAuto.reactivacion.enabled,
+      })
+      if (result.success) showToast('Automatizacion guardada')
+      else { setAutomations(prevAuto); showToast(result.error ?? 'Error guardando') }
+    })
   }
 
   return (

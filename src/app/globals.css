@@ -331,6 +331,12 @@ body {
   transform: translateX(20px);
 }
 
+/* Landing page float animation */
+@keyframes landingFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
 /* Sidebar logout button */
 .sidebar-logout-btn:hover {
   background: var(--v2-red-soft) !important;

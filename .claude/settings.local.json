@@ -100,7 +100,8 @@
       "Bash(git checkout:*)",
       "Bash(git merge:*)",
       "Bash(wc -l /Users/juanlondono/Documents/agentes-medicos/src/app/actions/*.ts)",
-      "Bash(wc -l src/app/dashboard/asistente/*.tsx)"
+      "Bash(wc -l src/app/dashboard/asistente/*.tsx)",
+      "Bash(ls src/app/\\\\\\(landing\\\\\\))"
     ]
   }
 }

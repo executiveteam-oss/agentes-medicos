@@ -1,7 +1,7 @@
-@import "tailwindcss";
-
 /* Instrument Serif — decorative serif italic (Google Fonts) */
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
+
+@import "tailwindcss";
 
 /* ============================================================
    Omuwan v2 — Design Tokens

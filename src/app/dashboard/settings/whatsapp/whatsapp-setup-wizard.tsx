@@ -167,7 +167,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
         </div>
         <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
           <div
-            className="h-full bg-[#0f2a6e] rounded-full transition-all duration-500"
+            className="h-full bg-[var(--v2-primary-deep)] rounded-full transition-all duration-500"
             style={{ width: `${(displayStep / TOTAL_STEPS) * 100}%` }}
           />
         </div>
@@ -183,7 +183,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                 step > num
                   ? 'bg-emerald-500 text-white'
                   : step === num
-                    ? 'bg-[#0f2a6e] text-white ring-4 ring-blue-100'
+                    ? 'bg-[var(--v2-primary-deep)] text-white ring-4 ring-blue-100'
                     : 'bg-slate-100 text-slate-400'
               }`}>
                 {step > num ? (
@@ -716,7 +716,7 @@ function StepCard({
       {/* Step header */}
       <div className="flex items-start gap-4 mb-6">
         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${
-          bonus ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-[#0f2a6e]'
+          bonus ? 'bg-emerald-50 text-emerald-600' : 'bg-blue-50 text-[var(--v2-primary-deep)]'
         }`}>
           {icon}
         </div>

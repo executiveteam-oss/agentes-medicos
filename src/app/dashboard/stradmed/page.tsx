@@ -60,9 +60,9 @@ export default function STRADmedPage() {
         </div>
 
         {/* STRADmed */}
-        <div className="card-v2 p-6 border-[#028090]/30">
+        <div className="card-v2 p-6 border-[var(--v2-primary)]/30">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-8 h-8 rounded-md bg-[#028090] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-md bg-[var(--v2-primary)] flex items-center justify-center">
               <span className="text-white font-bold text-sm">S</span>
             </div>
             <h2 className="text-lg font-semibold text-slate-900">STRADmed hace</h2>
@@ -70,7 +70,7 @@ export default function STRADmedPage() {
           <ul className="space-y-3">
             {STRADMED_FEATURES.map((f) => (
               <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
-                <svg className="w-4 h-4 text-[#028090] mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className="w-4 h-4 text-[var(--v2-primary)] mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
                 {f}
@@ -81,7 +81,7 @@ export default function STRADmedPage() {
       </div>
 
       {/* CTA Card */}
-      <div className="bg-[#028090] rounded-xl p-6 lg:p-8 text-white">
+      <div className="bg-[var(--v2-primary)] rounded-xl p-6 lg:p-8 text-white">
         <h3 className="text-lg font-semibold mb-2">Descuento exclusivo para clientes Omuwan</h3>
         <p className="text-white/80 text-sm mb-6">
           Menciona que eres cliente de Omuwan al contactar STRADmed y obtén condiciones especiales.
@@ -91,7 +91,7 @@ export default function STRADmedPage() {
             href="https://stradmedsoft.vercel.app"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 bg-white text-[#028090] font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-white/90 transition-colors"
+            className="inline-flex items-center gap-2 bg-white text-[var(--v2-primary)] font-semibold text-sm px-5 py-2.5 rounded-lg hover:bg-white/90 transition-colors"
           >
             Conocer STRADmed &rarr;
           </Link>

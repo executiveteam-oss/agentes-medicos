@@ -8,7 +8,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { revalidatePath } from 'next/cache'
-import { getSessionClinicId } from '@/lib/actions-helpers'
+
 import { normalizeWorkingHours, dayTotalMinutes } from '@/lib/utils/working-hours'
 
 export interface PriorityScore {

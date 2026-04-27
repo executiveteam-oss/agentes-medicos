@@ -51,7 +51,7 @@ export default async function WhatsAppPage() {
             </p>
             <Link
               href="/dashboard/settings/whatsapp"
-              className="inline-flex items-center gap-1.5 mt-3 bg-[#0f2a6e] hover:bg-[#1a3a8a] text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
+              className="inline-flex items-center gap-1.5 mt-3 bg-[var(--v2-primary-deep)] hover:bg-[var(--v2-primary)] text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors"
             >
               Configurar ahora →
             </Link>

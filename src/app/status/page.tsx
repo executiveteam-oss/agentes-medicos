@@ -87,7 +87,7 @@ export default async function StatusPage() {
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-2xl mx-auto px-6 py-6">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#0f2a6e] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-[var(--v2-primary-deep)] flex items-center justify-center">
               <span className="text-white text-xs font-bold">O</span>
             </div>
             <h1 className="text-lg font-semibold text-slate-900">Estado del sistema — Omuwan</h1>

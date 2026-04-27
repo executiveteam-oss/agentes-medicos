@@ -96,7 +96,7 @@ export default function ResetPasswordPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-[#0f2a6e] hover:bg-[#1a3a8a] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
+          className="w-full bg-[var(--v2-primary-deep)] hover:bg-[var(--v2-primary)] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
         >
           {loading ? 'Actualizando...' : 'Actualizar contraseña'}
         </button>

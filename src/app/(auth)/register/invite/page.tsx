@@ -181,10 +181,10 @@ function RegisterForm() {
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
       {/* Configurator summary card */}
       {hasConfig && (
-        <div className="mb-6 p-4 bg-[#028090]/5 border border-[#028090]/20 rounded-lg">
+        <div className="mb-6 p-4 bg-[var(--v2-primary)]/5 border border-[var(--v2-primary)]/20 rounded-lg">
           <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#028090]/10 flex items-center justify-center shrink-0 mt-0.5">
-              <span className="text-[#028090] text-sm">&#10003;</span>
+            <div className="w-8 h-8 rounded-lg bg-[var(--v2-primary)]/10 flex items-center justify-center shrink-0 mt-0.5">
+              <span className="text-[var(--v2-primary)] text-sm">&#10003;</span>
             </div>
             <div>
               <p className="text-sm font-semibold text-slate-900">Tu plan configurado</p>
@@ -196,13 +196,13 @@ function RegisterForm() {
               {featureCount > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {featureList.map((f) => (
-                    <span key={f} className="text-xs bg-[#028090]/10 text-[#028090] px-2 py-0.5 rounded-full">
+                    <span key={f} className="text-xs bg-[var(--v2-primary)]/10 text-[var(--v2-primary)] px-2 py-0.5 rounded-full">
                       {FEATURE_LABELS[f] ?? f}
                     </span>
                   ))}
                 </div>
               )}
-              <p className="text-xs text-[#028090] font-medium mt-2">Primer mes gratis</p>
+              <p className="text-xs text-[var(--v2-primary)] font-medium mt-2">Primer mes gratis</p>
             </div>
           </div>
         </div>
@@ -215,7 +215,7 @@ function RegisterForm() {
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
                 step >= s.num
-                  ? 'bg-[#0f2a6e] text-white'
+                  ? 'bg-[var(--v2-primary-deep)] text-white'
                   : 'bg-slate-100 text-slate-400'
               }`}
             >
@@ -229,7 +229,7 @@ function RegisterForm() {
               {s.label}
             </span>
             {s.num < STEPS.length && (
-              <div className={`w-8 h-px ${step > s.num ? 'bg-[#0f2a6e]' : 'bg-slate-200'}`} />
+              <div className={`w-8 h-px ${step > s.num ? 'bg-[var(--v2-primary-deep)]' : 'bg-slate-200'}`} />
             )}
           </div>
         ))}
@@ -271,13 +271,13 @@ function RegisterForm() {
               {selectedSpecs.map((spec) => (
                 <span
                   key={spec}
-                  className="inline-flex items-center gap-1 bg-[#0f2a6e]/10 text-[#0f2a6e] text-xs font-medium px-2.5 py-1 rounded-full"
+                  className="inline-flex items-center gap-1 bg-[var(--v2-primary-deep)]/10 text-[var(--v2-primary-deep)] text-xs font-medium px-2.5 py-1 rounded-full"
                 >
                   {spec}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removeSpec(spec) }}
-                    className="hover:text-[#0f2a6e] transition-colors"
+                    className="hover:text-[var(--v2-primary-deep)] transition-colors"
                   >
                     ×
                   </button>
@@ -303,7 +303,7 @@ function RegisterForm() {
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); addCustomSpec() }}
-                      className="bg-[#0f2a6e] hover:bg-[#1a3a8a] text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
+                      className="bg-[var(--v2-primary-deep)] hover:bg-[var(--v2-primary)] text-white text-sm px-3 py-1.5 rounded-lg transition-colors"
                     >
                       +
                     </button>
@@ -319,7 +319,7 @@ function RegisterForm() {
                       type="checkbox"
                       checked={selectedSpecs.includes(spec)}
                       onChange={() => toggleSpec(spec)}
-                      className="rounded border-slate-300 text-[#0f2a6e] focus:ring-[#29abe2]"
+                      className="rounded border-slate-300 text-[var(--v2-primary-deep)] focus:ring-[#29abe2]"
                     />
                     <span className="text-slate-700">{spec}</span>
                   </label>
@@ -339,18 +339,18 @@ function RegisterForm() {
                   onClick={() => setDoctorRange(opt.range)}
                   className={`p-3 rounded-lg border-2 text-left transition-all ${
                     doctorRange === opt.range
-                      ? 'border-[#028090] bg-[#028090]/5'
+                      ? 'border-[var(--v2-primary)] bg-[var(--v2-primary)]/5'
                       : 'border-slate-200 hover:border-slate-300'
                   }`}
                 >
-                  <p className={`text-sm font-semibold ${doctorRange === opt.range ? 'text-[#028090]' : 'text-slate-900'}`}>
+                  <p className={`text-sm font-semibold ${doctorRange === opt.range ? 'text-[var(--v2-primary)]' : 'text-slate-900'}`}>
                     {opt.label}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{opt.price}</p>
                 </button>
               ))}
             </div>
-            <p className="text-xs text-[#028090] font-medium text-center mt-2">
+            <p className="text-xs text-[var(--v2-primary)] font-medium text-center mt-2">
               2 meses gratis &middot; Sin permanencia
             </p>
           </div>
@@ -373,7 +373,7 @@ function RegisterForm() {
               setSpecError('')
               setStep(2)
             }}
-            className="w-full bg-[#0f2a6e] hover:bg-[#1a3a8a] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
+            className="w-full bg-[var(--v2-primary-deep)] hover:bg-[var(--v2-primary)] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
           >
             Continuar
           </button>
@@ -548,7 +548,7 @@ function RegisterForm() {
 
       <p className="mt-6 text-center text-sm text-slate-500">
         ¿Ya tienes cuenta?{' '}
-        <Link href="/login" className="text-[#0f2a6e] hover:text-[#1a3a8a] font-medium">
+        <Link href="/login" className="text-[var(--v2-primary-deep)] hover:text-[var(--v2-primary)] font-medium">
           Iniciar sesión
         </Link>
       </p>

@@ -198,7 +198,7 @@ export function PlanSettingsForm({ data }: Props) {
                     href={buildWaUrl(feat.label, price)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 bg-[#028090] hover:bg-[#026d7a] text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-1.5 bg-[var(--v2-primary)] hover:bg-[var(--v2-primary-deep)] text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
                   >
                     Activar{price ? ` — ${formatCOP(price)}/mes` : ''}
                   </a>

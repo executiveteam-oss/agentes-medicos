@@ -44,7 +44,7 @@ export default function ForgotPasswordPage() {
           </div>
           <Link
             href="/login"
-            className="block w-full text-center bg-[#0f2a6e] hover:bg-[#1a3a8a] text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
+            className="block w-full text-center bg-[var(--v2-primary-deep)] hover:bg-[var(--v2-primary)] text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
           >
             Volver a iniciar sesión
           </Link>
@@ -76,7 +76,7 @@ export default function ForgotPasswordPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-[#0f2a6e] hover:bg-[#1a3a8a] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
+            className="w-full bg-[var(--v2-primary-deep)] hover:bg-[var(--v2-primary)] disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium py-2.5 px-6 rounded-lg transition-colors"
           >
             {loading ? 'Enviando...' : 'Enviar link de recuperación'}
           </button>
@@ -84,7 +84,7 @@ export default function ForgotPasswordPage() {
       )}
 
       <p className="mt-6 text-center text-sm text-slate-500">
-        <Link href="/login" className="text-[#0f2a6e] hover:text-[#1a3a8a] font-medium">
+        <Link href="/login" className="text-[var(--v2-primary-deep)] hover:text-[var(--v2-primary)] font-medium">
           Volver al login
         </Link>
       </p>

@@ -39,7 +39,6 @@ export function festivosProximos(diasAdelante: number = 3): { fecha: string; nom
   const hoy = new Date()
   // Ajustar a hora Colombia (UTC-5)
   const hoyCol = new Date(hoy.getTime() - 5 * 60 * 60 * 1000)
-  const hoyStr = hoyCol.toISOString().split('T')[0]
 
   const resultado: { fecha: string; nombre: string }[] = []
 

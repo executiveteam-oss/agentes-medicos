@@ -104,7 +104,6 @@ export async function saveClinicSettings(
 
     // Asegurar que specialty sea un array (puede llegar undefined si el campo no se tocó)
     const specialty = Array.isArray(input.specialty) ? input.specialty : []
-    console.log(`[saveClinicSettings] clinic=${clinicId} specialty=${JSON.stringify(specialty)} (${specialty.length} items)`)
 
     const { error } = await supabaseAdmin
       .from('clinics')

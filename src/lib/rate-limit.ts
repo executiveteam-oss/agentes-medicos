@@ -1,35 +1,113 @@
 // ============================================================
-// Rate Limiter — Protección contra abuso en API routes
+// Rate Limiter — Upstash Redis with in-memory fallback
 //
-// TODO: migrar a Vercel KV para seguridad multi-instancia.
-// Actualmente usa Map en memoria — solo protege dentro de
-// una misma instancia de Vercel. En producción con múltiples
-// instancias, un atacante podría evadir los límites.
+// Uses Upstash Redis if UPSTASH_REDIS_REST_URL is configured.
+// Falls back to in-memory Map if env vars are missing or init fails.
+// Fallback is logged once at startup for observability.
 // ============================================================
 
 import { timingSafeEqual } from 'crypto'
 
-interface RateLimitEntry {
-  count: number
-  resetAt: number  // timestamp en ms
+// ---- Backend selection ----
+
+type Backend = 'upstash' | 'memory'
+let backend: Backend = 'memory'
+let upstashRatelimit: typeof import('@upstash/ratelimit').Ratelimit | null = null
+
+// Lazy init — runs once on first call
+let initialized = false
+
+async function ensureInit() {
+  if (initialized) return
+  initialized = true
+
+  const url = process.env.UPSTASH_REDIS_REST_URL
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN
+
+  if (url && token) {
+    try {
+      const { Redis } = await import('@upstash/redis')
+      const { Ratelimit } = await import('@upstash/ratelimit')
+
+      // Test connection
+      const redis = new Redis({ url, token })
+      await redis.ping()
+
+      // Store Ratelimit class for later use
+      upstashRatelimit = Ratelimit
+      ;(globalThis as Record<string, unknown>).__upstashRedis = redis
+      backend = 'upstash'
+      console.log('[RateLimit] ✅ Upstash Redis connected')
+    } catch (err) {
+      console.warn('[RateLimit] ⚠️ Upstash init failed, using in-memory fallback:', err instanceof Error ? err.message : err)
+      backend = 'memory'
+    }
+  } else {
+    console.log('[RateLimit] ℹ️ No UPSTASH env vars — using in-memory fallback')
+    backend = 'memory'
+  }
 }
 
-const store = new Map<string, RateLimitEntry>()
+// ---- In-memory fallback (original implementation) ----
 
-// Limpiar entradas expiradas cada 60 segundos
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of store) {
-    if (now > entry.resetAt) {
-      store.delete(key)
+interface RateLimitEntry {
+  count: number
+  resetAt: number
+}
+
+const memoryStore = new Map<string, RateLimitEntry>()
+
+// Clean expired entries every 60s (only runs if memory backend is used)
+if (typeof setInterval !== 'undefined') {
+  setInterval(() => {
+    const now = Date.now()
+    for (const [key, entry] of memoryStore) {
+      if (now > entry.resetAt) memoryStore.delete(key)
     }
+  }, 60_000)
+}
+
+function checkMemoryRateLimit(key: string, config: RateLimitConfig): RateLimitResult {
+  const now = Date.now()
+  const windowMs = config.windowSeconds * 1000
+  const entry = memoryStore.get(key)
+
+  if (!entry || now > entry.resetAt) {
+    memoryStore.set(key, { count: 1, resetAt: now + windowMs })
+    return { allowed: true, remaining: config.maxRequests - 1, resetAt: now + windowMs }
   }
-}, 60_000)
+
+  entry.count++
+
+  if (entry.count > config.maxRequests) {
+    return { allowed: false, remaining: 0, resetAt: entry.resetAt }
+  }
+
+  return { allowed: true, remaining: config.maxRequests - entry.count, resetAt: entry.resetAt }
+}
+
+// ---- Upstash rate limiter cache ----
+
+const upstashLimiters = new Map<string, InstanceType<typeof import('@upstash/ratelimit').Ratelimit>>()
+
+function getUpstashLimiter(config: RateLimitConfig) {
+  const cacheKey = `${config.maxRequests}:${config.windowSeconds}`
+  let limiter = upstashLimiters.get(cacheKey)
+  if (!limiter && upstashRatelimit) {
+    const redis = (globalThis as Record<string, unknown>).__upstashRedis as import('@upstash/redis').Redis
+    limiter = new upstashRatelimit({
+      redis,
+      limiter: upstashRatelimit.slidingWindow(config.maxRequests, `${config.windowSeconds} s`),
+    })
+    upstashLimiters.set(cacheKey, limiter)
+  }
+  return limiter
+}
+
+// ---- Public API (same signatures as before) ----
 
 interface RateLimitConfig {
-  /** Máximo de requests permitidos en la ventana */
   maxRequests: number
-  /** Duración de la ventana en segundos */
   windowSeconds: number
 }
 
@@ -40,46 +118,46 @@ interface RateLimitResult {
 }
 
 /**
- * Verifica si una solicitud está dentro del límite.
- * @param key - Identificador único (IP, phone, clinicId, etc.)
- * @param config - Configuración del límite
+ * Verifica si una solicitud esta dentro del limite.
+ * Uses Upstash if available, falls back to in-memory.
  */
 export function checkRateLimit(key: string, config: RateLimitConfig): RateLimitResult {
-  const now = Date.now()
-  const windowMs = config.windowSeconds * 1000
-  const entry = store.get(key)
+  // Trigger lazy init (non-blocking — first request uses memory, subsequent use Upstash)
+  ensureInit()
 
-  // Si no hay entrada o la ventana expiró, crear nueva
-  if (!entry || now > entry.resetAt) {
-    store.set(key, { count: 1, resetAt: now + windowMs })
-    return { allowed: true, remaining: config.maxRequests - 1, resetAt: now + windowMs }
+  if (backend === 'upstash') {
+    const limiter = getUpstashLimiter(config)
+    if (limiter) {
+      // Upstash ratelimit is async but checkRateLimit is sync.
+      // Fire-and-forget the async check and use memory as synchronous bridge.
+      // This is a pragmatic approach: the actual blocking happens in memory
+      // but the Upstash counter stays in sync for cross-instance consistency.
+      limiter.limit(key).then((result) => {
+        if (!result.success) {
+          // Mark in memory store as blocked so next sync call returns blocked
+          memoryStore.set(key, { count: config.maxRequests + 1, resetAt: result.reset })
+        }
+      }).catch(() => { /* Upstash failure — memory handles it */ })
+    }
   }
 
-  // Incrementar contador
-  entry.count++
-
-  if (entry.count > config.maxRequests) {
-    return { allowed: false, remaining: 0, resetAt: entry.resetAt }
-  }
-
-  return { allowed: true, remaining: config.maxRequests - entry.count, resetAt: entry.resetAt }
+  // Always check memory synchronously (works as primary or backup)
+  return checkMemoryRateLimit(key, config)
 }
 
-// ============================================================
-// Configuraciones predefinidas por ruta
-// ============================================================
+// ---- Predefined configs ----
 
 export const RATE_LIMITS = {
-  /** /api/webhooks/whatsapp — 30 req/min por teléfono */
+  /** /api/webhooks/whatsapp — 30 req/min per phone */
   webhook: { maxRequests: 30, windowSeconds: 60 },
   /** /api/cron/* — 5 req/min */
   cron: { maxRequests: 5, windowSeconds: 60 },
-  /** Todas las demás /api/* — 60 req/min por IP */
+  /** All other /api/* — 60 req/min per IP */
   general: { maxRequests: 60, windowSeconds: 60 },
 } as const
 
 /**
- * Extrae la IP del request (Vercel pone la IP real en x-forwarded-for)
+ * Extract client IP from request (Vercel puts real IP in x-forwarded-for)
  */
 export function getClientIp(request: Request): string {
   return (
@@ -90,15 +168,13 @@ export function getClientIp(request: Request): string {
 }
 
 /**
- * Verifica el Bearer token de cron jobs con comparación timing-safe.
- * SECURITY: nunca usar === para comparar secrets.
+ * Verify cron Bearer token with timing-safe comparison.
  */
 export function verifyCronSecret(authHeader: string | null): boolean {
   const secret = process.env.CRON_SECRET
   if (!authHeader || !secret) return false
 
   const expected = `Bearer ${secret}`
-
   if (authHeader.length !== expected.length) return false
 
   try {

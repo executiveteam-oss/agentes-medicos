@@ -2,11 +2,15 @@
 // DayView v2 — Stat cards + appointment list with inline expand
 // ============================================================
 
+import { useState } from 'react'
 import { formatTimeForPatient } from '@/lib/utils/dates'
-import { Calendar } from 'lucide-react'
+import { Calendar, XCircle } from 'lucide-react'
 import { AppointmentDetail } from './appointment-detail'
+import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
 import { STATUS_STYLES, STATUS_LABELS, toDateStr, MONTHS_ES } from './types'
+import { format } from 'date-fns'
+import { es } from 'date-fns/locale'
 
 interface Props {
   date: Date
@@ -14,6 +18,8 @@ interface Props {
   appointments: CalendarAppointment[]
   expandedApt: string | null
   setExpandedApt: (id: string | null) => void
+  doctorFilter?: string  // 'all' or doctor_id
+  doctorName?: string | null
 }
 
 const AVATAR_GRADIENTS = [
@@ -34,24 +40,73 @@ function getInitials(name: string): string {
   return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
 }
 
-export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt }: Props) {
+export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName }: Props) {
   const dateStr = toDateStr(date)
   const isToday = dateStr === todayStr
+  const [showBulkCancel, setShowBulkCancel] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   const total = appointments.length
   const completed = appointments.filter((a) => a.status === 'completed').length
   const noShows = appointments.filter((a) => a.status === 'no_show').length
   const pending = appointments.filter((a) => a.status === 'confirmed' || a.status === 'rescheduled').length
 
+  const dateFormatted = format(date, "EEEE d 'de' MMMM", { locale: es })
+  const isFilteredDoctor = doctorFilter && doctorFilter !== 'all'
+
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }} className="space-y-4">
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Stat cards + bulk cancel button */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ flex: 1 }}>
         <StatCard label="Total" value={total} color="var(--v2-text)" />
         <StatCard label="Pendientes" value={pending} color="var(--v2-primary)" />
         <StatCard label="Completadas" value={completed} color="var(--v2-green)" />
         <StatCard label="No-shows" value={noShows} color="var(--v2-red)" />
+        </div>
+        {pending > 0 && (
+          <button
+            onClick={() => setShowBulkCancel(true)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              fontSize: '12px', fontWeight: 600, padding: '8px 14px',
+              borderRadius: 'var(--v2-radius)', border: '1px solid rgba(255,87,87,0.3)',
+              background: 'var(--v2-red-soft)', color: 'var(--v2-red)',
+              cursor: 'pointer', fontFamily: 'var(--font-manrope), sans-serif',
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            <XCircle size={14} />
+            {isFilteredDoctor && doctorName
+              ? `Cancelar citas de ${doctorName}`
+              : 'Cancelar todas las citas'}
+          </button>
+        )}
       </div>
+
+      {/* Bulk cancel modal */}
+      {showBulkCancel && (
+        <BulkCancelModal
+          date={dateStr}
+          dateFormatted={dateFormatted}
+          appointments={appointments}
+          doctorId={isFilteredDoctor ? doctorFilter! : null}
+          doctorName={isFilteredDoctor ? (doctorName ?? null) : null}
+          onClose={() => setShowBulkCancel(false)}
+          onDone={(cancelled, notified) => {
+            setShowBulkCancel(false)
+            setToast(`${cancelled} citas canceladas · ${notified} pacientes notificados`)
+            setTimeout(() => { setToast(null); window.location.reload() }, 3000)
+          }}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 50, padding: '12px 20px', borderRadius: 'var(--v2-radius)', fontSize: '13px', fontWeight: 600, color: '#fff', background: 'var(--v2-text)', boxShadow: 'var(--v2-shadow-lg)' }}>
+          {toast}
+        </div>
+      )}
 
       {/* Appointment list */}
       <div

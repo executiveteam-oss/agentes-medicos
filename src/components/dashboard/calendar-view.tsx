@@ -369,6 +369,8 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           appointments={getApptsForDate(toDateStr(selectedDate))}
           expandedApt={expandedApt}
           setExpandedApt={setExpandedApt}
+          doctorFilter={doctorFilter}
+          doctorName={doctorFilter !== 'all' ? (doctors.find((d) => d.id === doctorFilter)?.name ?? null) : null}
         />
       )}
       {view === 'week' && (

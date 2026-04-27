@@ -264,18 +264,18 @@ export function EsperaPanel({
       <>
       {/* Stat cards */}
       <div className="grid grid-cols-2 gap-4">
-        <div className="card p-5">
+        <div className="card-v2 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">Esperando</p>
           <p className="text-2xl font-semibold text-slate-900">{entries.filter((e) => e.status === 'waiting').length}</p>
         </div>
-        <div className="card p-5">
+        <div className="card-v2 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">Notificados</p>
           <p className="text-2xl font-semibold text-slate-900">{entries.filter((e) => e.status === 'notified').length}</p>
         </div>
       </div>
 
       {/* Tabla */}
-      <div className="card overflow-hidden">
+      <div className="card-v2 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Pacientes en espera</h2>
@@ -291,7 +291,7 @@ export function EsperaPanel({
               </button>
             )}
             {entries.length > 0 && <span className="badge badge-amber">{entries.length} en lista</span>}
-            <button onClick={() => setShowModal(true)} className="btn-primary text-xs py-1.5 px-3">
+            <button onClick={() => setShowModal(true)} className="btn-v2-primary text-xs py-1.5 px-3">
               + Agregar a lista
             </button>
           </div>
@@ -360,7 +360,7 @@ export function EsperaPanel({
                             type="text"
                             value={editReason}
                             onChange={(e) => setEditReason(e.target.value)}
-                            className="input-field text-sm py-1 w-full"
+                            className="input-v2 text-sm py-1 w-full"
                           />
                         ) : (
                           <span className="text-slate-600">{entry.reason ?? '-'}</span>
@@ -371,7 +371,7 @@ export function EsperaPanel({
                           <select
                             value={editPriority}
                             onChange={(e) => setEditPriority(e.target.value as WaitlistPriority)}
-                            className="input-field text-sm py-1"
+                            className="input-v2 text-sm py-1"
                           >
                             <option value="normal">Normal</option>
                             <option value="urgente">Urgente</option>
@@ -450,14 +450,14 @@ export function EsperaPanel({
       <>
       {/* Manual Requests Section */}
       <div className="grid grid-cols-1 gap-4">
-        <div className="card p-5">
+        <div className="card-v2 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">Solicitudes pendientes</p>
           <p className="text-2xl font-semibold text-slate-900">{manualEntries.length}</p>
           <p className="text-xs text-slate-400 mt-1">Pacientes que solicitaron cita con médicos sin horario fijo</p>
         </div>
       </div>
 
-      <div className="card overflow-hidden">
+      <div className="card-v2 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
           <h2 className="text-sm font-semibold text-slate-900">Solicitudes de cita manual</h2>
           <p className="text-slate-400 text-xs mt-0.5">Pacientes que pidieron cita vía WhatsApp con médicos de disponibilidad manual</p>
@@ -526,19 +526,19 @@ export function EsperaPanel({
                           type="date"
                           value={confirmDate}
                           onChange={(e) => setConfirmDate(e.target.value)}
-                          className="input-field text-sm py-1 w-full"
+                          className="input-v2 text-sm py-1 w-full"
                         />
                         <input
                           type="time"
                           value={confirmTime}
                           onChange={(e) => setConfirmTime(e.target.value)}
-                          className="input-field text-sm py-1 w-full"
+                          className="input-v2 text-sm py-1 w-full"
                         />
                         <div className="flex gap-1">
                           <button
                             onClick={() => handleConfirmBooking(entry.id)}
                             disabled={isPending}
-                            className="btn-primary text-xs py-1 px-2 flex-1 disabled:opacity-50"
+                            className="btn-v2-primary text-xs py-1 px-2 flex-1 disabled:opacity-50"
                           >
                             Confirmar
                           </button>
@@ -558,7 +558,7 @@ export function EsperaPanel({
                           value={discardReason}
                           onChange={(e) => setDiscardReason(e.target.value)}
                           placeholder="Ej: No hay disponibilidad"
-                          className="input-field text-sm py-1 w-full"
+                          className="input-v2 text-sm py-1 w-full"
                         />
                         <div className="flex gap-1">
                           <button
@@ -580,7 +580,7 @@ export function EsperaPanel({
                       <>
                         <button
                           onClick={() => setConfirmingId(entry.id)}
-                          className="btn-primary text-xs py-1.5 px-3"
+                          className="btn-v2-primary text-xs py-1.5 px-3"
                         >
                           ✅ Confirmar cita
                         </button>

@@ -156,7 +156,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
       </div>
 
       {/* Barra de progreso */}
-      <div className="card p-4">
+      <div className="card-v2 p-4">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-medium text-slate-500">
             Paso {displayStep} de {TOTAL_STEPS}
@@ -238,12 +238,12 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
               href="https://business.facebook.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="btn-secondary text-center flex items-center justify-center gap-2 flex-1"
+              className="btn-v2-secondary text-center flex items-center justify-center gap-2 flex-1"
             >
               Ir a business.facebook.com
               <ExternalIcon />
             </a>
-            <button onClick={goNext} className="btn-navy flex-1">
+            <button onClick={goNext} className="btn-v2-primary flex-1">
               Ya tengo cuenta — Siguiente
             </button>
           </div>
@@ -288,12 +288,12 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
               href="https://developers.facebook.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="btn-secondary text-center flex items-center justify-center gap-2 flex-1"
+              className="btn-v2-secondary text-center flex items-center justify-center gap-2 flex-1"
             >
               Ir a developers.facebook.com
               <ExternalIcon />
             </a>
-            <button onClick={goNext} className="btn-navy flex-1">
+            <button onClick={goNext} className="btn-v2-primary flex-1">
               Ya cree mi app — Siguiente
             </button>
           </div>
@@ -343,8 +343,8 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
           </InfoBanner>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-6">
-            <button onClick={goBack} className="btn-secondary flex-1">← Atras</button>
-            <button onClick={goNext} className="btn-navy flex-1">Siguiente</button>
+            <button onClick={goBack} className="btn-v2-secondary flex-1">← Atras</button>
+            <button onClick={goNext} className="btn-v2-primary flex-1">Siguiente</button>
           </div>
         </StepCard>
       )}
@@ -396,8 +396,8 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-6">
-            <button onClick={goBack} className="btn-secondary flex-1">← Atras</button>
-            <button onClick={goNext} className="btn-navy flex-1">Tengo mi token — Siguiente</button>
+            <button onClick={goBack} className="btn-v2-secondary flex-1">← Atras</button>
+            <button onClick={goNext} className="btn-v2-primary flex-1">Tengo mi token — Siguiente</button>
           </div>
         </StepCard>
       )}
@@ -422,7 +422,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                 type="text"
                 required
                 defaultValue={credentials.phoneNumberId ?? ''}
-                className="input-field font-mono"
+                className="input-v2 font-mono"
                 placeholder="123456789012345"
               />
               <p className="text-xs text-slate-400 mt-1">
@@ -442,7 +442,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                   type={showAccessToken ? 'text' : 'password'}
                   required
                   placeholder={credentials.accessTokenLast4 ? `Token actual: ${credentials.accessTokenLast4}` : 'Token permanente de System User'}
-                  className="input-field font-mono pr-20"
+                  className="input-v2 font-mono pr-20"
                 />
                 <button
                   type="button"
@@ -469,7 +469,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                   type={showAppSecret ? 'text' : 'password'}
                   required
                   placeholder={credentials.appSecretLast4 ? `Secret actual: ${credentials.appSecretLast4}` : 'App Secret de tu app de Meta'}
-                  className="input-field font-mono pr-20"
+                  className="input-v2 font-mono pr-20"
                 />
                 <button
                   type="button"
@@ -492,7 +492,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                   type="text"
                   readOnly
                   value={credentials.verifyToken ?? ''}
-                  className="input-field font-mono bg-slate-50 flex-1 text-sm"
+                  className="input-v2 font-mono bg-slate-50 flex-1 text-sm"
                 />
                 <CopyButton
                   text={credentials.verifyToken ?? ''}
@@ -530,13 +530,13 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
             )}
 
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              <button type="button" onClick={goBack} className="btn-secondary flex-1">
+              <button type="button" onClick={goBack} className="btn-v2-secondary flex-1">
                 ← Atras
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="btn-navy flex-1 flex items-center justify-center gap-2"
+                className="btn-v2-primary flex-1 flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
@@ -684,13 +684,13 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-6">
-            <button onClick={() => setStep(5)} className="btn-secondary flex-1">
+            <button onClick={() => setStep(5)} className="btn-v2-secondary flex-1">
               ← Editar credenciales
             </button>
             {webhookStatus === 'connected' && (
               <a
                 href="/dashboard/whatsapp"
-                className="btn-navy flex-1 text-center"
+                className="btn-v2-primary flex-1 text-center"
               >
                 Ir a configurar mi agente →
               </a>
@@ -712,7 +712,7 @@ function StepCard({
   num: number; title: string; icon: React.ReactNode; bonus?: boolean; children: React.ReactNode
 }) {
   return (
-    <div className="card p-6 sm:p-8">
+    <div className="card-v2 p-6 sm:p-8">
       {/* Step header */}
       <div className="flex items-start gap-4 mb-6">
         <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${
@@ -840,7 +840,7 @@ function CopyableField({
         type="text"
         readOnly
         value={value}
-        className="input-field font-mono text-xs bg-slate-50 flex-1"
+        className="input-v2 font-mono text-xs bg-slate-50 flex-1"
       />
       <CopyButton text={value} label={label} copied={copied} onCopy={onCopy} />
     </div>

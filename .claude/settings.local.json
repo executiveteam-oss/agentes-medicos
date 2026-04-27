@@ -107,7 +107,9 @@
       "Read(//Users/juanlondono/Documents/agentes-medicos/$d/**)",
       "Bash(find src/app/actions -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
       "Bash(for f:*)",
-      "Bash(wc -l echo : any \"count:; grep -rn :\" anyb src/ --include=*.ts --include=*.tsx)"
+      "Bash(wc -l echo : any \"count:; grep -rn :\" anyb src/ --include=*.ts --include=*.tsx)",
+      "Bash(npx eslint:*)",
+      "Bash(echo \"=== console.log count ===\" grep -rn \"console\\\\.log\" src/ --include=\"*.ts\" --include=\"*.tsx\")"
     ]
   }
 }

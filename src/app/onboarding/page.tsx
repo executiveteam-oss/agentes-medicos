@@ -111,19 +111,19 @@ function Step1({ onNext }: { onNext: () => void }) {
       <div className="grid grid-cols-2 gap-4">
         <div className="col-span-2">
           <label className="label">Nombre del consultorio *</label>
-          <input name="name" required className="input-field" placeholder="Consultorio Médico Dr. García" />
+          <input name="name" required className="input-v2" placeholder="Consultorio Médico Dr. García" />
         </div>
         <div className="col-span-2">
           <label className="label">Dirección</label>
-          <input name="address" className="input-field" placeholder="Cra 10 #25-30, Pereira" />
+          <input name="address" className="input-v2" placeholder="Cra 10 #25-30, Pereira" />
         </div>
         <div>
           <label className="label">Ciudad</label>
-          <input name="city" defaultValue="Pereira" className="input-field" />
+          <input name="city" defaultValue="Pereira" className="input-v2" />
         </div>
         <div>
           <label className="label">Teléfono de contacto</label>
-          <input name="phone" className="input-field" placeholder="+57 300 000 0000" />
+          <input name="phone" className="input-v2" placeholder="+57 300 000 0000" />
         </div>
       </div>
 
@@ -133,7 +133,7 @@ function Step1({ onNext }: { onNext: () => void }) {
         </div>
       )}
 
-      <button type="submit" disabled={loading} className="btn-primary w-full">
+      <button type="submit" disabled={loading} className="btn-v2-primary w-full">
         {loading ? 'Guardando...' : 'Continuar'}
       </button>
     </form>
@@ -196,20 +196,20 @@ function Step2({ onNext }: { onNext: () => void }) {
         </div>
       )}
 
-      <form onSubmit={handleInvite} className="card p-5 space-y-4">
+      <form onSubmit={handleInvite} className="card-v2 p-5 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Nombre completo</label>
-            <input name="full_name" required className="input-field" placeholder="Ana García" />
+            <input name="full_name" required className="input-v2" placeholder="Ana García" />
           </div>
           <div>
             <label className="label">Email</label>
-            <input name="email" type="email" required className="input-field" placeholder="ana@consultorio.com" />
+            <input name="email" type="email" required className="input-v2" placeholder="ana@consultorio.com" />
           </div>
         </div>
         <div>
           <label className="label">Rol</label>
-          <select name="role_id" required className="input-field">
+          <select name="role_id" required className="input-v2">
             <option value="">Selecciona un rol</option>
             {roles.map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
@@ -221,12 +221,12 @@ function Step2({ onNext }: { onNext: () => void }) {
             {error}
           </div>
         )}
-        <button type="submit" disabled={loading} className="btn-secondary w-full">
+        <button type="submit" disabled={loading} className="btn-v2-secondary w-full">
           {loading ? 'Enviando...' : 'Enviar invitación'}
         </button>
       </form>
 
-      <button onClick={onNext} className="btn-primary w-full">
+      <button onClick={onNext} className="btn-v2-primary w-full">
         Continuar
       </button>
     </div>
@@ -273,11 +273,11 @@ function Step3({ onNext }: { onNext: () => void }) {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="label">Phone Number ID</label>
-          <input name="phone_id" className="input-field" placeholder="123456789012345" />
+          <input name="phone_id" className="input-v2" placeholder="123456789012345" />
         </div>
         <div>
           <label className="label">Access Token</label>
-          <input name="token" type="password" className="input-field" placeholder="EAAG..." />
+          <input name="token" type="password" className="input-v2" placeholder="EAAG..." />
         </div>
 
         {error && (
@@ -286,7 +286,7 @@ function Step3({ onNext }: { onNext: () => void }) {
           </div>
         )}
 
-        <button type="submit" disabled={loading} className="btn-primary w-full">
+        <button type="submit" disabled={loading} className="btn-v2-primary w-full">
           {loading ? 'Guardando...' : 'Guardar y continuar'}
         </button>
       </form>
@@ -336,7 +336,7 @@ function Step4() {
         </p>
       </div>
 
-      <div className="card p-5 text-left space-y-3">
+      <div className="card-v2 p-5 text-left space-y-3">
         <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Próximos pasos</p>
         <ul className="space-y-3">
           {[
@@ -361,7 +361,7 @@ function Step4() {
         </div>
       )}
 
-      <button onClick={handleFinish} disabled={loading} className="btn-primary w-full">
+      <button onClick={handleFinish} disabled={loading} className="btn-v2-primary w-full">
         {loading ? 'Iniciando...' : 'Ir al dashboard'}
       </button>
     </div>
@@ -380,7 +380,7 @@ export default function OnboardingPage() {
     <div>
       <ProgressBar current={step} />
 
-      <div className="card p-8">
+      <div className="card-v2 p-8">
         {step < 4 && (
           <h2 className="text-xl font-semibold tracking-tight text-slate-900 mb-6">
             {STEP_LABELS[step - 1]}

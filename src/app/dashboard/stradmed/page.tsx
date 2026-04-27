@@ -41,7 +41,7 @@ export default function STRADmedPage() {
       {/* Two columns */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Omuwan */}
-        <div className="card p-6">
+        <div className="card-v2 p-6">
           <div className="flex items-center gap-3 mb-4">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/omuwan-logo.png" alt="Omuwan" className="w-8 h-8 rounded-md" />
@@ -60,7 +60,7 @@ export default function STRADmedPage() {
         </div>
 
         {/* STRADmed */}
-        <div className="card p-6 border-[#028090]/30">
+        <div className="card-v2 p-6 border-[#028090]/30">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-8 h-8 rounded-md bg-[#028090] flex items-center justify-center">
               <span className="text-white font-bold text-sm">S</span>

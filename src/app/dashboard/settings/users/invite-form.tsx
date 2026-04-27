@@ -48,7 +48,7 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
           <input
             name="full_name"
             required
-            className="input-field"
+            className="input-v2"
             placeholder="Ana García"
           />
         </div>
@@ -58,7 +58,7 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
             name="email"
             type="email"
             required
-            className="input-field"
+            className="input-v2"
             placeholder="ana@consultorio.com"
           />
         </div>
@@ -68,7 +68,7 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
         <select
           name="role_id"
           required
-          className="input-field"
+          className="input-v2"
           value={selectedRoleId}
           onChange={(e) => setSelectedRoleId(e.target.value)}
         >
@@ -82,7 +82,7 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
       {isDoctorRole && doctors.length > 0 && (
         <div>
           <label className="label">Vincular con médico</label>
-          <select name="doctor_id" className="input-field">
+          <select name="doctor_id" className="input-v2">
             <option value="">Sin vincular (configurar después)</option>
             {doctors.map((d) => (
               <option key={d.id} value={d.id}>{d.name}</option>
@@ -107,7 +107,7 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
       <button
         type="submit"
         disabled={loading}
-        className="btn-primary"
+        className="btn-v2-primary"
       >
         {loading ? 'Enviando...' : 'Enviar invitación'}
       </button>

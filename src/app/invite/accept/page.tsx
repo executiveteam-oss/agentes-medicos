@@ -32,7 +32,7 @@ export default async function AcceptInvitePage({ searchParams }: PageProps) {
             <p className="text-3xl mb-3">❌</p>
             <h1 className="text-xl font-semibold text-slate-900 mb-2">Invitación no válida</h1>
             <p className="text-slate-500 text-sm mb-4">{result.error}</p>
-            <a href="/login" className="btn-primary inline-block px-6 py-2">Ir al login</a>
+            <a href="/login" className="btn-v2-primary inline-block px-6 py-2">Ir al login</a>
           </div>
         </div>
       )
@@ -41,7 +41,7 @@ export default async function AcceptInvitePage({ searchParams }: PageProps) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
         <div className="w-full max-w-md">
-          <div className="card p-8">
+          <div className="card-v2 p-8">
             <div className="text-center mb-6">
               <p className="text-3xl mb-3">🎉</p>
               <h1 className="text-xl font-semibold text-slate-900 mb-2">Has sido invitado</h1>
@@ -97,7 +97,7 @@ export default async function AcceptInvitePage({ searchParams }: PageProps) {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <div className="card p-8">
+        <div className="card-v2 p-8">
           <div className="text-center mb-6">
             <p className="text-3xl mb-3">🎉</p>
             <h1 className="text-xl font-semibold text-slate-900 mb-2">Has sido invitado</h1>

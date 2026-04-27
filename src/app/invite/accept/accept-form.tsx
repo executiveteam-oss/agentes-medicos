@@ -56,7 +56,7 @@ export function AcceptInviteForm({ defaultName }: Props) {
           type="text"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
-          className="input-field"
+          className="input-v2"
           placeholder="Tu nombre completo"
           autoFocus
         />
@@ -68,7 +68,7 @@ export function AcceptInviteForm({ defaultName }: Props) {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="input-field"
+          className="input-v2"
           placeholder="Mínimo 10 caracteres"
         />
       </div>
@@ -79,7 +79,7 @@ export function AcceptInviteForm({ defaultName }: Props) {
           type="password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
-          className="input-field"
+          className="input-v2"
           placeholder="Repite la contraseña"
         />
       </div>
@@ -93,7 +93,7 @@ export function AcceptInviteForm({ defaultName }: Props) {
       <button
         type="submit"
         disabled={isPending}
-        className="btn-primary w-full"
+        className="btn-v2-primary w-full"
       >
         {isPending ? 'Creando cuenta...' : 'Crear mi cuenta'}
       </button>

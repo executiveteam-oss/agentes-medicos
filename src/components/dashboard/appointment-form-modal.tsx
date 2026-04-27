@@ -209,7 +209,7 @@ export function AppointmentFormModal({
       onClick={handleOverlayClick}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
     >
-      <div className="card w-full max-w-lg max-h-[90vh] overflow-y-auto mx-4 p-6">
+      <div className="card-v2 w-full max-w-lg max-h-[90vh] overflow-y-auto mx-4 p-6">
         {/* Encabezado */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-slate-900">
@@ -258,7 +258,7 @@ export function AppointmentFormModal({
                 setDoctorId(e.target.value)
                 if (e.target.value) setFieldErrors((prev) => ({ ...prev, doctor: '' }))
               }}
-              className="input-field w-full"
+              className="input-v2 w-full"
             >
               <option value="">Seleccionar doctor...</option>
               {doctors.map((d) => (
@@ -283,7 +283,7 @@ export function AppointmentFormModal({
                   setDate(e.target.value)
                   if (e.target.value) setFieldErrors((prev) => ({ ...prev, date: '' }))
                 }}
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
               {fieldErrors.date && (
                 <p className="mt-1 text-xs text-red-600">{fieldErrors.date}</p>
@@ -298,7 +298,7 @@ export function AppointmentFormModal({
                   setTime(e.target.value)
                   if (e.target.value) setFieldErrors((prev) => ({ ...prev, time: '' }))
                 }}
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
               {fieldErrors.time && (
                 <p className="mt-1 text-xs text-red-600">{fieldErrors.time}</p>
@@ -322,7 +322,7 @@ export function AppointmentFormModal({
               max={480}
               value={durationMinutes}
               onChange={(e) => setDurationMinutes(Number(e.target.value))}
-              className="input-field w-24"
+              className="input-v2 w-24"
             />
             {fieldErrors.duration && (
               <p className="mt-1 text-xs text-red-600">{fieldErrors.duration}</p>
@@ -337,7 +337,7 @@ export function AppointmentFormModal({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Consulta general, control, etc."
-              className="input-field w-full"
+              className="input-v2 w-full"
             />
           </div>
 
@@ -347,7 +347,7 @@ export function AppointmentFormModal({
             <select
               value={modality}
               onChange={(e) => setModality(e.target.value as AppointmentModality)}
-              className="input-field w-full"
+              className="input-v2 w-full"
             >
               <option value="presencial">Presencial</option>
               <option value="virtual">Virtual (videollamada)</option>
@@ -366,7 +366,7 @@ export function AppointmentFormModal({
                 value={virtualLink}
                 onChange={(e) => setVirtualLink(e.target.value)}
                 placeholder="https://meet.google.com/..."
-                className="input-field w-full"
+                className="input-v2 w-full"
               />
               <p className="text-xs text-slate-400 mt-1">
                 Si no se proporciona, se generará automáticamente según la configuración del consultorio.
@@ -384,7 +384,7 @@ export function AppointmentFormModal({
                 setPaymentType(val)
                 if (val !== 'EPS') setEpsName('')
               }}
-              className="input-field w-full"
+              className="input-v2 w-full"
             >
               {PAYMENT_TYPES.map((pt) => (
                 <option key={pt} value={pt}>
@@ -404,7 +404,7 @@ export function AppointmentFormModal({
                   setEpsName(e.target.value)
                   if (e.target.value) setFieldErrors((prev) => ({ ...prev, eps: '' }))
                 }}
-                className="input-field w-full"
+                className="input-v2 w-full"
               >
                 <option value="">Seleccionar EPS...</option>
                 {EPS_OPTIONS.map((eps) => (
@@ -425,14 +425,14 @@ export function AppointmentFormModal({
               type="button"
               onClick={onClose}
               disabled={isPending}
-              className="btn-secondary"
+              className="btn-v2-secondary"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="btn-primary"
+              className="btn-v2-primary"
             >
               {isPending
                 ? 'Guardando...'

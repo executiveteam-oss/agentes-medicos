@@ -103,7 +103,7 @@ export function WaitlistFormModal({ isOpen, onClose, doctors, onSaved }: Waitlis
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="card w-full max-w-lg mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="card-v2 w-full max-w-lg mx-4 p-6" onClick={(e) => e.stopPropagation()}>
         {/* Encabezado */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-slate-900">
@@ -138,7 +138,7 @@ export function WaitlistFormModal({ isOpen, onClose, doctors, onSaved }: Waitlis
             <select
               value={doctorId}
               onChange={(e) => setDoctorId(e.target.value)}
-              className="input-field w-full"
+              className="input-v2 w-full"
             >
               <option value="">Seleccionar doctor...</option>
               {doctors.map((doc) => (
@@ -158,7 +158,7 @@ export function WaitlistFormModal({ isOpen, onClose, doctors, onSaved }: Waitlis
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Ej: Control de rutina, dolor de cabeza..."
-              className="input-field w-full"
+              className="input-v2 w-full"
             />
           </div>
 
@@ -208,14 +208,14 @@ export function WaitlistFormModal({ isOpen, onClose, doctors, onSaved }: Waitlis
             <button
               type="button"
               onClick={onClose}
-              className="btn-secondary"
+              className="btn-v2-secondary"
               disabled={isPending}
             >
               Cancelar
             </button>
             <button
               type="submit"
-              className="btn-primary"
+              className="btn-v2-primary"
               disabled={isPending}
             >
               {isPending ? 'Guardando...' : 'Agregar a espera'}

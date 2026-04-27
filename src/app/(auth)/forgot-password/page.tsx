@@ -60,7 +60,7 @@ export default function ForgotPasswordPage() {
               type="email"
               required
               autoComplete="email"
-              className="input-field"
+              className="input-v2"
               placeholder="tu@consultorio.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

@@ -250,7 +250,7 @@ function RegisterForm() {
               name="clinic_name"
               type="text"
               required
-              className="input-field"
+              className="input-v2"
               placeholder="Consultorio Médico Dr. García"
             />
           </div>
@@ -391,7 +391,7 @@ function RegisterForm() {
               type="text"
               required
               autoComplete="off"
-              className="input-field"
+              className="input-v2"
               placeholder="Ingresa tu código de acceso"
               defaultValue={prefilledCode}
             />
@@ -406,7 +406,7 @@ function RegisterForm() {
               name="full_name"
               type="text"
               required
-              className="input-field"
+              className="input-v2"
               placeholder="Dr. Juan García"
             />
           </div>
@@ -421,7 +421,7 @@ function RegisterForm() {
               type="email"
               required
               autoComplete="email"
-              className="input-field"
+              className="input-v2"
               placeholder="tu@consultorio.com"
             />
           </div>
@@ -438,7 +438,7 @@ function RegisterForm() {
                 required
                 minLength={10}
                 autoComplete="new-password"
-                className="input-field pr-10"
+                className="input-v2 pr-10"
                 placeholder="Mínimo 10 caracteres"
                 value={passwordValue}
                 onChange={(e) => setPasswordValue(e.target.value)}
@@ -474,7 +474,7 @@ function RegisterForm() {
                 required
                 minLength={10}
                 autoComplete="new-password"
-                className="input-field pr-10"
+                className="input-v2 pr-10"
                 placeholder="Repite tu contraseña"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -523,7 +523,7 @@ function RegisterForm() {
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="btn-secondary flex-1"
+              className="btn-v2-secondary flex-1"
             >
               Atrás
             </button>

@@ -63,7 +63,7 @@ export default function ResetPasswordPage() {
             required
             minLength={10}
             autoComplete="new-password"
-            className="input-field"
+            className="input-v2"
             placeholder="Mínimo 10 caracteres"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -80,7 +80,7 @@ export default function ResetPasswordPage() {
             required
             minLength={10}
             autoComplete="new-password"
-            className="input-field"
+            className="input-v2"
             placeholder="Repite tu contraseña"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}

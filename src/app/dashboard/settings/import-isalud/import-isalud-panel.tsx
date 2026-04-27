@@ -187,7 +187,7 @@ export function ImportIsaludPanel({ hasIsalud, initialStagingData }: Props) {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Selecciona productos a importar</h2>
@@ -235,7 +235,7 @@ export function ImportIsaludPanel({ hasIsalud, initialStagingData }: Props) {
         if (filtered.length === 0) return null
         const groupAllSelected = filtered.every((p) => selection[p.id]?.selected)
         return (
-          <div key={`${group.convenio_nit}|${group.convenio_nombre}`} className="card overflow-hidden">
+          <div key={`${group.convenio_nit}|${group.convenio_nombre}`} className="card-v2 overflow-hidden">
             <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">{group.convenio_nombre}</h3>
@@ -274,7 +274,7 @@ export function ImportIsaludPanel({ hasIsalud, initialStagingData }: Props) {
                         type="text"
                         value={s.nombre}
                         onChange={(e) => updateField(p.id, 'nombre', e.target.value)}
-                        className="input-field text-xs py-1 w-full"
+                        className="input-v2 text-xs py-1 w-full"
                         disabled={!s.selected}
                       />
                       <div className="flex items-center gap-2 mt-1">
@@ -291,7 +291,7 @@ export function ImportIsaludPanel({ hasIsalud, initialStagingData }: Props) {
                         value={s.doctorId}
                         onChange={(e) => updateField(p.id, 'doctorId', e.target.value)}
                         disabled={!s.selected || data.doctors.length === 0}
-                        className="input-field text-xs py-1 w-full"
+                        className="input-v2 text-xs py-1 w-full"
                       >
                         <option value="">Médico...</option>
                         {data.doctors.map((d) => (
@@ -308,7 +308,7 @@ export function ImportIsaludPanel({ hasIsalud, initialStagingData }: Props) {
                           value={s.duracion}
                           onChange={(e) => updateField(p.id, 'duracion', Number(e.target.value) || 30)}
                           disabled={!s.selected}
-                          className="input-field text-xs py-1 w-16"
+                          className="input-v2 text-xs py-1 w-16"
                         />
                         <span className="text-[10px] text-slate-400">min</span>
                       </div>
@@ -322,7 +322,7 @@ export function ImportIsaludPanel({ hasIsalud, initialStagingData }: Props) {
                           value={s.precio}
                           onChange={(e) => updateField(p.id, 'precio', Number(e.target.value) || 0)}
                           disabled={!s.selected}
-                          className="input-field text-xs py-1 w-full"
+                          className="input-v2 text-xs py-1 w-full"
                         />
                         <span className="text-[10px] text-slate-400">COP</span>
                       </div>
@@ -368,7 +368,7 @@ export function ImportIsaludPanel({ hasIsalud, initialStagingData }: Props) {
 
 function InitialState({ hasIsalud, onStart }: { hasIsalud: boolean; onStart: () => void }) {
   return (
-    <div className="card p-8 text-center max-w-2xl mx-auto">
+    <div className="card-v2 p-8 text-center max-w-2xl mx-auto">
       <div className="w-14 h-14 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4">
         <span className="text-2xl">📥</span>
       </div>
@@ -408,7 +408,7 @@ function InitialState({ hasIsalud, onStart }: { hasIsalud: boolean; onStart: () 
 
 function ImportingState({ progress }: { progress: string }) {
   return (
-    <div className="card p-12 text-center max-w-md mx-auto">
+    <div className="card-v2 p-12 text-center max-w-md mx-auto">
       <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4">
         <svg className="w-6 h-6 text-blue-700 animate-spin" fill="none" viewBox="0 0 24 24">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -423,7 +423,7 @@ function ImportingState({ progress }: { progress: string }) {
 
 function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) {
   return (
-    <div className="card p-8 max-w-md mx-auto text-center">
+    <div className="card-v2 p-8 max-w-md mx-auto text-center">
       <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
         <span className="text-2xl">⚠️</span>
       </div>
@@ -441,7 +441,7 @@ function ErrorState({ error, onRetry }: { error: string; onRetry: () => void }) 
 
 function ConfirmedState({ created, skipped }: { created: number; skipped: number }) {
   return (
-    <div className="card p-8 max-w-md mx-auto text-center">
+    <div className="card-v2 p-8 max-w-md mx-auto text-center">
       <div className="w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4">
         <svg className="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />

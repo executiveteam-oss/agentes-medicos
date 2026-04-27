@@ -108,7 +108,7 @@ export async function getWhatsAppPageData(): Promise<WhatsAppPageData> {
 
   // Obtener último mensaje y conteo por conversación
   const convIds = (convRes.data ?? []).map((c) => c.id)
-  let lastMessages: Record<string, { content: string; count: number }> = {}
+  const lastMessages: Record<string, { content: string; count: number }> = {}
 
   if (convIds.length > 0) {
     const { data: msgs } = await supabaseAdmin

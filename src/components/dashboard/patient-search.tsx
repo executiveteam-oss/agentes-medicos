@@ -86,7 +86,7 @@ export function PatientSearch({ value, onChange, placeholder }: PatientSearchPro
           }}
           onFocus={() => { if (query.trim()) setIsOpen(true) }}
           placeholder={placeholder ?? 'Buscar paciente por nombre o teléfono...'}
-          className="input-field w-full"
+          className="input-v2 w-full"
         />
         {value && (
           <button

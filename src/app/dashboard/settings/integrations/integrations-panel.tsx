@@ -99,7 +99,7 @@ function HisSection({ config, onToast }: {
   }
 
   return (
-    <div className="card overflow-hidden">
+    <div className="card-v2 overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
         <div className="flex items-center gap-2">
           <span className="text-lg">🏥</span>
@@ -145,7 +145,7 @@ function HisSection({ config, onToast }: {
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
               placeholder="Ej: MiSoftware HC"
-              className="input-field text-sm w-full"
+              className="input-v2 text-sm w-full"
             />
           </div>
         )}
@@ -162,7 +162,7 @@ function HisSection({ config, onToast }: {
                 value={contact}
                 onChange={(e) => setContact(e.target.value)}
                 placeholder="Para coordinar la integración API"
-                className="input-field text-sm w-full"
+                className="input-v2 text-sm w-full"
               />
             </div>
             <div>
@@ -172,14 +172,14 @@ function HisSection({ config, onToast }: {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Versión del software, datos relevantes..."
                 rows={2}
-                className="input-field text-sm w-full resize-none"
+                className="input-v2 text-sm w-full resize-none"
               />
             </div>
 
             {error && <p className="text-red-600 text-xs">{error}</p>}
 
             <div className="flex items-center gap-3">
-              <button onClick={handleSubmit} disabled={isPending} className="btn-primary text-sm disabled:opacity-50">
+              <button onClick={handleSubmit} disabled={isPending} className="btn-v2-primary text-sm disabled:opacity-50">
                 {isPending ? 'Enviando...' : 'Solicitar integración'}
               </button>
               <span className="text-xs text-slate-400">Te contactaremos en 1-2 días hábiles</span>
@@ -279,7 +279,7 @@ function HisCredentialsForm({ software, connectorStatus, lastSync, errorMessage,
               value={values[field.key] ?? ''}
               onChange={(e) => setValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
               placeholder={field.placeholder}
-              className="input-field text-sm w-full"
+              className="input-v2 text-sm w-full"
               autoComplete="off"
             />
           </div>
@@ -291,7 +291,7 @@ function HisCredentialsForm({ software, connectorStatus, lastSync, errorMessage,
         <button
           onClick={handleSave}
           disabled={isPending}
-          className="btn-primary text-sm disabled:opacity-50"
+          className="btn-v2-primary text-sm disabled:opacity-50"
         >
           {isPending ? 'Guardando...' : 'Guardar credenciales'}
         </button>
@@ -362,7 +362,7 @@ function SheetsSection({ config, onToast }: {
   }
 
   return (
-    <div className="card overflow-hidden">
+    <div className="card-v2 overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
         <div className="flex items-center gap-2">
           <span className="text-lg">📊</span>
@@ -389,12 +389,12 @@ function SheetsSection({ config, onToast }: {
               value={email}
               onChange={(e) => { setEmail(e.target.value); setSaved(false) }}
               placeholder="tu@gmail.com"
-              className="input-field text-sm flex-1"
+              className="input-v2 text-sm flex-1"
             />
             <button
               onClick={handleSaveEmail}
               disabled={isPending || !email.trim()}
-              className="btn-primary text-sm whitespace-nowrap disabled:opacity-50"
+              className="btn-v2-primary text-sm whitespace-nowrap disabled:opacity-50"
             >
               {isPending ? '...' : saved ? 'Guardado' : 'Guardar'}
             </button>
@@ -430,7 +430,7 @@ function SheetsSection({ config, onToast }: {
 
 function ComingSoonCard({ icon, title, description }: { icon: string; title: string; description: string }) {
   return (
-    <div className="card overflow-hidden opacity-75">
+    <div className="card-v2 overflow-hidden opacity-75">
       <div className="px-5 py-4 border-b border-slate-100">
         <div className="flex items-center gap-2">
           <span className="text-lg">{icon}</span>

@@ -72,7 +72,7 @@ export async function getPatientsList(opts: {
   const patientIds = (patients ?? []).map((p) => p.id)
 
   // Obtener último no-show
-  let noShowMap: Record<string, string> = {}
+  const noShowMap: Record<string, string> = {}
 
   if (patientIds.length > 0) {
     const noShowRes = await supabaseAdmin
@@ -185,7 +185,7 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
 
   // Contar mensajes por conversación
   const convIds = (convRes.data ?? []).map((c) => c.id)
-  let msgCounts: Record<string, number> = {}
+  const msgCounts: Record<string, number> = {}
   if (convIds.length > 0) {
     const { data: msgs } = await supabaseAdmin
       .from('messages')

@@ -40,22 +40,22 @@ export function UsersPanel({ users, roles, doctors }: Props) {
     <>
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="card p-5">
+        <div className="card-v2 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">Total</p>
           <p className="text-2xl font-semibold text-slate-900">{users.length}</p>
         </div>
-        <div className="card p-5">
+        <div className="card-v2 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">Activos</p>
           <p className="text-2xl font-semibold text-emerald-600">{activeCount}</p>
         </div>
-        <div className="card p-5">
+        <div className="card-v2 p-5">
           <p className="text-xs font-medium uppercase tracking-wider text-slate-500 mb-3">Pendientes</p>
           <p className="text-2xl font-semibold text-amber-600">{pendingCount}</p>
         </div>
       </div>
 
       {/* Tabla de usuarios */}
-      <div className="card overflow-hidden mb-8">
+      <div className="card-v2 overflow-hidden mb-8">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Miembros del equipo</h2>
@@ -87,7 +87,7 @@ export function UsersPanel({ users, roles, doctors }: Props) {
       </div>
 
       {/* Formulario de invitación */}
-      <div className="card p-6">
+      <div className="card-v2 p-6">
         <h2 className="text-sm font-semibold text-slate-900 mb-4">Invitar usuario</h2>
         <InviteUserForm roles={roles} doctors={doctors} />
       </div>

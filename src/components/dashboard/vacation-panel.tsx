@@ -66,7 +66,7 @@ export function VacationPanel({ weeks, suggestions, overallAvg, initialVacationM
   return (
     <div className="space-y-6">
       {/* Chart */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Demanda por semana del año</h3>
         <p className="text-xs text-slate-400 mb-4">
           Últimos 12 meses · promedio: {overallAvg} citas/semana
@@ -86,7 +86,7 @@ export function VacationPanel({ weeks, suggestions, overallAvg, initialVacationM
       </div>
 
       {/* Suggestions */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Semanas recomendadas para vacaciones</h3>
         <p className="text-xs text-slate-400 mb-4">
           Las 3 semanas con menor demanda histórica
@@ -112,7 +112,7 @@ export function VacationPanel({ weeks, suggestions, overallAvg, initialVacationM
                 <button
                   onClick={() => handleBlock(s)}
                   disabled={isPending}
-                  className="btn-primary text-xs py-1.5 px-3 whitespace-nowrap shrink-0 disabled:opacity-50"
+                  className="btn-v2-primary text-xs py-1.5 px-3 whitespace-nowrap shrink-0 disabled:opacity-50"
                 >
                   {blockingWeek === s.week ? 'Bloqueando...' : 'Bloquear estas fechas'}
                 </button>
@@ -138,7 +138,7 @@ export function VacationPanel({ weeks, suggestions, overallAvg, initialVacationM
       </div>
 
       {/* Vacation message */}
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Mensaje de vacaciones</h3>
         <p className="text-xs text-slate-400 mb-3">
           El agente usará este mensaje cuando la agenda esté cerrada por vacaciones
@@ -147,14 +147,14 @@ export function VacationPanel({ weeks, suggestions, overallAvg, initialVacationM
           value={vacationMsg}
           onChange={(e) => { setVacationMsg(e.target.value); setMsgSaved(false) }}
           rows={4}
-          className="input-field w-full resize-none"
+          className="input-v2 w-full resize-none"
           placeholder="Estamos de vacaciones del [fecha] al [fecha]..."
         />
         <div className="flex items-center gap-3 mt-3">
           <button
             onClick={handleSaveMessage}
             disabled={isPending}
-            className="btn-primary text-xs py-1.5 px-4 disabled:opacity-50"
+            className="btn-v2-primary text-xs py-1.5 px-4 disabled:opacity-50"
           >
             {isPending ? 'Guardando...' : 'Guardar mensaje'}
           </button>

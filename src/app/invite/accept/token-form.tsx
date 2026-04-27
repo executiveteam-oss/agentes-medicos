@@ -38,7 +38,7 @@ export function TokenInviteForm({ token, defaultName, email }: TokenInviteFormPr
     <div className="space-y-4">
       <div>
         <label className="label">Email</label>
-        <input type="email" value={email} disabled className="input-field bg-slate-50 text-slate-500" />
+        <input type="email" value={email} disabled className="input-v2 bg-slate-50 text-slate-500" />
       </div>
 
       <div>
@@ -47,7 +47,7 @@ export function TokenInviteForm({ token, defaultName, email }: TokenInviteFormPr
           type="text"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
-          className="input-field"
+          className="input-v2"
           placeholder="Tu nombre completo"
         />
       </div>
@@ -59,7 +59,7 @@ export function TokenInviteForm({ token, defaultName, email }: TokenInviteFormPr
             type={showPassword ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="input-field pr-10"
+            className="input-v2 pr-10"
             placeholder="Mínimo 10 caracteres"
           />
           <button
@@ -87,7 +87,7 @@ export function TokenInviteForm({ token, defaultName, email }: TokenInviteFormPr
           type="password"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
-          className="input-field"
+          className="input-v2"
           placeholder="Repite tu contraseña"
         />
         {confirmPassword.length > 0 && (
@@ -109,7 +109,7 @@ export function TokenInviteForm({ token, defaultName, email }: TokenInviteFormPr
         type="button"
         onClick={handleSubmit}
         disabled={isPending}
-        className="w-full btn-primary disabled:opacity-60"
+        className="w-full btn-v2-primary disabled:opacity-60"
       >
         {isPending ? 'Creando cuenta...' : 'Aceptar invitación'}
       </button>

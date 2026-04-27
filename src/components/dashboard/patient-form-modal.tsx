@@ -162,7 +162,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
       onClick={handleOverlayClick}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
     >
-      <div className="card w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="card-v2 w-full max-w-lg max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900">
@@ -190,7 +190,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
               value={form.name}
               onChange={(e) => updateField('name', e.target.value)}
               placeholder="Nombre completo del paciente"
-              className="input-field"
+              className="input-v2"
               autoFocus
             />
           </div>
@@ -208,7 +208,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
                 value={form.phone}
                 onChange={(e) => handlePhoneChange(e.target.value)}
                 placeholder="3XX XXX XXXX"
-                className="input-field rounded-l-none"
+                className="input-v2 rounded-l-none"
                 maxLength={10}
               />
             </div>
@@ -222,7 +222,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
                 id="pf-doc-type"
                 value={form.document_type}
                 onChange={(e) => updateField('document_type', e.target.value as DocumentType)}
-                className="input-field"
+                className="input-v2"
               >
                 {DOCUMENT_TYPES.map((dt) => (
                   <option key={dt.value} value={dt.value}>{dt.value}</option>
@@ -237,7 +237,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
                 value={form.document_number}
                 onChange={(e) => updateField('document_number', e.target.value)}
                 placeholder="1.234.567.890"
-                className="input-field"
+                className="input-v2"
               />
             </div>
           </div>
@@ -250,7 +250,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
               type="date"
               value={form.date_of_birth}
               onChange={(e) => updateField('date_of_birth', e.target.value)}
-              className="input-field"
+              className="input-v2"
               max={new Date().toISOString().split('T')[0]}
             />
           </div>
@@ -262,7 +262,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
               id="pf-eps"
               value={form.eps}
               onChange={(e) => updateField('eps', e.target.value)}
-              className="input-field"
+              className="input-v2"
             >
               <option value="">Seleccionar EPS...</option>
               {EPS_OPTIONS.map((eps) => (
@@ -280,7 +280,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
               value={form.email}
               onChange={(e) => updateField('email', e.target.value)}
               placeholder="paciente@correo.com"
-              className="input-field"
+              className="input-v2"
             />
           </div>
 
@@ -292,7 +292,7 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
               value={form.notes}
               onChange={(e) => updateField('notes', e.target.value)}
               placeholder="Notas internas sobre el paciente..."
-              className="input-field resize-none"
+              className="input-v2 resize-none"
               rows={3}
             />
           </div>
@@ -311,14 +311,14 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
               type="button"
               onClick={onClose}
               disabled={isPending}
-              className="btn-secondary"
+              className="btn-v2-secondary"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="btn-primary"
+              className="btn-v2-primary"
             >
               {isPending ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Crear paciente'}
             </button>

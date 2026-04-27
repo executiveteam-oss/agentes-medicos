@@ -56,7 +56,7 @@ export function SystemStatusAdmin({ components: initial }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="card p-5">
+      <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Estado del sistema</h3>
         <p className="text-xs text-slate-400 mb-5">
           Actualiza el estado de cada componente. Visible públicamente en /status.
@@ -102,7 +102,7 @@ function ComponentRow({
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as SystemComponent['status'])}
-          className="input-field w-40 text-sm"
+          className="input-v2 w-40 text-sm"
           disabled={disabled}
         >
           {STATUS_OPTIONS.map((opt) => (
@@ -119,14 +119,14 @@ function ComponentRow({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Mensaje opcional (ej: Mantenimiento programado)"
-          className="input-field flex-1 text-sm"
+          className="input-v2 flex-1 text-sm"
           disabled={disabled}
         />
         <button
           type="button"
           onClick={() => onUpdate(component, status, message)}
           disabled={disabled || (status === component.status && message === (component.message ?? ''))}
-          className="btn-primary text-sm px-4"
+          className="btn-v2-primary text-sm px-4"
         >
           Actualizar
         </button>

@@ -106,11 +106,11 @@ export default async function WhatsAppPage() {
         </div>
 
         {activeConversations.length === 0 ? (
-          <div className="card p-12 text-center">
+          <div className="card-v2 p-12 text-center">
             <p className="text-slate-500 text-sm">No hay conversaciones activas hoy</p>
           </div>
         ) : (
-          <div className="card overflow-hidden divide-y divide-slate-100">
+          <div className="card-v2 overflow-hidden divide-y divide-slate-100">
             {activeConversations.map((conv) => (
               <div
                 key={conv.id}

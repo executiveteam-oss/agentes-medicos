@@ -41,7 +41,7 @@ export default async function EsperaPage() {
   if (!clinic) {
     return (
       <div className="p-6 lg:p-8">
-        <div className="card p-12 text-center">
+        <div className="card-v2 p-12 text-center">
           <p className="text-4xl mb-3">🏥</p>
           <p className="text-slate-900 font-medium">No hay clínica configurada</p>
         </div>

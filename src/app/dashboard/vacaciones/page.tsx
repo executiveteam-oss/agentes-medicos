@@ -27,7 +27,7 @@ export default async function VacacionesPage() {
       </div>
 
       {/* Info banner */}
-      <div className="card p-4 bg-blue-50/50 border-blue-200">
+      <div className="card-v2 p-4 bg-blue-50/50 border-blue-200">
         <p className="text-sm text-blue-800">
           Analizamos <strong>{data.totalWeeksAnalyzed}</strong> semanas de datos para encontrar
           los mejores momentos para descansar sin afectar tus ingresos.

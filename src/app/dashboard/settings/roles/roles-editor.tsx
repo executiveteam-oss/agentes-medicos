@@ -48,7 +48,7 @@ export function RolesEditor({ roles }: { roles: RoleData[] }) {
   function togglePermission(module: ModuleKey, type: 'read' | 'write') {
     if (!permissions) return
     const current = permissions[module]
-    let newPerm = { ...current, [type]: !current[type] }
+    const newPerm = { ...current, [type]: !current[type] }
 
     // Si se activa write, también activar read
     if (type === 'write' && newPerm.write) {
@@ -79,14 +79,14 @@ export function RolesEditor({ roles }: { roles: RoleData[] }) {
 
   if (roles.length === 0) {
     return (
-      <div className="card p-12 text-center">
+      <div className="card-v2 p-12 text-center">
         <p className="text-slate-500 text-sm">No hay roles configurados.</p>
       </div>
     )
   }
 
   return (
-    <div className="card overflow-hidden">
+    <div className="card-v2 overflow-hidden">
       {/* Selector de rol (tabs) */}
       <div className="flex border-b border-slate-200 overflow-x-auto">
         {roles.map((r) => (
@@ -147,7 +147,7 @@ export function RolesEditor({ roles }: { roles: RoleData[] }) {
             <button
               onClick={handleSave}
               disabled={saving || !localPermissions}
-              className="btn-primary"
+              className="btn-v2-primary"
             >
               {saving ? 'Guardando...' : 'Guardar cambios'}
             </button>

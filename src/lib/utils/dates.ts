@@ -134,10 +134,12 @@ export function normalizePhone(phone: string): string {
 }
 
 /**
- * Obtiene el nombre del día en español para los horarios
- * Ejemplo: new Date('2026-02-15') → "saturday"
+ * Obtiene el nombre del día en inglés para los horarios (working_hours keys).
+ * SIEMPRE convierte a timezone Colombia antes de calcular el día.
+ * Esto evita bugs cuando date está en UTC midnight (puede ser día anterior en COT).
  */
 export function getDayOfWeek(date: Date): string {
   const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
-  return days[date.getDay()]
+  const zoned = toZonedTime(date, TIMEZONE)
+  return days[zoned.getDay()]
 }

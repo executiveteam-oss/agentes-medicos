@@ -675,6 +675,9 @@ async function createAppointment(
     successMessage += ` IMPORTANTE: Esta cita requiere documentos previos${documentsDescription ? ` (${documentsDescription})` : ''}. Recuérdale al paciente que debe enviar los documentos por este chat antes de la cita.`
   }
 
+  // Extract date part from starts_at for day-of-week (use Bogota noon to avoid timezone edge)
+  const aptDateStr = format(toZonedTime(parseISO(appointment.starts_at), TIMEZONE), 'yyyy-MM-dd')
+
   return {
     success: true,
     data: {
@@ -682,6 +685,8 @@ async function createAppointment(
       starts_at: appointment.starts_at,
       ends_at: appointment.ends_at,
       formatted_date: formatForPatient(appointment.starts_at),
+      day_of_week_spanish: spanishDayOfWeek(aptDateStr),
+      confirmed_date_iso: aptDateStr,
       modality,
       virtual_link: virtualLink,
       documents_requested: documentsRequested,

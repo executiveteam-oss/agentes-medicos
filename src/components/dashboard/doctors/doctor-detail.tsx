@@ -5,6 +5,7 @@
 // ============================================================
 
 import { useState, useTransition, useEffect } from 'react'
+import { getInitials } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
 import { ChevronRight, Settings, Calendar, Stethoscope, Lock, Phone, Mail, AlertTriangle, Plus, Trash2, X } from 'lucide-react'
 import {
@@ -43,9 +44,6 @@ type TabKey = 'basic' | 'schedule' | 'types' | 'blocks'
 const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 const DAY_LABELS: Record<string, string> = { monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miercoles', thursday: 'Jueves', friday: 'Viernes', saturday: 'Sabado', sunday: 'Domingo' }
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 // ---- Main Component ----
 

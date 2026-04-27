@@ -102,7 +102,12 @@
       "Bash(wc -l /Users/juanlondono/Documents/agentes-medicos/src/app/actions/*.ts)",
       "Bash(wc -l src/app/dashboard/asistente/*.tsx)",
       "Bash(ls src/app/\\\\\\(landing\\\\\\))",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(for d:*)",
+      "Read(//Users/juanlondono/Documents/agentes-medicos/$d/**)",
+      "Bash(find src/app/actions -type f \\\\\\(-name *.ts -o -name *.tsx \\\\\\))",
+      "Bash(for f:*)",
+      "Bash(wc -l echo : any \"count:; grep -rn :\" anyb src/ --include=*.ts --include=*.tsx)"
     ]
   }
 }

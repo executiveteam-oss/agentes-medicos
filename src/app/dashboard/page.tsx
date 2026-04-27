@@ -4,6 +4,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { getInitials } from '@/lib/utils/ui-helpers'
 import { getUserSession } from '@/lib/session'
 import { isDoctorUnlinked, getRestrictedDoctorId } from '@/lib/doctor-filter'
 import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-banner'
@@ -27,9 +28,6 @@ import { ISaludSyncButton } from '@/components/dashboard/isalud-sync-button'
 
 export const dynamic = 'force-dynamic'
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 function getGreeting(): string {
   const h = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' })).getHours()

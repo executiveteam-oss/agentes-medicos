@@ -6,6 +6,7 @@
 // ============================================================
 
 import Link from 'next/link'
+import { getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { CalendarDays, TrendingDown, MessageSquare, Clock, Sparkles } from 'lucide-react'
 import type { ReactNode } from 'react'
 
@@ -196,19 +197,7 @@ const STATUS_COLORS: Record<string, { bg: string; fg: string; label: string }> =
   blocked_external: { bg: 'var(--v2-primary-soft)', fg: 'var(--v2-primary)', label: 'iSalud' },
 }
 
-const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, #6B5BFF, #8676FF)',
-  'linear-gradient(135deg, #FF6BAA, #FF8EC4)',
-  'linear-gradient(135deg, #34C77B, #5DD99A)',
-  'linear-gradient(135deg, #FFB845, #FFCF7A)',
-  'linear-gradient(135deg, #5444E5, #6B5BFF)',
-]
 
-function getAvatarGradient(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length]
-}
 
 function formatTimeColombia(iso: string): string {
   const d = new Date(iso)

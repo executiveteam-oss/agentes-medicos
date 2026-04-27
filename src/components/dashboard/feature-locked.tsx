@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useState } from 'react'
+import { formatCOPCompact as formatCOP } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
 
 const UPGRADE_PHONE = '573015525881'
@@ -25,9 +26,6 @@ function getDoctorTierIndex(doctorCount: number | null | undefined): number {
   return 3
 }
 
-function formatCOP(n: number): string {
-  return '$' + n.toLocaleString('es-CO')
-}
 
 interface FeatureLockedProps {
   featureName: string

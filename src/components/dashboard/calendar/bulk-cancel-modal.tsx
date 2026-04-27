@@ -21,9 +21,6 @@ interface Props {
   onDone: (cancelled: number, notified: number) => void
 }
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, doctorName, onClose, onDone }: Props) {
   const cancellable = appointments.filter((a) => a.status === 'confirmed' || a.status === 'rescheduled')

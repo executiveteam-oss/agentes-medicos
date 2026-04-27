@@ -5,6 +5,7 @@
 // ============================================================
 
 import { useState, useTransition } from 'react'
+import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
 import { Plus, UserPlus, Stethoscope } from 'lucide-react'
 import { createDoctor } from '@/app/actions/doctors'
@@ -22,23 +23,8 @@ interface DoctorItem {
   future_appointments: number
 }
 
-const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, #6B5BFF, #8676FF)',
-  'linear-gradient(135deg, #FF6BAA, #FF8EC4)',
-  'linear-gradient(135deg, #34C77B, #5DD99A)',
-  'linear-gradient(135deg, #FFB845, #FFCF7A)',
-  'linear-gradient(135deg, #5444E5, #6B5BFF)',
-]
 
-function getGradient(name: string): string {
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
-  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length]
-}
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 export function DoctorsListClient({ doctors, activeCount }: { doctors: DoctorItem[]; activeCount: number }) {
   const [showModal, setShowModal] = useState(false)
@@ -102,7 +88,7 @@ export function DoctorsListClient({ doctors, activeCount }: { doctors: DoctorIte
               >
                 {/* Avatar */}
                 <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <div style={{ width: '52px', height: '52px', borderRadius: '16px', background: getGradient(doc.name), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '52px', height: '52px', borderRadius: '16px', background: getAvatarGradient(doc.name), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span style={{ color: '#fff', fontSize: '16px', fontWeight: 700 }}>{getInitials(doc.name)}</span>
                   </div>
                   <div style={{ position: 'absolute', bottom: '-2px', right: '-2px', width: '14px', height: '14px', borderRadius: '50%', background: dotColor, border: '3px solid var(--v2-bg-card)' }} />

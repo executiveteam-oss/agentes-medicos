@@ -5,6 +5,8 @@
 // ============================================================
 
 import { useState, useRef, useEffect, useTransition } from 'react'
+import { formatPhone } from '@/lib/utils/dates'
+import { getInitials } from '@/lib/utils/ui-helpers'
 import { sendStaffMessage, updateConversationStatus, reopenConversation } from '@/app/actions/conversations'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
@@ -73,13 +75,7 @@ function needsDateSep(current: string, previous: string | null): boolean {
   return new Date(current).toDateString() !== new Date(previous).toDateString()
 }
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
-function formatPhone(phone: string): string {
-  return phone.replace('+57', '').replace(/(\d{3})(\d{3})(\d{4})/, '$1 $2 $3')
-}
 
 // ---- Main Component ----
 

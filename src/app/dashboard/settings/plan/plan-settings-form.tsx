@@ -6,6 +6,7 @@
 // ============================================================
 
 import type { PlanData } from '@/app/actions/feature-config'
+import { formatCOP } from '@/lib/utils/dates'
 import type { FeatureConfig } from '@/types/database'
 
 const UPGRADE_PHONE = '573015525881'
@@ -38,9 +39,6 @@ function getDoctorTierIndex(n: number | null): number {
   return 3
 }
 
-function formatCOP(n: number): string {
-  return '$' + n.toLocaleString('es-CO')
-}
 
 interface FeatureItem {
   key: keyof FeatureConfig

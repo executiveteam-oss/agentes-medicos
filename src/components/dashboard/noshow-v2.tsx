@@ -5,6 +5,8 @@
 // ============================================================
 
 import { useRouter, useSearchParams } from 'next/navigation'
+import { formatCOPCompact as formatCOP } from '@/lib/utils/ui-helpers'
+import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { NoShowCharts } from '@/components/dashboard/noshow-charts'
 import { TrendingDown, DollarSign, AlertTriangle, Calendar, Zap } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -47,11 +49,6 @@ interface Props {
 
 // ---- Helpers ----
 
-function formatCOP(n: number): string {
-  if (n >= 1_000_000) return '$' + (n / 1_000_000).toFixed(1).replace('.0', '') + 'M'
-  if (n >= 1_000) return '$' + Math.round(n / 1_000) + 'k'
-  return '$' + n.toLocaleString('es-CO')
-}
 
 const DAY_LABELS: Record<string, string> = {
   lun: 'Lunes', mar: 'Martes', mie: 'Miercoles', jue: 'Jueves',
@@ -65,23 +62,8 @@ const RANGE_OPTIONS = [
   { value: 365, label: 'Ano' },
 ]
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
-const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, #6B5BFF, #8676FF)',
-  'linear-gradient(135deg, #FF6BAA, #FF8EC4)',
-  'linear-gradient(135deg, #34C77B, #5DD99A)',
-  'linear-gradient(135deg, #FFB845, #FFCF7A)',
-  'linear-gradient(135deg, #5444E5, #6B5BFF)',
-]
 
-function getGradient(name: string): string {
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
-  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length]
-}
 
 // ---- Main Component ----
 
@@ -434,7 +416,7 @@ export function NoShowDashboard(props: Props) {
                   <div
                     style={{
                       width: '36px', height: '36px', borderRadius: '50%',
-                      background: getGradient(p.name),
+                      background: getAvatarGradient(p.name),
                       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                     }}
                   >

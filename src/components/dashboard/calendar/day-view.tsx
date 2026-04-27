@@ -3,6 +3,7 @@
 // ============================================================
 
 import { useState } from 'react'
+import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { formatTimeForPatient } from '@/lib/utils/dates'
 import { Calendar, XCircle } from 'lucide-react'
 import { AppointmentDetail } from './appointment-detail'
@@ -22,23 +23,8 @@ interface Props {
   doctorName?: string | null
 }
 
-const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, #6B5BFF, #8676FF)',
-  'linear-gradient(135deg, #FF6BAA, #FF8EC4)',
-  'linear-gradient(135deg, #34C77B, #5DD99A)',
-  'linear-gradient(135deg, #FFB845, #FFCF7A)',
-  'linear-gradient(135deg, #5444E5, #6B5BFF)',
-]
 
-function getGradient(name: string): string {
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
-  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length]
-}
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName }: Props) {
   const dateStr = toDateStr(date)
@@ -183,7 +169,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
                       width: '36px',
                       height: '36px',
                       borderRadius: '50%',
-                      background: getGradient(patientName),
+                      background: getAvatarGradient(patientName),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',

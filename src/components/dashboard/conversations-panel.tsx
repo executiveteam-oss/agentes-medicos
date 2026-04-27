@@ -5,6 +5,7 @@
 // ============================================================
 
 import { useState, useEffect } from 'react'
+import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -39,23 +40,8 @@ const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
   { key: 'resolved', label: 'Resueltas', emoji: '✅' },
 ]
 
-const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, #6B5BFF, #8676FF)',
-  'linear-gradient(135deg, #FF6BAA, #FF8EC4)',
-  'linear-gradient(135deg, #34C77B, #5DD99A)',
-  'linear-gradient(135deg, #FFB845, #FFCF7A)',
-  'linear-gradient(135deg, #5444E5, #6B5BFF)',
-]
 
-function getAvatarGradient(name: string): string {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length]
-}
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 export function ConversationsPanel({ entries: initialEntries, counts: initialCounts, clinicId }: Props) {
   const [entries, setEntries] = useState(initialEntries)

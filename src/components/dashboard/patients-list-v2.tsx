@@ -5,6 +5,7 @@
 // ============================================================
 
 import { useState } from 'react'
+import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
 import { Search, Plus, Edit2, Trash2, Users } from 'lucide-react'
 import { deletePatient, getPatientForEdit } from '@/app/actions/patients'
@@ -35,23 +36,8 @@ const FILTERS: { key: FilterTab; label: string; emoji: string }[] = [
 
 const EPS_OPTIONS = ['todas', 'Sura', 'Compensar', 'Nueva EPS', 'Sanitas', 'Coosalud', 'Medimas', 'Particular']
 
-const AVATAR_GRADIENTS = [
-  'linear-gradient(135deg, #6B5BFF, #8676FF)',
-  'linear-gradient(135deg, #FF6BAA, #FF8EC4)',
-  'linear-gradient(135deg, #34C77B, #5DD99A)',
-  'linear-gradient(135deg, #FFB845, #FFCF7A)',
-  'linear-gradient(135deg, #5444E5, #6B5BFF)',
-]
 
-function getGradient(name: string): string {
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h)
-  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length]
-}
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 export function PatientsListV2({ initialPatients }: { initialPatients: Patient[] }) {
   const [allPatients, setAllPatients] = useState(initialPatients)
@@ -217,7 +203,7 @@ export function PatientsListV2({ initialPatients }: { initialPatients: Patient[]
                 <div
                   style={{
                     width: '44px', height: '44px', borderRadius: '50%',
-                    background: getGradient(p.name),
+                    background: getAvatarGradient(p.name),
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   }}
                 >

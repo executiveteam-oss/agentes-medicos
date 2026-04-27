@@ -5,6 +5,7 @@
 // ============================================================
 
 import { useState } from 'react'
+import { getInitials } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
 import { ChevronRight, Calendar, MessageSquare, Phone, Mail, FileText, StickyNote, User, Plus } from 'lucide-react'
 import { ReactivationBanner } from '@/components/dashboard/reactivation-banner'
@@ -63,9 +64,6 @@ type TabKey = 'historia' | 'conversaciones' | 'documentos' | 'notas'
 
 // ---- Helpers ----
 
-function getInitials(name: string): string {
-  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
-}
 
 const STATUS_MAP: Record<string, { label: string; bg: string; fg: string; dot: string }> = {
   confirmed: { label: 'Proxima', bg: 'var(--v2-primary-soft)', fg: 'var(--v2-primary)', dot: 'var(--v2-primary)' },

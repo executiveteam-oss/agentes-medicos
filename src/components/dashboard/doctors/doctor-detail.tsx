@@ -4,7 +4,7 @@
 // DoctorDetailClient — Hero + 4 tabs (basic, schedule, types, blocks)
 // ============================================================
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import Link from 'next/link'
 import { ChevronRight, Settings, Calendar, Stethoscope, Lock, Phone, Mail, AlertTriangle, Plus, Trash2, X } from 'lucide-react'
 import {
@@ -568,24 +568,19 @@ const SCHED_DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 function CtSchedulesEditor({ ctId }: { ctId: string }) {
   const [schedules, setSchedules] = useState<CtSchedule[]>([])
   const [loaded, setLoaded] = useState(false)
-  const [loading, setLoading] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
 
-  function load() {
-    setLoading(true)
-    startTransition(async () => {
-      const data = await getSchedulesForType(ctId)
-      setSchedules(data)
-      setLoaded(true)
-      setLoading(false)
+  // Load once on mount
+  useEffect(() => {
+    let cancelled = false
+    getSchedulesForType(ctId).then((data) => {
+      if (!cancelled) { setSchedules(data); setLoaded(true) }
     })
-  }
-
-  // Load on mount
-  if (!loaded && !loading) load()
+    return () => { cancelled = true }
+  }, [ctId])
 
   function addRow() {
     setSchedules((prev) => [...prev, { id: 'new-' + Date.now(), day_of_week: 1, start_time: '08:00', end_time: '12:00' }])
@@ -643,7 +638,7 @@ function CtSchedulesEditor({ ctId }: { ctId: string }) {
         Sin franjas = se agenda en cualquier horario. Con franjas = solo dentro de ellas.
       </p>
 
-      {loading && !loaded && <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>Cargando...</p>}
+      {!loaded && <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>Cargando franjas...</p>}
 
       {loaded && (
         <>

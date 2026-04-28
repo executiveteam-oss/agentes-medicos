@@ -2,9 +2,9 @@
 // Rate Limiter — Upstash Redis en prod. Ver docs/RATE_LIMITING.md.
 // Si UPSTASH_* env vars faltan, cae a in-memory (NO recomendado en serverless).
 //
-// Uses Upstash Redis if UPSTASH_REDIS_REST_URL is configured.
-// Falls back to in-memory Map if env vars are missing or init fails.
-// Fallback is logged once at startup for observability.
+// Two APIs:
+// - checkRateLimit() — sync, for webhook/cron/auth (fire-and-forget Upstash)
+// - checkRateLimitAsync() — async, for chatbot (awaits Upstash properly)
 // ============================================================
 
 import { timingSafeEqual } from 'crypto'
@@ -15,13 +15,16 @@ type Backend = 'upstash' | 'memory'
 let backend: Backend = 'memory'
 let upstashRatelimit: typeof import('@upstash/ratelimit').Ratelimit | null = null
 
-// Lazy init — runs once on first call
-let initialized = false
+// Lazy init — runs once per process
+let initPromise: Promise<void> | null = null
 
 async function ensureInit() {
-  if (initialized) return
-  initialized = true
+  if (initPromise) return initPromise
+  initPromise = doInit()
+  return initPromise
+}
 
+async function doInit() {
   const url = process.env.UPSTASH_REDIS_REST_URL
   const token = process.env.UPSTASH_REDIS_REST_TOKEN
 
@@ -30,11 +33,9 @@ async function ensureInit() {
       const { Redis } = await import('@upstash/redis')
       const { Ratelimit } = await import('@upstash/ratelimit')
 
-      // Test connection
       const redis = new Redis({ url, token })
       await redis.ping()
 
-      // Store Ratelimit class for later use
       upstashRatelimit = Ratelimit
       ;(globalThis as Record<string, unknown>).__upstashRedis = redis
       backend = 'upstash'
@@ -49,16 +50,19 @@ async function ensureInit() {
   }
 }
 
-// ---- In-memory fallback (original implementation) ----
+// ---- In-memory store (persists via globalThis in dev mode) ----
 
 interface RateLimitEntry {
   count: number
   resetAt: number
 }
 
-const memoryStore = new Map<string, RateLimitEntry>()
+// Use globalThis to survive HMR in Next.js dev mode
+const g = globalThis as unknown as { __rateLimitStore?: Map<string, RateLimitEntry> }
+if (!g.__rateLimitStore) g.__rateLimitStore = new Map()
+const memoryStore = g.__rateLimitStore
 
-// Clean expired entries every 60s (only runs if memory backend is used)
+// Clean expired entries every 60s
 if (typeof setInterval !== 'undefined') {
   setInterval(() => {
     const now = Date.now()
@@ -87,7 +91,7 @@ function checkMemoryRateLimit(key: string, config: RateLimitConfig): RateLimitRe
   return { allowed: true, remaining: config.maxRequests - entry.count, resetAt: entry.resetAt }
 }
 
-// ---- Upstash rate limiter cache ----
+// ---- Upstash limiter cache ----
 
 const upstashLimiters = new Map<string, InstanceType<typeof import('@upstash/ratelimit').Ratelimit>>()
 
@@ -105,7 +109,7 @@ function getUpstashLimiter(config: RateLimitConfig) {
   return limiter
 }
 
-// ---- Public API (same signatures as before) ----
+// ---- Types ----
 
 interface RateLimitConfig {
   maxRequests: number
@@ -118,32 +122,85 @@ interface RateLimitResult {
   resetAt: number
 }
 
+// ---- Public API: SYNC (for webhook, cron, auth — no change to existing behavior) ----
+
 /**
- * Verifica si una solicitud esta dentro del limite.
- * Uses Upstash if available, falls back to in-memory.
+ * Sync rate limit check. Uses memory as primary.
+ * Upstash runs fire-and-forget in background for cross-instance sync.
+ * Existing call sites (webhook, cron, auth) use this — DO NOT CHANGE.
  */
 export function checkRateLimit(key: string, config: RateLimitConfig): RateLimitResult {
-  // Trigger lazy init (non-blocking — first request uses memory, subsequent use Upstash)
+  // Trigger lazy init (non-blocking)
   ensureInit()
 
   if (backend === 'upstash') {
     const limiter = getUpstashLimiter(config)
     if (limiter) {
-      // Upstash ratelimit is async but checkRateLimit is sync.
-      // Fire-and-forget the async check and use memory as synchronous bridge.
-      // This is a pragmatic approach: the actual blocking happens in memory
-      // but the Upstash counter stays in sync for cross-instance consistency.
       limiter.limit(key).then((result) => {
         if (!result.success) {
-          // Mark in memory store as blocked so next sync call returns blocked
           memoryStore.set(key, { count: config.maxRequests + 1, resetAt: result.reset })
         }
       }).catch(() => { /* Upstash failure — memory handles it */ })
     }
   }
 
-  // Always check memory synchronously (works as primary or backup)
   return checkMemoryRateLimit(key, config)
+}
+
+// ---- Public API: ASYNC (for chatbot — awaits Upstash properly) ----
+
+/**
+ * Async rate limit check. Awaits Upstash if available.
+ * Falls back to memory if Upstash is not configured.
+ * Use this for endpoints that can tolerate ~50ms extra latency (chatbot).
+ */
+export async function checkRateLimitAsync(
+  key: string,
+  config: RateLimitConfig,
+  logPrefix?: string
+): Promise<RateLimitResult> {
+  await ensureInit()
+
+  // Try Upstash first (authoritative if available)
+  if (backend === 'upstash') {
+    const limiter = getUpstashLimiter(config)
+    if (limiter) {
+      try {
+        const result = await limiter.limit(key)
+        const rateLimitResult: RateLimitResult = {
+          allowed: result.success,
+          remaining: result.remaining,
+          resetAt: result.reset,
+        }
+
+        // Sync memory store for consistency
+        if (!result.success) {
+          memoryStore.set(key, { count: config.maxRequests + 1, resetAt: result.reset })
+        }
+
+        if (logPrefix) {
+          console.log(`[${logPrefix}] backend=upstash key=${key} allowed=${result.success} remaining=${result.remaining}/${config.maxRequests}`)
+        }
+
+        return rateLimitResult
+      } catch (err) {
+        if (logPrefix) {
+          console.warn(`[${logPrefix}] Upstash failed, falling back to memory:`, err instanceof Error ? err.message : err)
+        }
+        // Fall through to memory
+      }
+    }
+  }
+
+  // Memory fallback
+  const result = checkMemoryRateLimit(key, config)
+
+  if (logPrefix) {
+    const entry = memoryStore.get(key)
+    console.log(`[${logPrefix}] backend=memory key=${key} allowed=${result.allowed} count=${entry?.count ?? 0}/${config.maxRequests}`)
+  }
+
+  return result
 }
 
 // ---- Predefined configs ----
@@ -162,7 +219,7 @@ export const RATE_LIMITS = {
 } as const
 
 /**
- * Extract client IP from request (Vercel puts real IP in x-forwarded-for)
+ * Extract client IP from request
  */
 export function getClientIp(request: Request): string {
   return (

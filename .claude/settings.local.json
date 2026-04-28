@@ -114,7 +114,8 @@
       "Bash(__NEW_LINE_344e5829402ab6a5__ cat:*)",
       "Bash(docs/help/configurar-doctores.md:*)",
       "Bash(docs/help/tipos-de-consulta-y-franjas.md:*)",
-      "Bash(docs/help/horarios-y-bloqueos.md:*)"
+      "Bash(docs/help/horarios-y-bloqueos.md:*)",
+      "Bash(npx tsx:*)"
     ]
   }
 }

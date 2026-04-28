@@ -9,7 +9,7 @@ import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { checkRateLimitAsync, RATE_LIMITS } from '@/lib/rate-limit'
 import { buildChatbotSystemPrompt } from '@/lib/chatbot/system-prompt'
 import { chatbotTools, INTERNAL_TOOLS } from '@/lib/chatbot/tools'
 import type { Permissions } from '@/types/permissions'
@@ -52,8 +52,8 @@ export async function POST(request: NextRequest) {
 
   const permissions = (role?.permissions ?? {}) as Permissions
 
-  // ---- Rate limit (dual: rpm + rpd) ----
-  const rpmCheck = checkRateLimit(`chatbot:rpm:${clinicUser.id}`, RATE_LIMITS.chatbotRpm)
+  // ---- Rate limit (dual: rpm + rpd, async with Upstash await) ----
+  const rpmCheck = await checkRateLimitAsync(`chatbot:rpm:${clinicUser.id}`, RATE_LIMITS.chatbotRpm, 'RateLimit-Chatbot')
   if (!rpmCheck.allowed) {
     return Response.json(
       { error: 'Has hecho muchas preguntas. Espera un momento.' },
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const rpdCheck = checkRateLimit(`chatbot:rpd:${clinicUser.id}`, RATE_LIMITS.chatbotRpd)
+  const rpdCheck = await checkRateLimitAsync(`chatbot:rpd:${clinicUser.id}`, RATE_LIMITS.chatbotRpd, 'RateLimit-Chatbot')
   if (!rpdCheck.allowed) {
     return Response.json(
       { error: 'Has alcanzado el limite de preguntas del dia. Vuelve manana.' },

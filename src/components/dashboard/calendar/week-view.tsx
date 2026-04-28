@@ -1,11 +1,23 @@
 // ============================================================
-// WeekView v2 — Grid 7 columns × hours with v2 styling
+// WeekView v2 — single-doctor, redesigned appointment cells
+// Shows ONE doctor at a time (selected via DoctorSelector)
 // ============================================================
 
 import { formatTimeForPatient } from '@/lib/utils/dates'
+import { Tooltip } from '@/components/ui/tooltip'
 import { AppointmentDetail } from './appointment-detail'
 import type { CalendarAppointment } from './types'
-import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, STATUS_STYLES, DOCTOR_COLORS } from './types'
+import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, STATUS_LABELS } from './types'
+
+// Status colors for single-doctor view (redesigned)
+const STATUS_CELL_COLORS: Record<string, { bg: string; border: string }> = {
+  confirmed:       { bg: '#EEEDFE', border: '#534AB7' },
+  rescheduled:     { bg: '#FAEEDA', border: '#BA7517' },
+  completed:       { bg: '#E1F5EE', border: '#1D9E75' },
+  no_show:         { bg: '#FCEBEB', border: '#A32D2D' },
+  blocked_external:{ bg: '#EEEDFE', border: '#534AB7' },
+  cancelled:       { bg: '#F4F2FB', border: '#9590A8' },
+}
 
 interface Props {
   selectedDate: Date
@@ -14,28 +26,12 @@ interface Props {
   onDayClick: (d: Date) => void
   expandedApt: string | null
   setExpandedApt: (id: string | null) => void
-  doctors: { id: string; name: string }[]
-  doctorFilter: string
   onEmptySlotClick?: (date: string, hour: number) => void
 }
 
-export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, doctors, doctorFilter, onEmptySlotClick }: Props) {
+export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick }: Props) {
   const monday = getMonday(selectedDate)
   const weekDates = getWeekDates(monday)
-  const showingAll = doctorFilter === 'all'
-
-  // Doctor color map
-  const doctorColorMap = new Map<string, typeof DOCTOR_COLORS[0]>()
-  doctors.forEach((doc, i) => { doctorColorMap.set(doc.id, DOCTOR_COLORS[i % DOCTOR_COLORS.length]) })
-
-  function getBlockColor(apt: CalendarAppointment): { bg: string; border: string } {
-    if (showingAll && apt.doctor_id) {
-      const dc = doctorColorMap.get(apt.doctor_id)
-      return { bg: dc?.soft ?? 'var(--v2-primary-soft)', border: dc?.dot ?? 'var(--v2-primary)' }
-    }
-    const st = STATUS_STYLES[apt.status] ?? STATUS_STYLES.confirmed
-    return { bg: st.bg, border: st.dot }
-  }
 
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }}>
@@ -55,31 +51,25 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
             const dateStr = toDateStr(d)
             const isToday = dateStr === todayStr
             const dayAppts = appointments.filter((a) => getColombiaDateStr(a.starts_at) === dateStr)
-            const load = dayAppts.length
             return (
               <button
                 key={i}
                 onClick={() => onDayClick(d)}
                 style={{
-                  padding: '10px 4px',
-                  textAlign: 'center',
+                  padding: '10px 4px', textAlign: 'center',
                   borderLeft: '1px solid var(--v2-border-soft)',
                   background: isToday ? 'var(--v2-primary-tint)' : 'transparent',
-                  cursor: 'pointer',
-                  border: 'none',
-                  borderLeftStyle: 'solid',
-                  borderLeftWidth: '1px',
-                  borderLeftColor: 'var(--v2-border-soft)',
-                  transition: 'background 0.1s',
-                  fontFamily: 'var(--font-manrope), sans-serif',
+                  cursor: 'pointer', border: 'none',
+                  borderLeftStyle: 'solid', borderLeftWidth: '1px', borderLeftColor: 'var(--v2-border-soft)',
+                  transition: 'background 0.1s', fontFamily: 'var(--font-manrope), sans-serif',
                 }}
                 onMouseEnter={(e) => { if (!isToday) e.currentTarget.style.background = 'var(--v2-bg-soft)' }}
-                onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.background = 'transparent' }}
+                onMouseLeave={(e) => { if (!isToday) e.currentTarget.style.background = isToday ? 'var(--v2-primary-tint)' : 'transparent' }}
               >
                 <p style={{ fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', color: 'var(--v2-text-subtle)' }}>{DAYS_ES[i]}</p>
                 <p style={{ fontSize: '18px', fontWeight: 700, color: isToday ? 'var(--v2-primary)' : 'var(--v2-text)', marginTop: '2px' }}>{d.getDate()}</p>
-                {load > 0 && (
-                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', margin: '4px auto 0', background: load >= 8 ? 'var(--v2-pink)' : load <= 2 ? 'var(--v2-green)' : 'var(--v2-amber)' }} />
+                {dayAppts.length > 0 && (
+                  <div style={{ width: '6px', height: '6px', borderRadius: '50%', margin: '4px auto 0', background: dayAppts.length >= 8 ? 'var(--v2-pink)' : dayAppts.length <= 2 ? 'var(--v2-green)' : 'var(--v2-amber)' }} />
                 )}
               </button>
             )
@@ -105,7 +95,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                   const hourAppts = appointments.filter((a) =>
                     getColombiaDateStr(a.starts_at) === dateStr && getColombiaHour(a.starts_at) === hour
                   )
-                  const groupCount = hourAppts.length
+
                   return (
                     <div
                       key={colIdx}
@@ -120,76 +110,98 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         cursor: hourAppts.length === 0 && onEmptySlotClick ? 'pointer' : 'default',
                       }}
                       onClick={() => {
-                        if (hourAppts.length === 0 && onEmptySlotClick) {
-                          onEmptySlotClick(dateStr, hour)
-                        }
+                        if (hourAppts.length === 0 && onEmptySlotClick) onEmptySlotClick(dateStr, hour)
                       }}
                     >
-                      {/* Empty slot hover label */}
+                      {/* Empty slot hover */}
                       {hourAppts.length === 0 && onEmptySlotClick && (
                         <span
                           className="hidden group-hover:flex"
                           style={{
-                            position: 'absolute',
-                            inset: 0,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '10px',
-                            fontWeight: 600,
-                            color: 'var(--v2-primary)',
-                            background: 'var(--v2-primary-tint)',
+                            position: 'absolute', inset: 0,
+                            alignItems: 'center', justifyContent: 'center',
+                            fontSize: '10px', fontWeight: 600,
+                            color: 'var(--v2-primary)', background: 'var(--v2-primary-tint)',
                             borderRadius: '2px',
                           }}
                         >
                           + Agendar
                         </span>
                       )}
-                      {hourAppts.map((apt, aptIdx) => {
-                        const colors = getBlockColor(apt)
+
+                      {/* Appointment cells */}
+                      {hourAppts.map((apt) => {
+                        const colors = STATUS_CELL_COLORS[apt.status] ?? STATUS_CELL_COLORS.confirmed
                         const minutes = getColombiaMinutes(apt.starts_at)
                         const topOffset = (minutes / 60) * 100
-                        const patientName = apt.patient?.name ?? apt.reason ?? 'Cita'
-                        const widthPct = 100 / groupCount
-                        const leftPct = widthPct * aptIdx
-                        const isCompact = groupCount >= 2
-                        const isVeryCompact = groupCount >= 3
+                        const patientName = apt.patient?.name ?? 'Paciente'
+                        const consultType = apt.reason ?? apt.free_text_reason ?? ''
+
+                        // Calculate duration for height
+                        const startMs = new Date(apt.starts_at).getTime()
+                        const endMs = new Date(apt.ends_at).getTime()
+                        const durationMin = Math.round((endMs - startMs) / 60000)
+                        const heightPx = Math.max(20, (durationMin / 60) * 60) // 60px per hour
+
+                        // Content matrix by duration
+                        const showType = durationMin >= 30
+                        const showHour = durationMin >= 15
+                        const fontSize = durationMin < 15 ? '10px' : '11px'
+
+                        const tooltipContent = [
+                          patientName,
+                          consultType && `Tipo: ${consultType}`,
+                          `Estado: ${STATUS_LABELS[apt.status] ?? apt.status}`,
+                          apt.payment_type && `Pago: ${apt.payment_type}`,
+                          apt.doctor?.name && `Dr. ${apt.doctor.name}`,
+                        ].filter(Boolean).join('\n')
+
                         return (
-                          <button
-                            key={apt.id}
-                            onClick={() => setExpandedApt(expandedApt === apt.id ? null : apt.id)}
-                            style={{
-                              position: 'absolute',
-                              width: `calc(${widthPct}% - 2px)`,
-                              left: `${leftPct}%`,
-                              top: `${topOffset}%`,
-                              minHeight: '22px',
-                              maxHeight: '95%',
-                              background: colors.bg,
-                              borderRadius: '3px',
-                              padding: isCompact ? '1px 3px' : '2px 6px',
-                              cursor: 'pointer',
-                              overflow: 'hidden',
-                              zIndex: 10,
-                              border: 'none',
-                              textAlign: 'left',
-                              transition: 'box-shadow 0.1s',
-                              fontFamily: 'var(--font-manrope), sans-serif',
-                              borderLeftStyle: 'solid',
-                              borderLeftWidth: '3px',
-                              borderLeftColor: colors.border,
-                              borderRight: aptIdx < groupCount - 1 ? '1px solid rgba(255,255,255,0.7)' : 'none',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.boxShadow = 'var(--v2-shadow-sm)' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none' }}
-                            title={`${formatTimeForPatient(apt.starts_at)} — ${patientName}`}
-                          >
-                            <p style={{ fontSize: isVeryCompact ? '8px' : '10px', fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.3 }}>
-                              {isVeryCompact
-                                ? (apt.patient?.name ?? 'Cita').split(' ').map((w) => w[0]).join('').slice(0, 3)
-                                : `${formatTimeForPatient(apt.starts_at)} ${patientName}`
-                              }
-                            </p>
-                          </button>
+                          <Tooltip key={apt.id} content={tooltipContent} side="bottom">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setExpandedApt(expandedApt === apt.id ? null : apt.id) }}
+                              style={{
+                                position: 'absolute',
+                                left: '2px', right: '2px',
+                                top: `${topOffset}%`,
+                                height: `${heightPx}px`,
+                                maxHeight: '95%',
+                                background: colors.bg,
+                                borderLeft: `3px solid ${colors.border}`,
+                                borderRadius: '4px',
+                                padding: '3px 6px',
+                                cursor: 'pointer',
+                                overflow: 'hidden',
+                                zIndex: 10,
+                                border: 'none',
+                                textAlign: 'left',
+                                transition: 'box-shadow 0.1s',
+                                fontFamily: 'var(--font-manrope), sans-serif',
+                                borderLeftStyle: 'solid',
+                                borderLeftWidth: '3px',
+                                borderLeftColor: colors.border,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'center',
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)' }}
+                              onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none' }}
+                            >
+                              {showHour && (
+                                <p style={{ fontSize: '10px', fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 500, color: colors.border, lineHeight: 1.2, opacity: 0.8 }}>
+                                  {formatTimeForPatient(apt.starts_at)}
+                                </p>
+                              )}
+                              <p style={{ fontSize, fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                                {patientName}
+                              </p>
+                              {showType && consultType && (
+                                <p style={{ fontSize: '10px', color: 'var(--v2-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                                  {consultType}
+                                </p>
+                              )}
+                            </button>
+                          </Tooltip>
                         )
                       })}
                     </div>

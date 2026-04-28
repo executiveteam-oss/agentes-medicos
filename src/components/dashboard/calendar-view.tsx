@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { DayView } from './calendar/day-view'
 import { WeekView } from './calendar/week-view'
 import { MonthView } from './calendar/month-view'
+import { DoctorSelector, getStoredDoctorId, storeDoctorId } from './calendar/doctor-selector'
 import { getAppointmentForCalendar } from '@/app/actions/appointments'
 import { AppointmentFormModal } from './appointment-form-modal'
 import type { CalendarAppointment, CalendarDoctor, ViewMode } from './calendar/types'
@@ -47,8 +48,9 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
   const [newAptPrefill, setNewAptPrefill] = useState<{ date: string; time: string; doctor_id: string } | null>(null)
 
   const isDoctor = userRole.toLowerCase() === 'doctor' || userRole.toLowerCase() === 'médico'
-  const defaultFilter = restrictDoctorId ? restrictDoctorId : 'all'
-  const [doctorFilter, setDoctorFilter] = useState<string>(urlDoctor ?? defaultFilter)
+  const [doctorFilter, setDoctorFilter] = useState<string>(() => {
+    return urlDoctor ?? getStoredDoctorId(doctors, restrictDoctorId)
+  })
 
   // Sync with server on navigation
   const prevInitial = useRef(initialAppointments)
@@ -82,6 +84,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
 
   function changeDoctor(id: string) {
     setDoctorFilter(id)
+    storeDoctorId(id)
     updateURL(view, selectedDate, id)
   }
 
@@ -246,54 +249,20 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
 
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }} className="space-y-4">
-      {/* ===== Doctor filter ===== */}
-      {doctors.length > 0 && (
-        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
-          {!isDoctor && (
-            <button
-              onClick={() => changeDoctor('all')}
-              style={{
-                padding: '6px 14px', borderRadius: '999px', fontSize: '12.5px',
-                fontWeight: doctorFilter === 'all' ? 700 : 500, border: 'none', cursor: 'pointer',
-                fontFamily: 'var(--font-manrope), sans-serif', transition: 'all 0.15s',
-                ...(doctorFilter === 'all'
-                  ? { background: 'linear-gradient(135deg, var(--v2-primary), #8676FF)', color: '#fff', boxShadow: '0 2px 6px rgba(107,91,255,0.25)' }
-                  : { background: 'var(--v2-bg-soft)', color: 'var(--v2-text-muted)' }),
-              }}
-            >
-              Todos
-            </button>
-          )}
-          {doctors.map((doc, i) => {
-            if (isDoctor && restrictDoctorId && doc.id !== restrictDoctorId) return null
-            const isActive = doctorFilter === doc.id
-            const dc = DOCTOR_COLORS[i % DOCTOR_COLORS.length]
-            return (
-              <button
-                key={doc.id}
-                onClick={() => changeDoctor(doc.id)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  padding: '6px 14px', borderRadius: '999px', fontSize: '12.5px',
-                  fontWeight: isActive ? 700 : 500, border: 'none', cursor: 'pointer',
-                  fontFamily: 'var(--font-manrope), sans-serif', transition: 'all 0.15s',
-                  ...(isActive
-                    ? { background: 'linear-gradient(135deg, var(--v2-primary), #8676FF)', color: '#fff', boxShadow: '0 2px 6px rgba(107,91,255,0.25)' }
-                    : { background: 'var(--v2-bg-soft)', color: doc.agenda_closed ? 'var(--v2-text-subtle)' : 'var(--v2-text-muted)' }),
-                  textDecoration: doc.agenda_closed ? 'line-through' : 'none',
-                }}
-              >
-                {doc.agenda_closed ? '🔒' : <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isActive ? '#fff' : dc.dot }} />}
-                {doc.name}
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* ===== Controls: nav + view toggle ===== */}
+      {/* ===== Toolbar: [Doctor Selector] [Nav] ... [View Toggle] ===== */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {/* Doctor selector */}
+          {doctors.length > 0 && (
+            <DoctorSelector
+              doctors={doctors}
+              selectedId={doctorFilter === 'all' ? (doctors[0]?.id ?? '') : doctorFilter}
+              onChange={changeDoctor}
+              restrictDoctorId={restrictDoctorId}
+            />
+          )}
+
+          {/* Date navigation */}
           <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: 'var(--v2-text-muted)', borderRadius: '8px' }} title="Anterior">
             <ChevronLeft size={20} />
           </button>
@@ -310,11 +279,12 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           >
             Hoy
           </button>
-          <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--v2-text)', marginLeft: '8px', textTransform: 'capitalize' }}>
+          <h2 style={{ fontSize: '16px', fontWeight: 700, color: 'var(--v2-text)', marginLeft: '4px', textTransform: 'capitalize' }}>
             {getTitle()}
           </h2>
         </div>
 
+        {/* View toggle */}
         <div style={{ display: 'flex', gap: '2px', padding: '3px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-bg-soft)' }}>
           {(['day', 'week', 'month'] as const).map((v) => (
             <button
@@ -335,31 +305,22 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
         </div>
       </div>
 
-      {/* ===== Legend ===== */}
-      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '11px', fontWeight: 500, color: 'var(--v2-text-subtle)' }}>
-        {doctorFilter === 'all'
-          ? doctors.map((doc, i) => {
-              const dc = DOCTOR_COLORS[i % DOCTOR_COLORS.length]
-              return (
-                <span key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: dc.dot }} />
-                  {doc.name}
-                </span>
-              )
-            })
-          : [
-              { label: 'Confirmada', color: 'var(--v2-primary)' },
-              { label: 'Reagendada', color: 'var(--v2-amber)' },
-              { label: 'Completada', color: 'var(--v2-green)' },
-              { label: 'No-show', color: 'var(--v2-red)' },
-            ].map((s) => (
-              <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color }} />
-                {s.label}
-              </span>
-            ))
-        }
-      </div>
+      {/* ===== Status legend (only for single-doctor view) ===== */}
+      {doctorFilter !== 'all' && (
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '11px', fontWeight: 500, color: 'var(--v2-text-subtle)' }}>
+          {[
+            { label: 'Confirmada', color: '#534AB7' },
+            { label: 'Reagendada', color: '#BA7517' },
+            { label: 'Completada', color: '#1D9E75' },
+            { label: 'No-show', color: '#A32D2D' },
+          ].map((s) => (
+            <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color }} />
+              {s.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* ===== Calendar body ===== */}
       {view === 'day' && (
@@ -381,8 +342,6 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           onDayClick={(d) => { setSelectedDate(d); changeView('day') }}
           expandedApt={expandedApt}
           setExpandedApt={setExpandedApt}
-          doctors={doctors}
-          doctorFilter={doctorFilter}
           onEmptySlotClick={handleEmptySlotClick}
         />
       )}

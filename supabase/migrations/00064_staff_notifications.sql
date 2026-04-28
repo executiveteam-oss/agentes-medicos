@@ -24,9 +24,8 @@ CREATE INDEX idx_notif_recipient_unread
 -- Clinic-wide queries
 CREATE INDEX idx_notif_clinic ON staff_notifications(clinic_id);
 
--- Cleanup cron: find old notifications to delete
-CREATE INDEX idx_notif_cleanup ON staff_notifications(created_at)
-  WHERE created_at < NOW() - INTERVAL '30 days';
+-- Cleanup cron uses sequential scan (table is small, ~1000 rows max)
+CREATE INDEX idx_notif_created ON staff_notifications(created_at);
 
 -- RLS: each user only sees their own notifications
 ALTER TABLE staff_notifications ENABLE ROW LEVEL SECURITY;

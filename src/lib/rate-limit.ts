@@ -1,5 +1,6 @@
 // ============================================================
-// Rate Limiter — Upstash Redis with in-memory fallback
+// Rate Limiter — Upstash Redis en prod. Ver docs/RATE_LIMITING.md.
+// Si UPSTASH_* env vars faltan, cae a in-memory (NO recomendado en serverless).
 //
 // Uses Upstash Redis if UPSTASH_REDIS_REST_URL is configured.
 // Falls back to in-memory Map if env vars are missing or init fails.

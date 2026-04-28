@@ -382,7 +382,7 @@ ZONA HORARIA: America/Bogota (UTC-5). Fecha actual: {now}
 8. Supabase RLS activo siempre (multi-tenant)
 9. Audit log para acciones críticas
 10. Sanitizar input del paciente antes del LLM
-11. Rate limiting en webhooks/API
+11. Rate limiting en webhooks/API — Upstash Redis en produccion (ver docs/RATE_LIMITING.md)
 12. No loggear datos sensibles (teléfonos completos, documentos)
 
 ---

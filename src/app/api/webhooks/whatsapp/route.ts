@@ -474,6 +474,22 @@ async function processWebhook(body: unknown): Promise<void> {
         })
       }
 
+      // 20.1 Staff notifications for appointment changes via WhatsApp
+      if (agentResponse.toolsUsed.includes('cancel_appointment') || agentResponse.toolsUsed.includes('reschedule_appointment')) {
+        try {
+          const { notifyStaffOfAppointmentChange } = await import('@/lib/notifications/create-notification')
+          await notifyStaffOfAppointmentChange({
+            clinicId: clinic.id,
+            conversationId: conversation.id,
+            patientName: patient.name,
+            patientId: patient.id,
+            toolsUsed: agentResponse.toolsUsed,
+          })
+        } catch (notifErr) {
+          console.error('[Webhook] Staff notification failed (non-critical):', notifErr instanceof Error ? notifErr.message : notifErr)
+        }
+      }
+
       // 21. Registrar en auditoría
       try {
         await supabaseAdmin

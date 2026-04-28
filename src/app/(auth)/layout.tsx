@@ -109,7 +109,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               label="Citas agendadas anoche"
               value="+12 citas"
               valueColor="var(--v2-green)"
-              detail="5 con Dra. Lina · 4 con Dr. Jose · 3 con Dra. Daniela"
+              detail="5 con Dra. Lopez · 4 con Dr. Martinez · 3 con Dra. Reyes"
             />
             <GlassCard
               top="60px" right="0"
@@ -131,7 +131,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               label="Proxima cita"
               value="8:30 AM"
               valueColor="var(--v2-pink)"
-              detail="Maria Gonzalez · Histeroscopia · Dr. Jose"
+              detail="Carolina Ruiz · Consulta general · Dr. Martinez"
             />
           </div>
         </div>

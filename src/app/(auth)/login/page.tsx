@@ -188,7 +188,7 @@ function LoginForm() {
                   type="email"
                   required
                   autoComplete="email"
-                  placeholder="lady@algia.co"
+                  placeholder="tu@clinica.com"
                   style={{
                     width: '100%',
                     padding: '12px 14px 12px 42px',

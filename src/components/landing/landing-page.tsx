@@ -216,7 +216,7 @@ function Hero() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: 'var(--v2-green)' }} />
               <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: 'var(--v2-green)' }} />
             </span>
-            Algia, primera clinica usando Omuwan
+            Disenado con clinicas reales en Colombia
           </div>
 
           {/* H1 */}
@@ -287,14 +287,14 @@ function Hero() {
 // ---- Phone mockup ----
 
 const CHAT_MESSAGES = [
-  { role: 'patient', text: 'Hola, quiero agendar una cita con el Dr. Jose' },
-  { role: 'bot', text: '¡Hola! Soy Omu, asistente de Algia. ¿Que tipo de consulta necesitas?' },
+  { role: 'patient', text: 'Hola, quiero agendar una cita con el Dr. Martinez' },
+  { role: 'bot', text: '¡Hola! Soy Omu, asistente de tu clinica. ¿Que tipo de consulta necesitas?' },
   { role: 'patient', text: 'Histeroscopia' },
   { role: 'bot', text: 'Perfecto. ¿Manejas alguna EPS o seria particular?' },
   { role: 'patient', text: 'Coomeva' },
   { role: 'bot', text: 'Tengo estos espacios esta semana:\n\n📅 Mie 30 · 10:00 AM\n📅 Jue 1 · 2:00 PM\n📅 Vie 2 · 9:00 AM' },
   { role: 'patient', text: 'Mie 30 · 10 AM' },
-  { role: 'bot', text: '¡Listo! Tu cita quedo agendada.\n\n📅 Mie 30 abril\n🕐 10:00 AM\n👨‍⚕️ Dr. Jose\n📍 Algia Clinica' },
+  { role: 'bot', text: '¡Listo! Tu cita quedo agendada.\n\n📅 Mie 30 abril\n🕐 10:00 AM\n👨‍⚕️ Dr. Martinez\n📍 Centro Medico' },
 ]
 
 function PhoneMockup() {
@@ -327,7 +327,7 @@ function PhoneMockup() {
             <span style={{ color: '#fff', fontWeight: 700, fontSize: '13px', fontStyle: 'italic', fontFamily: "'Instrument Serif', serif" }}>o</span>
           </div>
           <div>
-            <p style={{ color: '#fff', fontSize: '13px', fontWeight: 600 }}>Omu · Algia</p>
+            <p style={{ color: '#fff', fontSize: '13px', fontWeight: 600 }}>Omu · Tu Clinica</p>
             <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px' }}>en linea</p>
           </div>
         </div>
@@ -597,7 +597,7 @@ function Features() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {[
                   { r: 'patient', t: '¿Cuanto cuesta la cita?' },
-                  { r: 'bot', t: 'La consulta con el Dr. Jose tiene un valor de $180.000 COP. ¿Te gustaria agendar?' },
+                  { r: 'bot', t: 'La consulta con el Dr. Martinez tiene un valor de $180.000 COP. ¿Te gustaria agendar?' },
                   { r: 'patient', t: 'Si, manana en la tarde' },
                   { r: 'bot', t: 'Tengo disponible a las 2:00 PM y 4:00 PM. ¿Cual prefieres?' },
                 ].map((m, i) => (

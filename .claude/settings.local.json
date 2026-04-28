@@ -109,7 +109,12 @@
       "Bash(for f:*)",
       "Bash(wc -l echo : any \"count:; grep -rn :\" anyb src/ --include=*.ts --include=*.tsx)",
       "Bash(npx eslint:*)",
-      "Bash(echo \"=== console.log count ===\" grep -rn \"console\\\\.log\" src/ --include=\"*.ts\" --include=\"*.tsx\")"
+      "Bash(echo \"=== console.log count ===\" grep -rn \"console\\\\.log\" src/ --include=\"*.ts\" --include=\"*.tsx\")",
+      "Bash(docs/help/getting-started.md:*)",
+      "Bash(__NEW_LINE_344e5829402ab6a5__ cat:*)",
+      "Bash(docs/help/configurar-doctores.md:*)",
+      "Bash(docs/help/tipos-de-consulta-y-franjas.md:*)",
+      "Bash(docs/help/horarios-y-bloqueos.md:*)"
     ]
   }
 }

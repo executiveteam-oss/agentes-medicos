@@ -15,6 +15,8 @@ import { isDoctorProfileComplete } from '@/app/actions/doctor-onboarding'
 import { DoctorWelcomeModal } from '@/components/dashboard/doctor-welcome-modal'
 import { DoctorIncompleteBanner } from '@/components/dashboard/doctor-incomplete-banner'
 import { SidebarToggle, SidebarOverlay, LogoutButton } from '@/components/dashboard/sidebar-toggle'
+import { HelpChatbotProvider } from '@/components/help-chatbot/provider'
+import { HelpChatbotWidget } from '@/components/help-chatbot/widget'
 import type { ModuleKey } from '@/types/permissions'
 import type { FeatureConfig } from '@/types/database'
 import type { IconName } from '@/components/dashboard/nav-link'
@@ -344,6 +346,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {showDoctorWelcomeModal && (
           <DoctorWelcomeModal fullName={session.fullName} clinicName={clinicName} />
         )}
+
+        {/* Help chatbot */}
+        <HelpChatbotProvider>
+          <HelpChatbotWidget />
+        </HelpChatbotProvider>
       </div>
     </UserSessionProvider>
   )

@@ -155,6 +155,10 @@ export const RATE_LIMITS = {
   cron: { maxRequests: 5, windowSeconds: 60 },
   /** All other /api/* — 60 req/min per IP */
   general: { maxRequests: 60, windowSeconds: 60 },
+  /** /api/chatbot/help — 20 req/min per user */
+  chatbotRpm: { maxRequests: 20, windowSeconds: 60 },
+  /** /api/chatbot/help — 200 req/day per user */
+  chatbotRpd: { maxRequests: 200, windowSeconds: 86400 },
 } as const
 
 /**

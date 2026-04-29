@@ -168,7 +168,7 @@ async function send72hReminders(
     if (!creds) { console.warn(`[Cron:72h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
     const result = await sendWhatsAppMessage(whatsappNumber, message, creds)
 
-    if (result) {
+    if (result !== null) {
       sent++
       await supabaseAdmin
         .from('appointments')
@@ -276,7 +276,7 @@ async function send24hReminders(
     if (!creds24) { console.warn(`[Cron:24h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
     const result = await sendWhatsAppMessage(whatsappNumber, message, creds24)
 
-    if (result) {
+    if (result !== null) {
       sent++
       await supabaseAdmin
         .from('appointments')
@@ -401,7 +401,7 @@ async function send2hReminders(
     if (!creds2h) { console.warn(`[Cron:2h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
     const result = await sendWhatsAppMessage(whatsappNumber, message, creds2h)
 
-    if (result) {
+    if (result !== null) {
       sent++
       await supabaseAdmin
         .from('appointments')
@@ -526,7 +526,7 @@ async function sendVirtualLinks(): Promise<{ sent: number; failed: number }> {
     if (!credsVirtual) continue
     const result = await sendWhatsAppMessage(whatsappNumber, message, credsVirtual)
 
-    if (result) {
+    if (result !== null) {
       sent++
       await supabaseAdmin
         .from('appointments')
@@ -598,7 +598,7 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
     if (!credsDocs) continue
     const result = await sendWhatsAppMessage(whatsappNumber, message, credsDocs)
 
-    if (result) {
+    if (result !== null) {
       sent++
       await supabaseAdmin
         .from('appointments')

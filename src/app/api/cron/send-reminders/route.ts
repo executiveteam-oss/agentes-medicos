@@ -187,6 +187,12 @@ async function send72hReminders(
     } else {
       failed++
       console.error(`[Cron:72h] Falló envío a ${patient.name}`)
+      await supabaseAdmin.from('reminders').insert({
+        appointment_id: apt.id,
+        type: '72h',
+        scheduled_for: apt.starts_at,
+        status: 'failed',
+      })
     }
   }
 
@@ -298,6 +304,12 @@ async function send24hReminders(
     } else {
       failed++
       console.error(`[Cron:24h] Falló envío a ${patient.name}`)
+      await supabaseAdmin.from('reminders').insert({
+        appointment_id: apt.id,
+        type: '24h',
+        scheduled_for: apt.starts_at,
+        status: 'failed',
+      })
     }
   }
 
@@ -420,6 +432,12 @@ async function send2hReminders(
     } else {
       failed++
       console.error(`[Cron:2h] Falló envío a ${patient.name}`)
+      await supabaseAdmin.from('reminders').insert({
+        appointment_id: apt.id,
+        type: '2h',
+        scheduled_for: apt.starts_at,
+        status: 'failed',
+      })
     }
   }
 
@@ -445,10 +463,12 @@ async function markUnconfirmedAppointments(): Promise<void> {
     .lte('updated_at', twelveHoursAgo.toISOString())
 
   for (const apt of unconfirmed ?? []) {
+    // Guard: only set false if still null (patient may have confirmed between SELECT and UPDATE)
     await supabaseAdmin
       .from('appointments')
       .update({ reminder_confirmed: false })
       .eq('id', apt.id)
+      .is('reminder_confirmed', null)
 
     await supabaseAdmin
       .from('reminders')

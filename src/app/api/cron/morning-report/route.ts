@@ -44,14 +44,20 @@ export async function GET(request: NextRequest) {
       .in('subscription_status', ['trial', 'active'])
 
     let reportsSent = 0
+    let reportsFailed = 0
 
     for (const clinic of clinics ?? []) {
-      await generateAndSendReport(clinic.id, clinic.name)
-      reportsSent++
+      try {
+        await generateAndSendReport(clinic.id, clinic.name)
+        reportsSent++
+      } catch (err) {
+        reportsFailed++
+        console.error(`[Cron:MorningReport] Error en clínica ${clinic.name} (${clinic.id}):`, err)
+      }
     }
 
-    console.log(`[Cron:MorningReport] Completado — ${reportsSent} reportes enviados`)
-    return NextResponse.json({ status: 'ok', reportsSent })
+    console.log(`[Cron:MorningReport] Completado — ${reportsSent} enviados, ${reportsFailed} fallidos`)
+    return NextResponse.json({ status: 'ok', reportsSent, reportsFailed })
   } catch (error) {
     console.error('[Cron:MorningReport] Error:', error)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

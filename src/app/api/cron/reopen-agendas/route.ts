@@ -7,6 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { verifyCronSecret } from '@/lib/rate-limit'
+import { nowColombia } from '@/lib/utils/dates'
+import { format } from 'date-fns'
 
 export const maxDuration = 10
 
@@ -16,9 +18,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Fecha de hoy en Colombia (UTC-5)
-  const now = new Date()
-  const colombiaDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Bogota' }))
-  const todayStr = `${colombiaDate.getFullYear()}-${String(colombiaDate.getMonth() + 1).padStart(2, '0')}-${String(colombiaDate.getDate()).padStart(2, '0')}`
+  const todayStr = format(nowColombia(), 'yyyy-MM-dd')
 
   // Buscar doctores cuya agenda cerrada ya venció
   const { data: doctors, error } = await supabaseAdmin

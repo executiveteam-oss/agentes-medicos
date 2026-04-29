@@ -69,6 +69,7 @@ export async function markAppointmentNoShow(appointmentId: string): Promise<void
     .from('appointments')
     .select('patient_id')
     .eq('id', appointmentId)
+    .eq('clinic_id', clinicId)
     .single()
 
   if (apt) {
@@ -76,6 +77,7 @@ export async function markAppointmentNoShow(appointmentId: string): Promise<void
       .from('patients')
       .select('no_show_count')
       .eq('id', apt.patient_id)
+      .eq('clinic_id', clinicId)
       .single()
 
     if (patient) {
@@ -83,6 +85,7 @@ export async function markAppointmentNoShow(appointmentId: string): Promise<void
         .from('patients')
         .update({ no_show_count: (patient.no_show_count ?? 0) + 1 })
         .eq('id', apt.patient_id)
+        .eq('clinic_id', clinicId)
     }
   }
 
@@ -197,6 +200,7 @@ export async function createAppointment(
       .from('patients')
       .select('total_appointments')
       .eq('id', input.patient_id)
+      .eq('clinic_id', clinicId)
       .single()
 
     if (patient) {
@@ -204,6 +208,7 @@ export async function createAppointment(
         .from('patients')
         .update({ total_appointments: (patient.total_appointments ?? 0) + 1 })
         .eq('id', input.patient_id)
+        .eq('clinic_id', clinicId)
     }
 
     await supabaseAdmin.from('audit_log').insert({
@@ -370,7 +375,8 @@ export async function getAppointmentForCalendar(appointmentId: string) {
       payment_type, doctor_id, modality, virtual_link,
       documents_requested, documents_received, free_text_reason,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
-      doctors(name, specialty)
+      doctors(name, specialty),
+      consultation_types(name)
     `)
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
@@ -393,6 +399,7 @@ export async function getAppointmentForCalendar(appointmentId: string) {
     documents_requested: (raw.documents_requested as boolean) ?? false,
     documents_received: (raw.documents_received as boolean) ?? false,
     free_text_reason: (raw.free_text_reason as string) ?? null,
+    consultation_type_name: (raw.consultation_types as { name: string } | null)?.name ?? null,
     doctor_id: (raw.doctor_id as string) ?? null,
     patient: raw.patients as { id: string; name: string; phone: string; no_show_probability: number; no_show_count: number; total_appointments: number; document_type: string; document_number: string | null; date_of_birth: string | null; doctor_notes: string | null; data_consent_at: string | null } | null,
     doctor: raw.doctors as { name: string; specialty: string | null } | null,

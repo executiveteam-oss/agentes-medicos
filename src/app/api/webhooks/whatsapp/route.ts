@@ -400,6 +400,15 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
+      // Guard: if agent returned empty text (should never happen, but defensive)
+      if (!agentResponse?.text) {
+        console.error('[Webhook] Agent returned null/empty response')
+        const fallback = 'Disculpa, estoy teniendo dificultades técnicas. Intenta de nuevo en unos minutos o escribe "hablar con humano". 🙏'
+        try { await sendWhatsAppMessage(message.from, fallback, clinicCreds) } catch { /* */ }
+        try { await saveMessage(conversation.id, 'agent', fallback) } catch { /* */ }
+        return
+      }
+
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
 
       // POST-CITA LOCKOUT DEFENSIVO:

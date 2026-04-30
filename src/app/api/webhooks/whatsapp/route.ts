@@ -354,7 +354,7 @@ async function processWebhook(body: unknown): Promise<void> {
           }
         : null
 
-      let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number } }
+      let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number } }
 
       try {
         agentResponse = await runAppointmentAgent({
@@ -461,6 +461,48 @@ async function processWebhook(body: unknown): Promise<void> {
       const sendResult = await sendWhatsAppMessage(message.from, cleanText, clinicCreds)
       if (!sendResult) {
         console.error('[Webhook] FALLÓ el envío por WhatsApp — la respuesta se guardó en DB pero el paciente no la recibió')
+      }
+
+      // 19.5 Calendar invite (.ics) — send after text confirmation
+      if (agentResponse.appointmentData) {
+        try {
+          const { generateConfirmICS, generateCancelICS } = await import('@/lib/calendar/generate-ics')
+          const { sendWhatsAppDocument } = await import('@/lib/whatsapp/client')
+
+          const aptData = agentResponse.appointmentData
+          const isCancel = agentResponse.toolsUsed.includes('cancel_appointment')
+          const isVirtual = agentResponse.text.toLowerCase().includes('virtual')
+
+          const icsString = isCancel
+            ? generateCancelICS({
+                appointmentId: aptData.id,
+                startsAt: aptData.starts_at,
+                endsAt: aptData.ends_at,
+                doctorName: aptData.doctor_name,
+                consultationType: aptData.consultation_type,
+                clinicName: clinic.name,
+                clinicAddress: clinic.address,
+                clinicCity: clinic.city,
+                sequence: aptData.sequence,
+              })
+            : generateConfirmICS({
+                appointmentId: aptData.id,
+                startsAt: aptData.starts_at,
+                endsAt: aptData.ends_at,
+                doctorName: aptData.doctor_name,
+                consultationType: aptData.consultation_type,
+                clinicName: clinic.name,
+                clinicAddress: clinic.address,
+                clinicCity: clinic.city,
+                sequence: aptData.sequence,
+                isVirtual,
+              })
+
+          const fileBuffer = Buffer.from(icsString, 'utf-8')
+          await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/calendar', clinicCreds)
+        } catch (icsErr) {
+          console.error('[Webhook] ICS send failed (non-critical):', icsErr instanceof Error ? icsErr.message : icsErr)
+        }
       }
 
       // 20. Si se escaló, marcar la conversación y notificar al equipo

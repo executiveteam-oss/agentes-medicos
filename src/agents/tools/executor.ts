@@ -658,13 +658,21 @@ async function createAppointment(
   try { syncClinicSheet(clinicId, ['appointments', 'patients']) } catch { /* no crítico */ }
 
   // Sync HIS externo (no crítico, fire-and-forget)
+  const { data: docForHis } = await supabaseAdmin.from('doctors').select('name').eq('id', doctorId).single()
+  const doctorNameForIcs = docForHis?.name ?? ''
   try {
-    const { data: docForHis } = await supabaseAdmin.from('doctors').select('name').eq('id', doctorId).single()
     syncAppointmentToHis(clinicId, appointment.id, {
       patientName, patientPhone, patientDocumentNumber: documentNumber,
-      doctorName: docForHis?.name ?? '', startsAt, endsAt, reason,
+      doctorName: doctorNameForIcs, startsAt, endsAt, reason,
     })
   } catch { /* no crítico */ }
+
+  // Lookup consultation type name for .ics
+  let consultationTypeNameForIcs: string | null = null
+  if (consultationTypeId) {
+    const { data: ctForIcs } = await supabaseAdmin.from('consultation_types').select('name').eq('id', consultationTypeId).single()
+    consultationTypeNameForIcs = ctForIcs?.name ?? null
+  }
 
   // Construir mensaje de éxito
   let successMessage = 'Cita creada exitosamente'
@@ -692,6 +700,14 @@ async function createAppointment(
       documents_requested: documentsRequested,
       documents_description: documentsDescription,
       message: successMessage,
+      appointmentData: {
+        id: appointment.id,
+        starts_at: appointment.starts_at,
+        ends_at: appointment.ends_at,
+        doctor_name: doctorNameForIcs,
+        consultation_type: consultationTypeNameForIcs,
+        sequence: 0,
+      },
     },
   }
 }
@@ -767,7 +783,7 @@ async function cancelAppointment(
   // Verificar que la cita existe y pertenece a esta clínica
   const { data: appointment } = await supabaseAdmin
     .from('appointments')
-    .select('id, status, patient_id, doctor_id, starts_at')
+    .select('id, status, patient_id, doctor_id, starts_at, ends_at, calendar_sequence')
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
     .single()
@@ -780,6 +796,9 @@ async function cancelAppointment(
     return { success: false, error: 'Esta cita ya está cancelada' }
   }
 
+  // Increment calendar_sequence for .ics cancel
+  const cancelSeq = ((appointment.calendar_sequence as number) ?? 0) + 1
+
   // Cancelar la cita
   const { error } = await supabaseAdmin
     .from('appointments')
@@ -787,6 +806,7 @@ async function cancelAppointment(
       status: 'cancelled',
       cancelled_at: new Date().toISOString(),
       cancellation_reason: reason,
+      calendar_sequence: cancelSeq,
     })
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
@@ -819,11 +839,22 @@ async function cancelAppointment(
   // Revisar si hay alguien en lista de espera para ese doctor
   await notifyWaitlist(clinicId, appointment.doctor_id, appointment.starts_at)
 
+  // Lookup doctor name for .ics cancel
+  const { data: cancelDoc } = await supabaseAdmin.from('doctors').select('name').eq('id', appointment.doctor_id).single()
+
   return {
     success: true,
     data: {
       cancelled_appointment_id: appointmentId,
       message: 'Cita cancelada exitosamente. Ofrece reagendar al paciente.',
+      appointmentData: {
+        id: appointmentId,
+        starts_at: appointment.starts_at,
+        ends_at: appointment.ends_at,
+        doctor_name: cancelDoc?.name ?? '',
+        consultation_type: null,
+        sequence: cancelSeq,
+      },
     },
   }
 }
@@ -842,7 +873,7 @@ async function rescheduleAppointment(
   // Verificar que la cita existe
   const { data: appointment } = await supabaseAdmin
     .from('appointments')
-    .select('id, doctor_id, patient_id, starts_at, payment_type, reason, consultation_type_id, modality, virtual_link')
+    .select('id, doctor_id, patient_id, starts_at, payment_type, reason, consultation_type_id, modality, virtual_link, calendar_sequence')
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
     .single()
@@ -906,7 +937,7 @@ async function rescheduleAppointment(
       modality: appointment.modality ?? 'presencial',
       virtual_link: appointment.virtual_link ?? null,
     })
-    .select('id, starts_at')
+    .select('id, starts_at, ends_at')
     .single()
 
   if (error) {
@@ -935,10 +966,12 @@ async function rescheduleAppointment(
   // Sync Google Sheets (no crítico, fire-and-forget)
   try { syncClinicSheet(clinicId, ['appointments']) } catch { /* no crítico */ }
 
+  // Lookup doctor name (needed for HIS sync + .ics)
+  const { data: docForHis } = await supabaseAdmin.from('doctors').select('name').eq('id', appointment.doctor_id).single()
+
   // Sync reagendamiento al HIS externo (cancelar vieja + crear nueva)
   try {
     syncCancelToHis(clinicId, appointmentId)
-    const { data: docForHis } = await supabaseAdmin.from('doctors').select('name').eq('id', appointment.doctor_id).single()
     const { data: patForHis } = await supabaseAdmin.from('patients').select('name, phone, document_number').eq('id', appointment.patient_id).single()
     if (patForHis) {
       syncAppointmentToHis(clinicId, newAppointment.id, {
@@ -953,12 +986,28 @@ async function rescheduleAppointment(
   // Revisar waitlist para el horario liberado
   await notifyWaitlist(clinicId, appointment.doctor_id, appointment.starts_at)
 
+  // Increment calendar_sequence for .ics update
+  const oldSeq = (appointment.calendar_sequence as number) ?? 0
+  const newSeq = oldSeq + 1
+  await supabaseAdmin.from('appointments').update({ calendar_sequence: newSeq }).eq('id', newAppointment.id)
+
+  // Get doctor name for .ics (already queried for HIS sync)
+  const reschDocName = docForHis?.name ?? ''
+
   return {
     success: true,
     data: {
       new_appointment_id: newAppointment.id,
       new_date: formatForPatient(newAppointment.starts_at),
       message: 'Cita reagendada exitosamente',
+      appointmentData: {
+        id: newAppointment.id,
+        starts_at: newAppointment.starts_at,
+        ends_at: newAppointment.ends_at,
+        doctor_name: reschDocName,
+        consultation_type: null,
+        sequence: newSeq,
+      },
     },
   }
 }

@@ -45,6 +45,15 @@ interface AgentParams {
   existingPatient?: ExistingPatientData | null  // Datos si es paciente recurrente
 }
 
+export interface AppointmentData {
+  id: string              // appointment.id (UID del .ics)
+  starts_at: string       // ISO timestamp
+  ends_at: string         // ISO timestamp
+  doctor_name: string
+  consultation_type: string | null
+  sequence: number        // 0 = nueva, 1+ = reagendada/cancelada
+}
+
 interface AgentResponse {
   text: string                // Respuesta para enviar por WhatsApp
   toolsUsed: string[]         // Qué tools se usaron (para auditoría)
@@ -52,6 +61,7 @@ interface AgentResponse {
     input: number
     output: number
   }
+  appointmentData?: AppointmentData  // Datos de cita creada/reagendada/cancelada (para .ics)
 }
 
 /**
@@ -85,6 +95,8 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   let totalInputTokens = 0
   let totalOutputTokens = 0
 
+  let appointmentData: AppointmentData | undefined
+
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     // Llamar a Claude
     const response = await anthropic.messages.create({
@@ -109,6 +121,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         text: textContent?.text ?? 'Lo siento, tuve un problema. Escribe "hablar con humano" para asistencia.',
         toolsUsed,
         tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
+        appointmentData,
       }
     }
 
@@ -140,6 +153,13 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
           doctor
         )
 
+        // Capture appointment data for .ics calendar invite
+        const resultObj = result as unknown as Record<string, unknown> | null
+        const resultData = resultObj?.data as Record<string, unknown> | undefined
+        if (resultObj?.success && resultData?.appointmentData) {
+          appointmentData = resultData.appointmentData as AppointmentData
+        }
+
         toolResults.push({
           type: 'tool_result',
           tool_use_id: toolUse.id,
@@ -165,6 +185,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       text: fallbackText?.text ?? 'Disculpa, tuve un problema técnico. Intenta de nuevo o escribe "hablar con humano".',
       toolsUsed,
       tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
+      appointmentData,
     }
   }
 
@@ -173,6 +194,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     text: 'Disculpa, estoy teniendo dificultades. Escribe "hablar con humano" y alguien del consultorio te ayudará.',
     toolsUsed,
     tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
+    appointmentData,
   }
 }
 

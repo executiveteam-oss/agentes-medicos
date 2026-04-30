@@ -19,6 +19,7 @@ export interface PendingContact {
   patient_phone: string
   doctor_name: string | null
   appointment_date: string | null
+  consultation_type: string | null
   resolved_at: string | null
   resolved_by: string | null
   resolution_method: string | null
@@ -125,6 +126,7 @@ export async function insertPendingContact(data: {
   patient_phone: string
   doctor_name?: string | null
   appointment_date?: string | null
+  consultation_type?: string | null
 }): Promise<void> {
   const { error } = await supabaseAdmin
     .from('pending_contacts')
@@ -138,6 +140,7 @@ export async function insertPendingContact(data: {
       patient_phone: data.patient_phone,
       doctor_name: data.doctor_name ?? null,
       appointment_date: data.appointment_date ?? null,
+      consultation_type: data.consultation_type ?? null,
     })
 
   // Silently ignore duplicate key violations (23505)

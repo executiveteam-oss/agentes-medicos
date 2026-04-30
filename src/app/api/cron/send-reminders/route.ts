@@ -126,7 +126,8 @@ async function send72hReminders(
       id, starts_at, clinic_id, patient_id, doctor_id,
       patients(name, phone),
       doctors(name, specialty),
-      clinics(name, address, city)
+      clinics(name, address, city),
+      consultation_types(name)
     `)
     .in('status', ['confirmed', 'rescheduled'])
     .eq('reminder_72h_sent', false)
@@ -149,6 +150,7 @@ async function send72hReminders(
     const patient = apt.patients as unknown as { name: string; phone: string } | null
     const doctor = apt.doctors as unknown as { name: string; specialty: string | null } | null
     const clinic = apt.clinics as unknown as { name: string; address: string; city: string | null } | null
+    const ctName = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
 
     if (!patient || !doctor || !clinic) continue
 
@@ -210,6 +212,7 @@ async function send72hReminders(
         patient_phone: patient.phone,
         doctor_name: doctor.name,
         appointment_date: apt.starts_at,
+        consultation_type: ctName,
       })
     }
   }
@@ -240,7 +243,7 @@ async function send24hReminders(
       patients(name, phone),
       doctors(name),
       clinics(name, address),
-      consultation_types(preparation_instructions, requires_documents, required_documents_description)
+      consultation_types(name, preparation_instructions, requires_documents, required_documents_description)
     `)
     .in('status', ['confirmed', 'rescheduled'])
     .eq('reminder_24h_sent', false)
@@ -263,6 +266,7 @@ async function send24hReminders(
     const doctor = apt.doctors as unknown as { name: string } | null
     const clinic = apt.clinics as unknown as { name: string; address: string } | null
     const ctData = apt.consultation_types as unknown as {
+      name: string | null
       preparation_instructions: string | null
       requires_documents: boolean
       required_documents_description: string | null
@@ -338,6 +342,7 @@ async function send24hReminders(
         patient_phone: patient.phone,
         doctor_name: doctor.name,
         appointment_date: apt.starts_at,
+        consultation_type: ctData?.name ?? null,
       })
     }
   }
@@ -370,7 +375,8 @@ async function send2hReminders(
       id, starts_at, created_at, clinic_id, patient_id, doctor_id,
       patients(name, phone, no_show_count, total_appointments),
       doctors(name),
-      clinics(name)
+      clinics(name),
+      consultation_types(name)
     `)
     .in('status', ['confirmed', 'rescheduled'])
     .eq('reminder_2h_sent', false)
@@ -397,6 +403,7 @@ async function send2hReminders(
       total_appointments: number
     } | null
     const doctor = apt.doctors as unknown as { name: string } | null
+    const ct2hName = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
 
     if (!patient || !doctor) continue
 
@@ -477,6 +484,7 @@ async function send2hReminders(
         patient_phone: patient.phone,
         doctor_name: doctor.name,
         appointment_date: apt.starts_at,
+        consultation_type: ct2hName,
       })
     }
   }

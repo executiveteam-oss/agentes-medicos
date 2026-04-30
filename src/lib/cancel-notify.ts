@@ -29,7 +29,7 @@ export async function cancelAndNotifyPatient(
   // 1. Get appointment + patient + doctor info
   const { data: apt } = await supabaseAdmin
     .from('appointments')
-    .select('id, starts_at, doctor_id, patient_id, reason, patients(name, phone), doctors(name)')
+    .select('id, starts_at, doctor_id, patient_id, reason, patients(name, phone), doctors(name), consultation_types(name)')
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
     .single()
@@ -38,6 +38,7 @@ export async function cancelAndNotifyPatient(
 
   const patient = (Array.isArray(apt.patients) ? apt.patients[0] : apt.patients) as { name: string; phone: string } | null
   const doctor = (Array.isArray(apt.doctors) ? apt.doctors[0] : apt.doctors) as { name: string } | null
+  const ctNameCancel = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
 
   // 2. Cancel the appointment
   await supabaseAdmin.from('appointments').update({
@@ -97,6 +98,7 @@ export async function cancelAndNotifyPatient(
         patient_phone: patient.phone,
         doctor_name: doctorName,
         appointment_date: apt.starts_at as string,
+        consultation_type: ctNameCancel,
       })
       return { ok: true, whatsappSent: false, warning: 'Cita cancelada pero falló el envío de WhatsApp. Contactar manualmente.' }
     }
@@ -104,7 +106,7 @@ export async function cancelAndNotifyPatient(
     console.error(`[cancelAndNotify] WhatsApp failed for ${patient.name}:`, err instanceof Error ? err.message : err)
     await insertPendingContact({
       clinic_id: clinicId,
-      patient_id: (apt as Record<string, unknown>).patient_id as string | undefined,
+      patient_id: apt.patient_id as string | undefined,
       appointment_id: appointmentId,
       reason_type: 'cancellation_no_delivery',
       reason_text: 'Cancelacion no entregada por WhatsApp (error de red)',
@@ -112,6 +114,7 @@ export async function cancelAndNotifyPatient(
       patient_phone: patient.phone,
       doctor_name: doctorName,
       appointment_date: apt.starts_at as string,
+      consultation_type: ctNameCancel,
     })
     return { ok: true, whatsappSent: false, warning: 'Cita cancelada pero falló el envío de WhatsApp. Contactar manualmente.' }
   }

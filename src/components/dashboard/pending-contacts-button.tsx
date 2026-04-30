@@ -25,6 +25,7 @@ interface PendingContact {
   patient_phone: string
   doctor_name: string | null
   appointment_date: string | null
+  consultation_type: string | null
   resolved_at: string | null
   resolved_by: string | null
   resolution_method: string | null
@@ -262,7 +263,10 @@ export function PendingContactsButton() {
                           {contact.appointment_date
                             ? format(parseISO(contact.appointment_date), "EEE d MMM, h:mm a", { locale: es })
                             : 'Sin fecha'}
-                          {contact.doctor_name && ` · ${contact.doctor_name}`}
+                          {contact.consultation_type && ` · ${contact.consultation_type}`}
+                        </p>
+                        <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '1px' }}>
+                          {contact.doctor_name ?? 'Sin doctor'}
                           {' · '}
                           {formatPhone(contact.patient_phone)}
                         </p>

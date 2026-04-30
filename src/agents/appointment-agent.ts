@@ -156,8 +156,10 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         // Capture appointment data for .ics calendar invite
         const resultObj = result as unknown as Record<string, unknown> | null
         const resultData = resultObj?.data as Record<string, unknown> | undefined
+        console.log(`[Agent] Tool ${toolUse.name} result: success=${resultObj?.success}, hasAppointmentData=${!!resultData?.appointmentData}`)
         if (resultObj?.success && resultData?.appointmentData) {
           appointmentData = resultData.appointmentData as AppointmentData
+          console.log(`[Agent] Captured appointmentData: id=${appointmentData.id}, seq=${appointmentData.sequence}`)
         }
 
         toolResults.push({

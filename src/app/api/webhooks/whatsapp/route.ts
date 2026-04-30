@@ -464,6 +464,7 @@ async function processWebhook(body: unknown): Promise<void> {
       }
 
       // 19.5 Calendar invite (.ics) — send after text confirmation
+      console.log(`[Webhook] appointmentData present: ${!!agentResponse.appointmentData}, toolsUsed: [${agentResponse.toolsUsed.join(', ')}]`)
       if (agentResponse.appointmentData) {
         try {
           const { generateConfirmICS, generateCancelICS } = await import('@/lib/calendar/generate-ics')
@@ -498,8 +499,10 @@ async function processWebhook(body: unknown): Promise<void> {
                 isVirtual,
               })
 
+          console.log(`[Webhook] ICS generated: ${icsString.length} bytes, isCancel=${isCancel}`)
           const fileBuffer = Buffer.from(icsString, 'utf-8')
-          await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/calendar', clinicCreds)
+          const docResult = await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/calendar', clinicCreds)
+          console.log(`[Webhook] ICS send result: ${docResult ? 'OK msgId=' + docResult : 'FAILED'}`)
         } catch (icsErr) {
           console.error('[Webhook] ICS send failed (non-critical):', icsErr instanceof Error ? icsErr.message : icsErr)
         }

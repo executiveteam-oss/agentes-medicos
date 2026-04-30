@@ -17,6 +17,7 @@ import { calculateNoShowProbability } from '@/lib/utils/noshow'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import type { NotificationSettings } from '@/types/database'
+import { insertPendingContact, autoExpirePendingContacts, cleanupOldPendingContacts } from '@/app/actions/pending-contacts'
 
 // Máximo tiempo de ejecución
 export const maxDuration = 30
@@ -81,6 +82,12 @@ export async function GET(request: NextRequest) {
 
     // Auto-timeout: reabrir conversaciones escaladas sin respuesta >24h
     const escalationTimeouts = await autoTimeoutEscalatedConversations()
+
+    // Auto-expire pending contacts for appointments >48h ago
+    const pendingExpired = await autoExpirePendingContacts()
+
+    // Hard cleanup: delete resolved pending contacts older than 7 days
+    const pendingCleaned = await cleanupOldPendingContacts()
 
     console.log(
       `[Cron:Reminders] Completado — 72h: ${result72h.sent}, 24h: ${result24h.sent}, 2h: ${result2h.sent}, ` +
@@ -192,6 +199,17 @@ async function send72hReminders(
         type: '72h',
         scheduled_for: apt.starts_at,
         status: 'failed',
+      })
+      await insertPendingContact({
+        clinic_id: apt.clinic_id,
+        patient_id: apt.patient_id,
+        appointment_id: apt.id,
+        reason_type: 'reminder_failed',
+        reason_text: 'Recordatorio 72h no entregado',
+        patient_name: patient.name,
+        patient_phone: patient.phone,
+        doctor_name: doctor.name,
+        appointment_date: apt.starts_at,
       })
     }
   }
@@ -309,6 +327,17 @@ async function send24hReminders(
         type: '24h',
         scheduled_for: apt.starts_at,
         status: 'failed',
+      })
+      await insertPendingContact({
+        clinic_id: apt.clinic_id,
+        patient_id: apt.patient_id,
+        appointment_id: apt.id,
+        reason_type: 'reminder_failed',
+        reason_text: 'Recordatorio 24h no entregado',
+        patient_name: patient.name,
+        patient_phone: patient.phone,
+        doctor_name: doctor.name,
+        appointment_date: apt.starts_at,
       })
     }
   }
@@ -437,6 +466,17 @@ async function send2hReminders(
         type: '2h',
         scheduled_for: apt.starts_at,
         status: 'failed',
+      })
+      await insertPendingContact({
+        clinic_id: apt.clinic_id,
+        patient_id: apt.patient_id,
+        appointment_id: apt.id,
+        reason_type: 'reminder_failed',
+        reason_text: 'Recordatorio 2h no entregado',
+        patient_name: patient.name,
+        patient_phone: patient.phone,
+        doctor_name: doctor.name,
+        appointment_date: apt.starts_at,
       })
     }
   }

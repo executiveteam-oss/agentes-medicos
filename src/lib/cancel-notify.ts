@@ -8,6 +8,7 @@ import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { formatTimeForPatient } from '@/lib/utils/dates'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { insertPendingContact } from '@/app/actions/pending-contacts'
 
 export interface CancelNotifyResult {
   ok: boolean
@@ -28,7 +29,7 @@ export async function cancelAndNotifyPatient(
   // 1. Get appointment + patient + doctor info
   const { data: apt } = await supabaseAdmin
     .from('appointments')
-    .select('id, starts_at, doctor_id, reason, patients(name, phone), doctors(name)')
+    .select('id, starts_at, doctor_id, patient_id, reason, patients(name, phone), doctors(name)')
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
     .single()
@@ -84,9 +85,34 @@ export async function cancelAndNotifyPatient(
     `\n\nResponde a este mensaje y con gusto te reagendamos.`
 
   try {
-    await sendWhatsAppMessage(patient.phone.replace('+', ''), message, creds)
+    const sendResult = await sendWhatsAppMessage(patient.phone.replace('+', ''), message, creds)
+    if (sendResult === null) {
+      await insertPendingContact({
+        clinic_id: clinicId,
+        patient_id: apt.patient_id as string | undefined,
+        appointment_id: appointmentId,
+        reason_type: 'cancellation_no_delivery',
+        reason_text: 'Cancelacion no entregada por WhatsApp',
+        patient_name: patient.name,
+        patient_phone: patient.phone,
+        doctor_name: doctorName,
+        appointment_date: apt.starts_at as string,
+      })
+      return { ok: true, whatsappSent: false, warning: 'Cita cancelada pero falló el envío de WhatsApp. Contactar manualmente.' }
+    }
   } catch (err) {
     console.error(`[cancelAndNotify] WhatsApp failed for ${patient.name}:`, err instanceof Error ? err.message : err)
+    await insertPendingContact({
+      clinic_id: clinicId,
+      patient_id: (apt as Record<string, unknown>).patient_id as string | undefined,
+      appointment_id: appointmentId,
+      reason_type: 'cancellation_no_delivery',
+      reason_text: 'Cancelacion no entregada por WhatsApp (error de red)',
+      patient_name: patient.name,
+      patient_phone: patient.phone,
+      doctor_name: doctorName,
+      appointment_date: apt.starts_at as string,
+    })
     return { ok: true, whatsappSent: false, warning: 'Cita cancelada pero falló el envío de WhatsApp. Contactar manualmente.' }
   }
 

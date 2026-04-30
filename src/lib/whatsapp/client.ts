@@ -101,6 +101,90 @@ export async function sendWhatsAppMessage(
 }
 
 /**
+ * Envía un documento por WhatsApp (2-step: upload media → send message).
+ * Used for .ics calendar invites. Never throws — returns null on failure.
+ * @param to - Número del paciente SIN "+" (ej: "573101112233")
+ * @param fileBuffer - Buffer del archivo
+ * @param filename - Nombre del archivo (ej: "cita.ics")
+ * @param mimeType - MIME type (ej: "text/calendar")
+ * @param clinicCreds - Credenciales de la clínica
+ * @returns ID del mensaje enviado o null si falló
+ */
+export async function sendWhatsAppDocument(
+  to: string,
+  fileBuffer: Buffer,
+  filename: string,
+  mimeType: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null,
+): Promise<string | null> {
+  let config: { phoneNumberId: string; accessToken: string }
+  try {
+    config = getConfig(clinicCreds)
+  } catch {
+    return null
+  }
+
+  try {
+    // Step 1: Upload media to WhatsApp
+    const blob = new Blob([new Uint8Array(fileBuffer)], { type: mimeType })
+    const formData = new FormData()
+    formData.append('file', blob, filename)
+    formData.append('messaging_product', 'whatsapp')
+    formData.append('type', mimeType)
+
+    const uploadRes = await fetch(
+      `${WHATSAPP_API_URL}/${config.phoneNumberId}/media`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${config.accessToken}` },
+        body: formData,
+      },
+    )
+
+    const uploadData = await uploadRes.json()
+    if (!uploadData.id) {
+      console.error('[WhatsApp] Media upload failed:', JSON.stringify(uploadData).slice(0, 300))
+      return null
+    }
+
+    // Step 2: Send document message referencing uploaded media
+    const res = await fetch(
+      `${WHATSAPP_API_URL}/${config.phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: to.replace('+', ''),
+          type: 'document',
+          document: { id: uploadData.id, filename },
+        }),
+      },
+    )
+
+    const data = await res.json()
+    if (data.messages?.[0]?.id) {
+      console.log(`[WhatsApp] Documento enviado OK: ${filename} → ${to.slice(0, 5)}***`)
+      return data.messages[0].id
+    }
+
+    const errorCode = data.error?.code
+    if (errorCode === 131047) {
+      console.error('[WhatsApp] Document: FUERA DE VENTANA 24H')
+    } else {
+      console.error('[WhatsApp] Document send error:', JSON.stringify(data).slice(0, 300))
+    }
+    return null
+  } catch (err) {
+    console.error('[WhatsApp] Document send failed:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+/**
  * Marca un mensaje como leído (los dos checks azules ✓✓)
  * @param messageId - ID del mensaje recibido de WhatsApp
  * @param clinicCreds - Credenciales opcionales de la clínica

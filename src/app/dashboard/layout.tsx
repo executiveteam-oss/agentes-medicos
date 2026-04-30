@@ -16,6 +16,7 @@ import { DoctorWelcomeModal } from '@/components/dashboard/doctor-welcome-modal'
 import { DoctorIncompleteBanner } from '@/components/dashboard/doctor-incomplete-banner'
 import { SidebarToggle, SidebarOverlay, LogoutButton } from '@/components/dashboard/sidebar-toggle'
 import { NotificationBell } from '@/components/dashboard/notification-bell'
+import { PendingContactsButton } from '@/components/dashboard/pending-contacts-button'
 import { HelpChatbotProvider } from '@/components/help-chatbot/provider'
 import { HelpChatbotWidget } from '@/components/help-chatbot/widget'
 import type { ModuleKey } from '@/types/permissions'
@@ -330,6 +331,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           >
             <SidebarToggle />
             <div className="flex-1" />
+            <PendingContactsButton />
             <NotificationBell />
           </header>
 

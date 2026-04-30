@@ -12,7 +12,7 @@ import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useUserSession } from '@/context/user-session'
 import { formatDistanceToNow, format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { markPendingContactResolved } from '@/app/actions/pending-contacts'
+import { markPendingContactResolved, getPendingContacts } from '@/app/actions/pending-contacts'
 
 interface PendingContact {
   id: string
@@ -74,30 +74,12 @@ export function PendingContactsButton() {
   const clinicId = session?.clinicId
   const clinicName = 'el consultorio'
 
-  // Load initial data
+  // Load initial data via server action (bypasses RLS, avoids clinic_users recursion)
   useEffect(() => {
     if (!clinicId) return
-    const supabase = createSupabaseBrowserClient()
-
-    Promise.all([
-      supabase
-        .from('pending_contacts')
-        .select('*')
-        .eq('clinic_id', clinicId)
-        .is('resolved_at', null)
-        .order('created_at', { ascending: false })
-        .limit(50),
-      supabase
-        .from('pending_contacts')
-        .select('*')
-        .eq('clinic_id', clinicId)
-        .not('resolved_at', 'is', null)
-        .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-        .order('resolved_at', { ascending: false })
-        .limit(20),
-    ]).then(([pendingRes, historyRes]) => {
-      setContacts((pendingRes.data ?? []) as PendingContact[])
-      setHistory((historyRes.data ?? []) as PendingContact[])
+    getPendingContacts().then(({ pending, history: hist }) => {
+      setContacts(pending)
+      setHistory(hist)
       setLoaded(true)
     })
   }, [clinicId])

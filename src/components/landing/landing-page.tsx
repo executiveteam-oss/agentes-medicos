@@ -216,7 +216,7 @@ function Hero() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: 'var(--v2-green)' }} />
               <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: 'var(--v2-green)' }} />
             </span>
-            Disenado con clinicas reales en Colombia
+            Diseñado con clinicas reales en Colombia
           </div>
 
           {/* H1 */}
@@ -433,7 +433,7 @@ const PROBLEMS = [
   {
     emoji: '😩',
     title: 'Tu equipo responde lo mismo todo el dia',
-    desc: '"¿Cuanto cuesta?" "¿Donde quedan?" "¿Hay cita para manana?" — todo el dia, todos los dias.',
+    desc: '"¿Cuanto cuesta?" "¿Donde quedan?" "¿Hay cita para mañana?" — todo el dia, todos los dias.',
     cost: '~3 horas/dia perdidas',
   },
   {
@@ -598,7 +598,7 @@ function Features() {
                 {[
                   { r: 'patient', t: '¿Cuanto cuesta la cita?' },
                   { r: 'bot', t: 'La consulta con el Dr. Martinez tiene un valor de $180.000 COP. ¿Te gustaria agendar?' },
-                  { r: 'patient', t: 'Si, manana en la tarde' },
+                  { r: 'patient', t: 'Si, mañana en la tarde' },
                   { r: 'bot', t: 'Tengo disponible a las 2:00 PM y 4:00 PM. ¿Cual prefieres?' },
                 ].map((m, i) => (
                   <div

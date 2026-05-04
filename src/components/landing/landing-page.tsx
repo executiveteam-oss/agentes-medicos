@@ -669,7 +669,7 @@ function Features() {
 
 const STEPS = [
   { num: '1', title: 'Solicita tu demo', desc: 'En 15 minutos te mostramos como funciona con tu clinica real.', color: 'var(--v2-primary)' },
-  { num: '2', title: 'Vos tenes el control', desc: 'Horarios, doctores, precios, EPS, FAQ. Cambios en tiempo real, sin pedir ayuda tecnica.', color: 'var(--v2-pink)' },
+  { num: '2', title: 'Tu tienes el control', desc: 'Horarios, doctores, precios, EPS, FAQ. Cambios en tiempo real, sin pedir ayuda tecnica.', color: 'var(--v2-pink)' },
   { num: '3', title: 'Conectamos tu WhatsApp', desc: 'Tu agente empieza a atender pacientes desde el dia 1.', color: 'var(--v2-green)' },
 ]
 

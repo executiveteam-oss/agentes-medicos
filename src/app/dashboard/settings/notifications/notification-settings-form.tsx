@@ -118,14 +118,14 @@ export function NotificationSettingsForm({ initialData }: Props) {
           <div className="mt-5 rounded-lg bg-emerald-50 border border-emerald-200 p-3">
             <p className="text-xs text-emerald-800">
               <span className="font-semibold">Excelente configuración.</span>{' '}
-              Con los 3 recordatorios activos, consultorios similares han reducido sus no-shows hasta un 45%.
+              Los recordatorios automáticos reducen significativamente los no-shows.
               El sistema nunca envía más de 3 mensajes por cita.
             </p>
           </div>
         ) : (
           <div className="mt-5 rounded-lg bg-blue-50 border border-blue-200 p-3">
             <p className="text-xs text-blue-800">
-              Con los 3 recordatorios activos, consultorios similares han reducido sus no-shows hasta un 45%.
+              Los recordatorios automáticos reducen significativamente los no-shows.
               El sistema nunca envía más de 3 mensajes por cita.
             </p>
           </div>

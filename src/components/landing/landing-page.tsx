@@ -63,7 +63,6 @@ export function LandingPage() {
     >
       <Nav />
       <Hero />
-      <SocialProof />
       <Problem />
       <Solution />
       <Features />
@@ -81,7 +80,7 @@ export function LandingPage() {
 // ============================================================
 
 const NAV_LINKS = [
-  { label: 'Como funciona', href: '#como-funciona' },
+  { label: 'Cómo funciona', href: '#como-funciona' },
   { label: 'Features', href: '#features' },
   { label: 'Precios', href: '#precios' },
   { label: 'Preguntas', href: '#faq' },
@@ -216,7 +215,7 @@ function Hero() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: 'var(--v2-green)' }} />
               <span className="relative inline-flex rounded-full h-2 w-2" style={{ background: 'var(--v2-green)' }} />
             </span>
-            Diseñado con clinicas reales en Colombia
+            Diseñado para clínicas en Colombia
           </div>
 
           {/* H1 */}
@@ -232,14 +231,13 @@ function Hero() {
           >
             El agente de WhatsApp que{' '}
             <span style={SERIF_ACCENT}>agenda tus citas</span>{' '}
-            mientras tu atiendes pacientes.
+            mientras tú atiendes pacientes.
           </h1>
 
           {/* Subhead */}
           <p style={{ fontSize: '17px', lineHeight: 1.6, color: 'var(--v2-text-muted)', maxWidth: '520px', marginBottom: '32px' }}>
             Tus pacientes agendan, confirman y reagendan solos por WhatsApp.
-            Tu equipo deja de copiar citas a mano. Y tus no-shows bajan hasta{' '}
-            <strong style={{ fontWeight: 700, color: 'var(--v2-text)' }}>34%</strong>.
+            Tu equipo deja de copiar citas a mano y reduce los no-shows.
           </p>
 
           {/* CTAs */}
@@ -256,13 +254,13 @@ function Hero() {
               className="btn-v2-secondary"
               style={{ fontSize: '15px', padding: '13px 28px' }}
             >
-              Ver como funciona
+              Ver cómo funciona
             </a>
           </div>
 
           {/* Trust signals */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
-            {['Sin tarjeta', 'Implementacion 7 dias', 'Cancela cuando quieras'].map((t) => (
+            {['Sin tarjeta', 'Implementación rápida', 'Cancela cuando quieras'].map((t) => (
               <div key={t} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <Check size={14} style={{ color: 'var(--v2-green)' }} />
                 <span style={{ fontSize: '12.5px', fontWeight: 500, color: 'var(--v2-text-subtle)' }}>{t}</span>
@@ -275,9 +273,7 @@ function Hero() {
         <div className="hidden sm:flex" style={{ justifyContent: 'center', position: 'relative' }}>
           <PhoneMockup />
           {/* Floating cards */}
-          <FloatingCard top="20px" right="-10px" value="↓34%" color="var(--v2-green)" icon={<TrendingDown size={14} />} label="No-shows" delay="0s" />
-          <FloatingCard bottom="80px" left="-10px" value="+128" color="var(--v2-primary)" icon={<Calendar size={14} />} label="Citas/mes" delay="1.3s" />
-          <FloatingCard top="50%" right="-30px" value="3.2s" color="var(--v2-pink)" icon={<Zap size={14} />} label="Respuesta" delay="2.6s" />
+          <FloatingCard top="50%" right="-30px" value="24/7" color="var(--v2-primary)" icon={<Clock size={14} />} label="Disponible" delay="0s" />
         </div>
       </div>
     </section>
@@ -288,13 +284,13 @@ function Hero() {
 
 const CHAT_MESSAGES = [
   { role: 'patient', text: 'Hola, quiero agendar una cita con el Dr. Martinez' },
-  { role: 'bot', text: '¡Hola! Soy Omu, asistente de tu clinica. ¿Que tipo de consulta necesitas?' },
+  { role: 'bot', text: '¡Hola! Soy Omu, asistente de tu clínica. ¿Qué tipo de consulta necesitas?' },
   { role: 'patient', text: 'Histeroscopia' },
-  { role: 'bot', text: 'Perfecto. ¿Manejas alguna EPS o seria particular?' },
+  { role: 'bot', text: 'Perfecto. ¿Manejas alguna EPS o sería particular?' },
   { role: 'patient', text: 'Coomeva' },
   { role: 'bot', text: 'Tengo estos espacios esta semana:\n\n📅 Mie 30 · 10:00 AM\n📅 Jue 1 · 2:00 PM\n📅 Vie 2 · 9:00 AM' },
   { role: 'patient', text: 'Mie 30 · 10 AM' },
-  { role: 'bot', text: '¡Listo! Tu cita quedo agendada.\n\n📅 Mie 30 abril\n🕐 10:00 AM\n👨‍⚕️ Dr. Martinez\n📍 Centro Medico' },
+  { role: 'bot', text: '¡Listo! Tu cita quedó agendada.\n\n📅 Mie 30 abril\n🕐 10:00 AM\n👨‍⚕️ Dr. Martínez\n📍 Centro Médico' },
 ]
 
 function PhoneMockup() {
@@ -327,8 +323,8 @@ function PhoneMockup() {
             <span style={{ color: '#fff', fontWeight: 700, fontSize: '13px', fontStyle: 'italic', fontFamily: "'Instrument Serif', serif" }}>o</span>
           </div>
           <div>
-            <p style={{ color: '#fff', fontSize: '13px', fontWeight: 600 }}>Omu · Tu Clinica</p>
-            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px' }}>en linea</p>
+            <p style={{ color: '#fff', fontSize: '13px', fontWeight: 600 }}>Omu · Tu Clínica</p>
+            <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '10px' }}>en línea</p>
           </div>
         </div>
         {/* Messages */}
@@ -432,9 +428,9 @@ function SocialProof() {
 const PROBLEMS = [
   {
     emoji: '😩',
-    title: 'Tu equipo responde lo mismo todo el dia',
-    desc: '"¿Cuanto cuesta?" "¿Donde quedan?" "¿Hay cita para mañana?" — todo el dia, todos los dias.',
-    cost: '~3 horas/dia perdidas',
+    title: 'Tu equipo responde lo mismo todo el día',
+    desc: '"¿Cuánto cuesta?" "¿Dónde quedan?" "¿Hay cita para mañana?" — todo el día, todos los días.',
+    cost: '~3 horas/día perdidas',
   },
   {
     emoji: '📉',
@@ -446,7 +442,7 @@ const PROBLEMS = [
     emoji: '😤',
     title: 'Tu agenda se desborda los lunes',
     desc: 'Pacientes que escriben el fin de semana no reciben respuesta. El lunes es un caos.',
-    cost: 'Estres operativo',
+    cost: 'Estrés operativo',
   },
 ]
 
@@ -457,11 +453,11 @@ function Problem() {
         <p style={SECTION_EYEBROW}>El problema</p>
         <h2 className="text-3xl sm:text-4xl" style={{ fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '12px' }}>
           Tu secretaria{' '}
-          <span style={SERIF_ACCENT}>se esta ahogando</span>{' '}
+          <span style={SERIF_ACCENT}>se está ahogando</span>{' '}
           en mensajes.
         </h2>
         <p style={{ fontSize: '17px', color: 'var(--v2-text-muted)', maxWidth: '600px', marginBottom: '48px', lineHeight: 1.6 }}>
-          Mientras mas crece tu consultorio, mas WhatsApps llegan. Y el equipo no da abasto.
+          Mientras más crece tu consultorio, más WhatsApps llegan. Y el equipo no da abasto.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -513,21 +509,21 @@ function Solution() {
       >
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundImage: 'radial-gradient(circle at 20% 30%, rgba(107, 91, 255, 0.15), transparent 50%), radial-gradient(circle at 80% 70%, rgba(255, 107, 170, 0.1), transparent 50%)', pointerEvents: 'none' }} />
         <div style={{ position: 'relative', textAlign: 'center', maxWidth: '700px', margin: '0 auto' }}>
-          <p style={{ ...SECTION_EYEBROW, color: 'rgba(255,255,255,0.5)' }}>La solucion</p>
+          <p style={{ ...SECTION_EYEBROW, color: 'rgba(255,255,255,0.5)' }}>La solución</p>
           <h2
             className="text-3xl sm:text-4xl lg:text-5xl"
             style={{ fontWeight: 800, color: '#fff', letterSpacing: '-0.03em', marginBottom: '40px', lineHeight: 1.1 }}
           >
             Imaginate un agente que{' '}
             <span style={{ ...SERIF_ACCENT, WebkitTextFillColor: 'transparent' }}>nunca duerme</span>,{' '}
-            nunca se enferma y conoce tu clinica mejor que nadie.
+            nunca se enferma y conoce tu clínica mejor que nadie.
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             {[
-              { value: '↓34%', label: 'Reduccion no-shows' },
-              { value: '87%', label: 'Resueltas sin humano' },
               { value: '24/7', label: 'Disponible' },
+              { value: '<5s', label: 'Tiempo de respuesta' },
+              { value: '∞', label: 'Paciencia' },
             ].map((s) => (
               <div
                 key={s.label}
@@ -555,8 +551,8 @@ function Solution() {
 // ============================================================
 
 const FEATURES = [
-  { icon: <Clock size={20} />, title: 'Recordatorios inteligentes', desc: 'Reduce no-shows hasta 34% con recordatorios 72h, 24h y 2h antes.', color: 'var(--v2-amber)' },
-  { icon: <AlertTriangle size={20} />, title: 'Escalamiento automatico', desc: 'Sabe cuando pasarte la conversacion. Emergencias, dudas complejas, peticiones de humano.', color: 'var(--v2-red)' },
+  { icon: <Clock size={20} />, title: 'Recordatorios inteligentes', desc: 'Reduce los no-shows con recordatorios automáticos 72h, 24h y 2h antes.', color: 'var(--v2-amber)' },
+  { icon: <AlertTriangle size={20} />, title: 'Escalamiento automático', desc: 'Sabe cuándo pasarte la conversación. Emergencias, dudas complejas, peticiones de humano.', color: 'var(--v2-red)' },
   { icon: <RefreshCw size={20} />, title: 'Cancela y reagenda con empatia', desc: 'Si un paciente cancela, ofrece alternativas y libera el slot para otro.', color: 'var(--v2-green)' },
   { icon: <BarChart2 size={20} />, title: 'Dashboard operativo', desc: 'Sabes que pasa en tu consultorio: citas, no-shows, conversaciones, en tiempo real.', color: 'var(--v2-primary)' },
 ]
@@ -565,10 +561,10 @@ function Features() {
   return (
     <section id="features" style={{ padding: '100px 24px' }}>
       <div style={{ maxWidth: '1100px', margin: '0 auto' }}>
-        <p style={SECTION_EYEBROW}>Como lo hace</p>
+        <p style={SECTION_EYEBROW}>Cómo lo hace</p>
         <h2 className="text-3xl sm:text-4xl" style={{ fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '48px' }}>
           No es un chatbot. Es un{' '}
-          <span style={SERIF_ACCENT}>agente medico real</span>.
+          <span style={SERIF_ACCENT}>asistente de consultorio real</span>.
         </h2>
 
         {/* Large feature */}
@@ -588,18 +584,18 @@ function Features() {
                 <MessageSquare size={20} style={{ color: 'var(--v2-primary)' }} />
                 <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--v2-primary)' }}>Feature principal</span>
               </div>
-              <h3 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '8px' }}>Conoce tu clinica como tu mejor secretaria</h3>
+              <h3 style={{ fontSize: '22px', fontWeight: 800, marginBottom: '8px' }}>Conoce tu clínica como tu mejor secretaria</h3>
               <p style={{ fontSize: '15px', color: 'var(--v2-text-muted)', lineHeight: 1.6 }}>
-                Sabe tus horarios, tus doctores, tus precios, tus EPS. Responde preguntas frecuentes, agenda citas verificando disponibilidad real, y nunca inventa informacion.
+                Sabe tus horarios, tus doctores, tus precios, tus EPS. Responde preguntas frecuentes, agenda citas verificando disponibilidad real. Diseñado para no inventar información — si no sabe algo, escala a tu equipo.
               </p>
             </div>
             <div style={{ background: 'var(--v2-bg-soft)', borderRadius: '16px', padding: '20px' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                 {[
-                  { r: 'patient', t: '¿Cuanto cuesta la cita?' },
-                  { r: 'bot', t: 'La consulta con el Dr. Martinez tiene un valor de $180.000 COP. ¿Te gustaria agendar?' },
+                  { r: 'patient', t: '¿Cuánto cuesta la cita?' },
+                  { r: 'bot', t: 'La consulta con el Dr. Martínez tiene un valor de $180.000 COP. ¿Te gustaría agendar?' },
                   { r: 'patient', t: 'Si, mañana en la tarde' },
-                  { r: 'bot', t: 'Tengo disponible a las 2:00 PM y 4:00 PM. ¿Cual prefieres?' },
+                  { r: 'bot', t: 'Tengo disponible a las 2:00 PM y 4:00 PM. ¿Cuál prefieres?' },
                 ].map((m, i) => (
                   <div
                     key={i}
@@ -668,19 +664,19 @@ function Features() {
 // ============================================================
 
 const STEPS = [
-  { num: '1', title: 'Solicita tu demo', desc: 'En 15 minutos te mostramos como funciona con tu clinica real.', color: 'var(--v2-primary)' },
-  { num: '2', title: 'Tu tienes el control', desc: 'Horarios, doctores, precios, EPS, FAQ. Cambios en tiempo real, sin pedir ayuda tecnica.', color: 'var(--v2-pink)' },
-  { num: '3', title: 'Conectamos tu WhatsApp', desc: 'Tu agente empieza a atender pacientes desde el dia 1.', color: 'var(--v2-green)' },
+  { num: '1', title: 'Solicita tu demo', desc: 'En 15 minutos te mostramos cómo funciona con tu clínica real.', color: 'var(--v2-primary)' },
+  { num: '2', title: 'Tú tienes el control', desc: 'Horarios, doctores, precios, EPS, FAQ. Cambios en tiempo real, sin pedir ayuda técnica.', color: 'var(--v2-pink)' },
+  { num: '3', title: 'Conectamos tu WhatsApp', desc: 'Tu agente empieza a atender pacientes desde el día 1.', color: 'var(--v2-green)' },
 ]
 
 function HowItWorks() {
   return (
     <section id="como-funciona" style={{ padding: '80px 24px', background: 'var(--v2-bg-soft)' }}>
       <div style={{ maxWidth: '900px', margin: '0 auto', textAlign: 'center' }}>
-        <p style={SECTION_EYEBROW}>Implementacion</p>
+        <p style={SECTION_EYEBROW}>Implementación</p>
         <h2 className="text-3xl sm:text-4xl" style={{ fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '56px' }}>
-          De cero a operando en{' '}
-          <span style={SERIF_ACCENT}>7 dias</span>.
+          De cero a operando{' '}
+          <span style={SERIF_ACCENT}>rápido</span>.
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 relative">
@@ -721,10 +717,10 @@ function HowItWorks() {
 // ============================================================
 
 const PLANS = [
-  { name: 'Solo', doctors: '1 medico', price: '$390k', features: ['Agente WhatsApp 24/7', 'Recordatorios automaticos', 'Dashboard operativo', 'Soporte por chat'] },
-  { name: 'Equipo', doctors: '2-3 medicos', price: '$620k', featured: true, features: ['Todo en Solo', 'Multi-doctor', 'Horarios individuales', 'Reportes semanales', 'Soporte prioritario'] },
-  { name: 'Clinica', doctors: '4-6 medicos', price: '$850k', features: ['Todo en Equipo', 'Lista de espera', 'Integracion iSalud', 'Onboarding dedicado'] },
-  { name: 'Red', doctors: '7-10 medicos', price: '$1.090k', features: ['Todo en Clinica', 'Multi-sede', 'API personalizada', 'Account manager'] },
+  { name: 'Solo', doctors: '1 médico', price: '$390k', features: ['Agente WhatsApp 24/7', 'Recordatorios automáticos', 'Dashboard operativo', 'Soporte por chat'] },
+  { name: 'Equipo', doctors: '2-3 médicos', price: '$620k', featured: true, features: ['Todo en Solo', 'Multi-doctor', 'Horarios individuales', 'Soporte prioritario'] },
+  { name: 'Clínica', doctors: '4-6 médicos', price: '$850k', features: ['Todo en Equipo', 'Onboarding dedicado'] },
+  { name: 'Red', doctors: '7-10 médicos', price: '$1.090k', features: ['Todo en Clínica', 'Multi-sede', 'Account manager'] },
 ]
 
 function Pricing() {
@@ -775,7 +771,7 @@ function Pricing() {
                     WebkitTextFillColor: '#fff',
                   }}
                 >
-                  Mas popular
+                  Más popular
                 </div>
               )}
 
@@ -834,7 +830,7 @@ function Pricing() {
           }}
         >
           <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: 600 }}>
-            ¿Mas de 10 medicos o multi-sede compleja?
+            ¿Más de 10 médicos o multi-sede compleja?
           </p>
           <a
             href="mailto:hola@omuwan.co"
@@ -854,7 +850,7 @@ function Pricing() {
         </div>
 
         <p style={{ textAlign: 'center', marginTop: '20px', fontSize: '12.5px', color: 'var(--v2-text-subtle)' }}>
-          15 dias prueba · Sin tarjeta · Cancela cuando quieras
+          Sin tarjeta · Cancela cuando quieras
         </p>
       </div>
     </section>
@@ -866,13 +862,13 @@ function Pricing() {
 // ============================================================
 
 const FAQ_ITEMS = [
-  { q: '¿Mis pacientes notan que es un agente, no una persona?', a: 'La mayoria no. Omuwan habla en español natural, con tono empático, emojis moderados y expresiones colombianas. Muchos pacientes agradecen al agente como si fuera humano.' },
-  { q: '¿Tengo que cambiar mi numero de WhatsApp?', a: 'No. Conectamos Omuwan a tu numero actual via WhatsApp Business API (Meta). Tu numero sigue siendo el mismo que tus pacientes ya conocen.' },
-  { q: '¿Que pasa si Omuwan se equivoca o no entiende?', a: 'Omuwan escala la conversacion a un humano si no esta seguro. Nunca inventa informacion. Si no sabe algo, dice "Lo consulto con el consultorio" y te notifica.' },
-  { q: '¿Cuanto tarda en estar funcionando?', a: '7 dias habiles. Nosotros configuramos todo: horarios, doctores, precios, FAQ, EPS. Tu solo apruebas.' },
-  { q: '¿Mis datos medicos estan seguros?', a: 'Si. Cumplimos con la Ley 1581/2012 (Habeas Data). Los datos se almacenan con encriptacion, acceso controlado por roles, y RLS (Row Level Security) para multi-tenancy.' },
-  { q: '¿Puedo cancelar cuando quiera?', a: 'Si. Sin permanencia minima, sin penalidades. Cancelas y tus datos siguen disponibles por 30 dias para exportar.' },
-  { q: '¿Funciona con iSalud, Carisma u otros sistemas?', a: 'Si. Tenemos integracion directa con iSalud. Para otros sistemas, sincronizamos la agenda manualmente o via API personalizada.' },
+  { q: '¿Mis pacientes notan que es un agente, no una persona?', a: 'La mayoría no. Omuwan habla en español natural, con tono empático, emojis moderados y expresiones colombianas. Muchos pacientes agradecen al agente como si fuera humano.' },
+  { q: '¿Tengo que cambiar mi número de WhatsApp?', a: 'No. Conectamos Omuwan a tu número actual vía WhatsApp Business API (Meta). Tu número sigue siendo el mismo que tus pacientes ya conocen.' },
+  { q: '¿Qué pasa si Omuwan se equivoca o no entiende?', a: 'Omuwan escala la conversación a un humano si no está seguro. Está diseñado para no inventar información. Si no sabe algo, dice "Lo consulto con el consultorio" y te notifica.' },
+  { q: '¿Cuánto tarda en estar funcionando?', a: 'Pocos días hábiles. Tú configuras horarios, doctores, precios, FAQ y EPS desde el dashboard.' },
+  { q: '¿Mis datos médicos están seguros?', a: 'Sí. Cumplimos con la Ley 1581/2012 (Habeas Data). Los datos se almacenan con encriptación, acceso controlado por roles, y RLS (Row Level Security) para multi-tenancy.' },
+  { q: '¿Puedo cancelar cuando quiera?', a: 'Sí. Sin permanencia mínima, sin penalidades. Cancelas y tus datos siguen disponibles por 30 días para exportar.' },
+  { q: '¿Funciona con iSalud, Carisma u otros sistemas?', a: 'Estamos trabajando en integraciones directas. Por ahora, sincronizamos la agenda manualmente.' },
 ]
 
 function FAQ() {
@@ -1035,7 +1031,7 @@ function Footer() {
               <span style={{ fontWeight: 800, fontSize: '15px' }}>Omuwan</span>
             </div>
             <p style={{ fontSize: '12.5px', color: 'var(--v2-text-subtle)', lineHeight: 1.5 }}>
-              El agente WhatsApp para consultorios medicos en Colombia.
+              El agente WhatsApp para consultorios médicos en Colombia.
             </p>
           </div>
 

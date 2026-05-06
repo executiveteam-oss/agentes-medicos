@@ -34,7 +34,7 @@ export async function updateAgentPersonality(
     revalidatePath('/dashboard/tu-agente')
     return { success: true }
   } catch {
-    return { success: false, error: 'Error de permisos o sesion' }
+    return { success: false, error: 'Error de permisos o sesión' }
   }
 }
 
@@ -76,7 +76,7 @@ export async function updateEscalationKeywords(
     revalidatePath('/dashboard/tu-agente')
     return { success: true }
   } catch {
-    return { success: false, error: 'Error de permisos o sesion' }
+    return { success: false, error: 'Error de permisos o sesión' }
   }
 }
 
@@ -122,6 +122,6 @@ export async function updateAutomations(
     revalidatePath('/dashboard/tu-agente')
     return { success: true }
   } catch {
-    return { success: false, error: 'Error de permisos o sesion' }
+    return { success: false, error: 'Error de permisos o sesión' }
   }
 }

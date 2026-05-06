@@ -43,7 +43,7 @@ export function ChatPanel() {
         body: JSON.stringify({ messages: apiMessages, sessionId }),
       })
 
-      if (res.status === 401) { setError('Tu sesion expiro. Recarga la pagina.'); return }
+      if (res.status === 401) { setError('Tu sesión expiró. Recarga la página.'); return }
       if (res.status === 429) {
         const body = await res.json()
         setError(body.error ?? 'Demasiadas preguntas. Espera un momento.')

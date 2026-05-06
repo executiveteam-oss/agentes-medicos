@@ -38,7 +38,7 @@ export function DoctorUnlinkedBanner() {
           Cuenta no vinculada
         </h2>
         <p style={{ fontSize: '14px', color: 'var(--v2-text-muted)', lineHeight: 1.5 }}>
-          Tu cuenta aun no esta vinculada a un medico. Contacta al administrador del consultorio para completar tu configuracion.
+          Tu cuenta aún no está vinculada a un médico. Contacta al administrador del consultorio para completar tu configuración.
         </p>
         <div
           style={{

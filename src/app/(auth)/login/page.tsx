@@ -139,7 +139,7 @@ function LoginForm() {
                 color: 'var(--v2-green-deep)',
               }}
             >
-              Contraseña actualizada. Inicia sesion con tu nueva contraseña.
+              Contraseña actualizada. Inicia sesión con tu nueva contraseña.
             </div>
           )}
 

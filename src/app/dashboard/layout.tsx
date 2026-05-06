@@ -33,19 +33,19 @@ interface NavItem {
 }
 
 const ALL_NAV_ITEMS: NavItem[] = [
-  // Operacion
+  // Operación
   { href: '/dashboard', label: 'Dashboard', iconName: 'LayoutDashboard', module: 'agenda', section: 'operation' },
   { href: '/dashboard/agenda', label: 'Agenda', iconName: 'CalendarDays', module: 'agenda', section: 'operation' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations', section: 'operation' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients', section: 'operation' },
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow', section: 'operation' },
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', section: 'operation', featureKey: 'waitlist' },
-  // Configuracion
+  // Configuración
   { href: '/dashboard/tu-agente', label: 'Tu agente', iconName: 'Sparkles', module: 'whatsapp', section: 'config' },
   { href: '/dashboard/vacaciones', label: 'Vacaciones', iconName: 'Palmtree', module: 'agenda', section: 'config' },
   { href: '/dashboard/stradmed', label: 'Finanzas', iconName: 'CreditCard', module: 'settings', section: 'config' },
   { href: '/dashboard/legal', label: 'Legal', iconName: 'Shield', module: 'settings', section: 'config' },
-  { href: '/dashboard/settings', label: 'Configuracion', iconName: 'Settings', module: 'user_management', section: 'config' },
+  { href: '/dashboard/settings', label: 'Configuración', iconName: 'Settings', module: 'user_management', section: 'config' },
 ]
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -249,7 +249,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                   className="text-[11px] font-semibold uppercase tracking-widest px-3 mb-1.5"
                   style={{ color: 'var(--v2-text-subtle)' }}
                 >
-                  Operacion
+                  Operación
                 </p>
                 <div className="flex flex-col gap-px">
                   {operationItems.map((item) => (
@@ -273,7 +273,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
                   className="text-[11px] font-semibold uppercase tracking-widest px-3 mb-1.5"
                   style={{ color: 'var(--v2-text-subtle)' }}
                 >
-                  Configuracion
+                  Configuración
                 </p>
                 <div className="flex flex-col gap-px">
                   {configItems.map((item) => (

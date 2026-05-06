@@ -18,7 +18,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
           Configuracion
         </h1>
         <p style={{ fontSize: '13.5px', color: 'var(--v2-text-muted)', marginTop: '4px' }}>
-          {isDoctor ? 'Tu perfil y preferencias' : 'Personaliza tu clinica, agente y operacion'}
+          {isDoctor ? 'Tu perfil y preferencias' : 'Personaliza tu clínica, agente y operación'}
         </p>
       </div>
 

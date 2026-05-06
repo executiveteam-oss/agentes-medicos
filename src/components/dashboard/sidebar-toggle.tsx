@@ -75,7 +75,7 @@ export function LogoutButton({ action }: { action: () => Promise<void> }) {
           transition: 'all 0.15s',
         }}
       >
-        Cerrar sesion
+        Cerrar sesión
       </button>
     </form>
   )

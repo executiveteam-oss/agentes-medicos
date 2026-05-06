@@ -202,7 +202,6 @@ function RegisterForm() {
                   ))}
                 </div>
               )}
-              <p className="text-xs text-[var(--v2-primary)] font-medium mt-2">Primer mes gratis</p>
             </div>
           </div>
         </div>
@@ -236,7 +235,7 @@ function RegisterForm() {
       </div>
 
       <h2 className="text-xl font-semibold tracking-tight text-slate-900 mb-1">Crear cuenta</h2>
-      <p className="text-sm text-slate-500 mb-6">Sin tarjeta de crédito · Sin permanencia</p>
+      <p className="text-sm text-slate-500 mb-6">Crea tu cuenta para empezar</p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Step 1: Datos del consultorio */}
@@ -350,9 +349,6 @@ function RegisterForm() {
                 </button>
               ))}
             </div>
-            <p className="text-xs text-[var(--v2-primary)] font-medium text-center mt-2">
-              2 meses gratis &middot; Sin permanencia
-            </p>
           </div>
 
           {specError && (

@@ -143,6 +143,9 @@ function Nav() {
           <Link href="/login" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--v2-text-muted)', textDecoration: 'none' }}>
             Ingresar
           </Link>
+          <Link href="/register/invite" className="btn-v2-secondary" style={{ fontSize: '13px', padding: '8px 20px' }}>
+            Crear cuenta
+          </Link>
           <a href="mailto:hola@omuwan.co" className="btn-v2-primary" style={{ fontSize: '13px', padding: '8px 20px' }}>
             Solicitar demo
           </a>
@@ -174,6 +177,9 @@ function Nav() {
           ))}
           <Link href="/login" style={{ display: 'block', padding: '10px 0', fontSize: '14px', fontWeight: 600, color: 'var(--v2-primary)', textDecoration: 'none' }}>
             Ingresar
+          </Link>
+          <Link href="/register/invite" style={{ display: 'block', padding: '10px 0', fontSize: '14px', fontWeight: 600, color: 'var(--v2-text)', textDecoration: 'none' }}>
+            Crear cuenta
           </Link>
         </div>
       )}

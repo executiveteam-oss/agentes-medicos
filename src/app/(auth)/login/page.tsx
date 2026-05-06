@@ -352,12 +352,12 @@ function LoginForm() {
           {/* Bottom */}
           <div style={{ marginTop: '32px', textAlign: 'center' }}>
             <p style={{ fontSize: '13.5px', color: 'var(--v2-text-muted)' }}>
-              ¿Aun no tienes cuenta?{' '}
+              ¿Aún no tienes cuenta?{' '}
               <a
-                href="mailto:hola@omuwan.co"
+                href="/register/invite"
                 style={{ fontWeight: 600, color: 'var(--v2-primary)', textDecoration: 'none' }}
               >
-                Solicita una demo →
+                Crear cuenta con código →
               </a>
             </p>
           </div>

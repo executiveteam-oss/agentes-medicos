@@ -225,7 +225,7 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
               <input className="input-v2" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="admin" autoComplete="off" />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>Contrasena</label>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>Contraseña</label>
               <input className="input-v2" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
             </div>
             {error && (

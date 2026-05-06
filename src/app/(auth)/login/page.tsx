@@ -139,7 +139,7 @@ function LoginForm() {
                 color: 'var(--v2-green-deep)',
               }}
             >
-              Contrasena actualizada. Inicia sesion con tu nueva contrasena.
+              Contraseña actualizada. Inicia sesion con tu nueva contraseña.
             </div>
           )}
 
@@ -220,13 +220,13 @@ function LoginForm() {
                   htmlFor="password"
                   style={{ fontSize: '13px', fontWeight: 600, color: 'var(--v2-text)' }}
                 >
-                  Contrasena
+                  Contraseña
                 </label>
                 <Link
                   href="/forgot-password"
                   style={{ fontSize: '12px', fontWeight: 500, color: 'var(--v2-primary)', textDecoration: 'none' }}
                 >
-                  ¿Olvidaste tu contrasena?
+                  ¿Olvidaste tu contraseña?
                 </Link>
               </div>
               <div style={{ position: 'relative' }}>
@@ -272,7 +272,7 @@ function LoginForm() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  aria-label={showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'}
+                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                   style={{
                     position: 'absolute',
                     right: '12px',

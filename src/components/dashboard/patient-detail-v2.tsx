@@ -253,7 +253,7 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
           {/* Sidebar */}
           <div className="space-y-4 hidden lg:block">
             {/* Personal info */}
-            <SidebarCard title="Informacion personal">
+            <SidebarCard title="Información personal">
               <InfoRow label="Documento" value={`${patient.document_type} ${patient.document_number ?? '-'}`} />
               <InfoRow label="Nacimiento" value={patient.date_of_birth ? format(new Date(patient.date_of_birth + 'T12:00:00'), "d MMM yyyy", { locale: es }) : '-'} />
               <InfoRow label="EPS" value={patient.eps ?? 'Particular'} />

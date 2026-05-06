@@ -117,7 +117,7 @@ export default async function ConversationsPage() {
           <AlertTriangle size={18} style={{ color: '#b07d00', flexShrink: 0, marginTop: '1px' }} />
           <div>
             <p style={{ fontSize: '13px', fontWeight: 600, color: '#b07d00' }}>
-              Configura el telefono de escalamiento
+              Configura el teléfono de escalamiento
             </p>
             <p style={{ fontSize: '12px', color: '#b07d00', opacity: 0.8, marginTop: '2px' }}>
               Para que el equipo reciba notificaciones de conversaciones que necesitan humano.{' '}

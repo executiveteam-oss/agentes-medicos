@@ -7,7 +7,6 @@ import {
   CreditCard,
   Stethoscope,
   MessageSquare,
-  Plug,
   Users,
   Shield,
   Bell,
@@ -18,9 +17,8 @@ import {
 const ALL_TABS = [
   { href: '/dashboard/settings/clinic', label: 'Consultorio', icon: Building2, doctorVisible: true, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/plan', label: 'Plan', icon: CreditCard, doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/doctors', label: 'Medicos', icon: Stethoscope, doctorVisible: false, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/doctors', label: 'Médicos', icon: Stethoscope, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/whatsapp', label: 'WhatsApp', icon: MessageSquare, doctorVisible: false, superAdminOnly: false, external: false },
-  { href: '/dashboard/settings/integrations', label: 'Integraciones', icon: Plug, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/users', label: 'Equipo', icon: Users, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/roles', label: 'Permisos', icon: Shield, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/notifications', label: 'Notificaciones', icon: Bell, doctorVisible: false, superAdminOnly: false, external: false },

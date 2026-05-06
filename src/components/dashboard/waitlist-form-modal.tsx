@@ -128,7 +128,7 @@ export function WaitlistFormModal({ isOpen, onClose, doctors, onSaved }: Waitlis
                 setPatientId(id)
                 setPatientName(name)
               }}
-              placeholder="Buscar paciente por nombre o telefono..."
+              placeholder="Buscar paciente por nombre o teléfono..."
             />
           </div>
 

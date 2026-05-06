@@ -162,7 +162,7 @@ export function ChatPanel() {
               </div>
               <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--v2-text)' }}>¡Hola! Soy Omu</p>
               <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginTop: '4px', lineHeight: 1.5 }}>
-                Preguntame como configurar tu clinica, usar el agente, o encontrar cualquier seccion de Omuwan.
+                Pregúntame cómo configurar tu clínica, usar el agente, o encontrar cualquier sección de Omuwan.
               </p>
             </div>
           )}

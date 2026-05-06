@@ -245,12 +245,12 @@ export function NoShowDashboard(props: Props) {
               color: improved || !hasEnoughHistory ? 'rgba(255,255,255,0.6)' : 'var(--v2-text-muted)',
             }}>
               {improved
-                ? `Tus no-shows bajaron ${Math.abs(delta!)}% en los ultimos ${rangeDays} dias vs el periodo anterior.`
+                ? `Tus no-shows bajaron ${Math.abs(delta!)}% en los últimos ${rangeDays} días vs el período anterior.`
                 : worsened
-                  ? `Tu tasa de no-show subio ${delta}% en los ultimos ${rangeDays} dias. Considera activar recordatorios automaticos.`
+                  ? `Tu tasa de no-show subió ${delta}% en los últimos ${rangeDays} días. Considera activar recordatorios automáticos.`
                   : hasEnoughHistory
-                    ? `Tu tasa se mantuvo estable en ${currentRate}% durante los ultimos ${rangeDays} dias.`
-                    : `Estamos recopilando datos. Necesitamos al menos ${rangeDays * 2} dias para mostrar tendencias.`
+                    ? `Tu tasa se mantuvo estable en ${currentRate}% durante los últimos ${rangeDays} días.`
+                    : `Estamos recopilando datos. Necesitamos al menos ${rangeDays * 2} días para mostrar tendencias.`
               }
             </p>
 

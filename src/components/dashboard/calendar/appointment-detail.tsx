@@ -53,7 +53,7 @@ export function AppointmentDetail({ appointment: apt, onClose }: Props) {
       {/* Info grid */}
       {patient && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '12px' }}>
-          <InfoItem label="Telefono" value={formatPhone(patient.phone)} />
+          <InfoItem label="Teléfono" value={formatPhone(patient.phone)} />
           <InfoItem label="Documento" value={`${patient.document_type} ${patient.document_number ?? '-'}`} />
           <InfoItem label="Motivo" value={apt.reason ?? 'No especificado'} />
           <InfoItem label="Recordatorio"

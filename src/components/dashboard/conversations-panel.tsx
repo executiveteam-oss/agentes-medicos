@@ -100,7 +100,7 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
             <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--v2-text-subtle)' }} />
             <input
               type="text"
-              placeholder="Buscar por nombre o telefono..."
+              placeholder="Buscar por nombre o teléfono..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="input-v2"

@@ -28,7 +28,7 @@ export default function AgendaError({
           No se pudo cargar la agenda
         </h2>
         <p style={{ fontSize: '14px', color: 'var(--v2-text-muted)', lineHeight: 1.5, marginBottom: '24px' }}>
-          Recarga la pagina o vuelve a intentarlo en un momento.
+          Recarga la página o vuelve a intentarlo en un momento.
         </p>
         <button
           onClick={reset}

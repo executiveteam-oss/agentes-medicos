@@ -84,7 +84,7 @@ export function SetupChecklist({ progress }: Props) {
               </p>
             ) : (
               <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--v2-text)' }}>
-                Configura tu clinica
+                Configura tu clínica
                 <span style={{ fontWeight: 500, color: 'var(--v2-text-subtle)', marginLeft: '8px' }}>
                   {completedCount} de {totalSteps} pasos
                 </span>

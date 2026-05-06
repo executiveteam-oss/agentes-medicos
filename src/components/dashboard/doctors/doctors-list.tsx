@@ -168,7 +168,7 @@ function CreateDoctorModal({ onClose, onCreated }: { onClose: () => void; onCrea
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(26,21,48,0.5)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div style={{ background: 'var(--v2-bg-card)', borderRadius: 'var(--v2-radius-xl)', boxShadow: 'var(--v2-shadow-lg)', maxWidth: '480px', width: '100%', padding: '24px', fontFamily: 'var(--font-manrope), sans-serif' }}>
         <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--v2-text)', marginBottom: '4px' }}>Nuevo doctor</h2>
-        <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginBottom: '20px' }}>Agrega un medico a tu clinica</p>
+        <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginBottom: '20px' }}>Agrega un médico a tu clínica</p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div>
@@ -180,7 +180,7 @@ function CreateDoctorModal({ onClose, onCreated }: { onClose: () => void; onCrea
             <input className="input-v2" value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder="Ginecologia" />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>Telefono</label>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>Teléfono</label>
             <input className="input-v2" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+57 300 123 4567" />
             <p style={{ fontSize: '10px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>Solo para uso interno, no se muestra a pacientes</p>
           </div>

@@ -249,7 +249,7 @@ export function NotificationBell() {
             <div style={{ padding: '10px 16px', borderTop: '1px solid var(--v2-border-soft)', textAlign: 'center' }}>
               {/* TODO: link to /dashboard/notifications full page */}
               <span style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>
-                Mostrando ultimas {Math.min(10, notifications.length)} notificaciones
+                Mostrando últimas {Math.min(10, notifications.length)} notificaciones
               </span>
             </div>
           )}

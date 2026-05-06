@@ -49,7 +49,7 @@ export function DoctorUnlinkedBanner() {
           }}
         >
           <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)' }}>
-            El administrador debe ir a Configuracion → Usuarios y vincular tu cuenta con tu perfil de medico.
+            El administrador debe ir a Configuración → Usuarios y vincular tu cuenta con tu perfil de médico.
           </p>
         </div>
       </div>

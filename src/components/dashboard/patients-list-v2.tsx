@@ -117,7 +117,7 @@ export function PatientsListV2({ initialPatients }: { initialPatients: Patient[]
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nombre o telefono..."
+              placeholder="Buscar por nombre o teléfono..."
               className="input-v2"
               style={{ paddingLeft: '38px' }}
             />

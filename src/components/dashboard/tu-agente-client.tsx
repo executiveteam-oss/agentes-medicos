@@ -46,7 +46,7 @@ function getPersonalityKey(dbValue: string): string {
 
 function getTagline(personality: string): string {
   if (personality === 'formal') return 'Asistente profesional. Agenda con precision, escala con cordialidad.'
-  if (personality === 'directo') return 'Asistente eficiente. Agenda rapido, escala sin rodeos.'
+  if (personality === 'directo') return 'Asistente eficiente. Agenda rápido, escala sin rodeos.'
   return 'Asistente calido. Agenda con calidez, escala cuando hace falta.'
 }
 
@@ -216,7 +216,7 @@ export function TuAgenteClient(props: Props) {
             </div>
             {props.whatsappConnected && (
               <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                {props.whatsappPhoneDisplay && <p>Numero: {props.whatsappPhoneDisplay}</p>}
+                {props.whatsappPhoneDisplay && <p>Número: {props.whatsappPhoneDisplay}</p>}
                 {props.whatsappConnectedAt && <p>Conectado {formatDistanceToNow(new Date(props.whatsappConnectedAt), { addSuffix: true, locale: es })}</p>}
               </div>
             )}
@@ -284,7 +284,7 @@ export function TuAgenteClient(props: Props) {
 
         {/* Clinic info (read-only) */}
         <div style={{ marginTop: '12px' }}>
-          <ReadOnlyField label="Informacion de contexto" value={props.clinicInfo || 'No configurado'} helper="Datos adicionales que el agente debe saber" linkHref="/dashboard/settings/clinic" linkText="Editar" />
+          <ReadOnlyField label="Información de contexto" value={props.clinicInfo || 'No configurado'} helper="Datos adicionales que el agente debe saber" linkHref="/dashboard/settings/clinic" linkText="Editar" />
         </div>
       </SectionCard>
 
@@ -344,7 +344,7 @@ export function TuAgenteClient(props: Props) {
           />
           <ToggleRow
             title="Reactivar pacientes inactivos"
-            desc={`Mensaje automatico a pacientes sin visita hace ${automations.reactivacion.days_inactive} dias`}
+            desc={`Mensaje automático a pacientes sin visita hace ${automations.reactivacion.days_inactive} días`}
             enabled={automations.reactivacion.enabled}
             onToggle={() => handleToggleAutomation('reactivacion')}
           />
@@ -352,7 +352,7 @@ export function TuAgenteClient(props: Props) {
       </SectionCard>
 
       {/* ===== TEMPLATES (read-only) ===== */}
-      <SectionCard eyebrow="PLANTILLAS" title="Mensajes automaticos" desc="Estos mensajes se envian automaticamente">
+      <SectionCard eyebrow="PLANTILLAS" title="Mensajes automáticos" desc="Estos mensajes se envían automáticamente">
         <div style={{ padding: '12px 16px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-primary-tint)', border: '1px solid var(--v2-primary-soft)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Sparkles size={14} style={{ color: 'var(--v2-primary)' }} />
           <p style={{ fontSize: '12px', color: 'var(--v2-primary)', fontWeight: 600 }}>Pronto podras editarlos. Por ahora estan optimizados por nuestro equipo.</p>
@@ -366,7 +366,7 @@ export function TuAgenteClient(props: Props) {
       </SectionCard>
 
       {/* ===== METRICS ===== */}
-      <SectionCard eyebrow="METRICAS" title="Como esta performando el agente" desc="Ultimos 30 dias">
+      <SectionCard eyebrow="MÉTRICAS" title="Cómo está performando el agente" desc="Últimos 30 días">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard icon={<MessageSquare size={16} />} bg="var(--v2-primary-soft)" fg="var(--v2-primary)" label="Conversaciones" value={String(props.metrics.activeConversations)} detail="activas ahora" />
           <MetricCard icon={<Zap size={16} />} bg="var(--v2-pink-soft)" fg="var(--v2-pink)" label="Respuesta" value="3.2s" detail="promedio" />

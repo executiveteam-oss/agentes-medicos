@@ -151,7 +151,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Configurar WhatsApp</h1>
         <p className="text-slate-500 text-sm mt-1">
-          Conecta tu numero de WhatsApp Business con Omuwan paso a paso
+          Conecta tu número de WhatsApp Business con Omuwan paso a paso
         </p>
       </div>
 
@@ -195,7 +195,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
               <span className={`text-[10px] font-medium hidden sm:block ${
                 step >= num ? 'text-slate-700' : 'text-slate-400'
               }`}>
-                {['Meta Business', 'App Meta', 'Numero', 'Token', 'Conectar'][num - 1]}
+                {['Meta Business', 'App Meta', 'Número', 'Token', 'Conectar'][num - 1]}
               </span>
             </button>
           ))}
@@ -279,7 +279,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
           </div>
 
           <InfoBanner color="blue">
-            Esta app es la que conecta tu numero de WhatsApp con Omuwan.
+            Esta app es la que conecta tu número de WhatsApp con Omuwan.
             Solo necesitas crearla una vez.
           </InfoBanner>
 
@@ -308,25 +308,25 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
 
       {/* ==================== PASO 3 ==================== */}
       {step === 3 && (
-        <StepCard num={3} title="Conecta tu numero de WhatsApp" icon={<IconPhone />}>
+        <StepCard num={3} title="Conecta tu número de WhatsApp" icon={<IconPhone />}>
           <p className="text-sm text-slate-500 mb-3">
-            Puedes usar el mismo numero que ya tienes en WhatsApp Business. Tu numero sigue funcionando normal en tu celular — Omuwan se conecta en paralelo.
+            Puedes usar el mismo número que ya tienes en WhatsApp Business. Tu número sigue funcionando normal en tu celular — Omuwan se conecta en paralelo.
           </p>
           <div className="space-y-3">
             <Instruction num={1}>
-              Dentro de tu app, ve a <strong>WhatsApp → Configuracion</strong>
+              Dentro de tu app, ve a <strong>WhatsApp → Configuración</strong>
             </Instruction>
             <Instruction num={2}>
-              En <strong>&quot;Numeros de telefono&quot;</strong>, haz clic en <strong>&quot;Agregar numero de telefono&quot;</strong>
+              En <strong>&quot;Números de teléfono&quot;</strong>, haz clic en <strong>&quot;Agregar número de teléfono&quot;</strong>
             </Instruction>
             <Instruction num={3}>
-              Ingresa el numero que usara tu consultorio
+              Ingresa el número que usará tu consultorio
             </Instruction>
             <Instruction num={4}>
-              Verifica el numero con el codigo SMS
+              Verifica el número con el código SMS
             </Instruction>
             <Instruction num={5}>
-              Una vez verificado, veras tu <strong>Phone Number ID</strong> — copialo, lo necesitaras en el paso 5
+              Una vez verificado, verás tu <strong>Phone Number ID</strong> — cópialo, lo necesitarás en el paso 5
             </Instruction>
           </div>
 
@@ -334,12 +334,12 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mt-4">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Tu Phone Number ID se ve asi:</p>
             <p className="font-mono text-lg text-slate-900 font-semibold">123456789012345</p>
-            <p className="text-xs text-slate-400 mt-1">Solo numeros, aproximadamente 15 digitos</p>
+            <p className="text-xs text-slate-400 mt-1">Solo números, aproximadamente 15 dígitos</p>
           </div>
 
           <InfoBanner color="blue">
-            Tu numero sigue siendo tuyo. Puedes continuar usandolo en tu celular con WhatsApp Business como siempre.
-            Omuwan se conecta al mismo numero en paralelo — tus pacientes escriben al mismo numero de siempre y el agente responde automaticamente.
+            Tu número sigue siendo tuyo. Puedes continuar usándolo en tu celular con WhatsApp Business como siempre.
+            Omuwan se conecta al mismo número en paralelo — tus pacientes escriben al mismo número de siempre y el agente responde automáticamente.
           </InfoBanner>
 
           <div className="flex flex-col sm:flex-row gap-3 mt-6">
@@ -359,7 +359,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
 
           <div className="space-y-3 mt-4">
             <Instruction num={1}>
-              En Meta Business Manager ve a <strong>Configuracion → Usuarios del sistema</strong>
+              En Meta Business Manager ve a <strong>Configuración → Usuarios del sistema</strong>
             </Instruction>
             <Instruction num={2}>
               Haz clic en <strong>&quot;Agregar&quot;</strong> y crea un usuario:
@@ -389,9 +389,9 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
 
           {/* App Secret */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mt-5">
-            <p className="text-sm font-semibold text-slate-700 mb-1">Tambien necesitaras tu App Secret</p>
+            <p className="text-sm font-semibold text-slate-700 mb-1">También necesitarás tu App Secret</p>
             <p className="text-sm text-slate-500">
-              Encuentralo en: Tu app → <strong>Configuracion → Basica → App Secret</strong>
+              Encuéntralo en: Tu app → <strong>Configuración → Básica → App Secret</strong>
             </p>
           </div>
 
@@ -502,7 +502,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                 />
               </div>
               <p className="text-xs text-slate-400 mt-1">
-                Auto-generado. Copialo — lo usaras al configurar el Webhook en Meta.
+                Auto-generado. Cópialo — lo usarás al configurar el Webhook en Meta.
               </p>
             </div>
 
@@ -524,7 +524,7 @@ export function WhatsAppSetupWizard({ initialCredentials }: Props) {
                   <p className="text-xs text-emerald-700 mt-0.5">Nombre: {verifyResult.displayName}</p>
                 )}
                 {verifyResult.phoneNumber && (
-                  <p className="text-xs text-emerald-700">Telefono: {verifyResult.phoneNumber}</p>
+                  <p className="text-xs text-emerald-700">Teléfono: {verifyResult.phoneNumber}</p>
                 )}
               </div>
             )}
@@ -722,7 +722,7 @@ function StepCard({
         </div>
         <div>
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-0.5">
-            {bonus ? 'Ultimo paso' : `Paso ${num} de ${TOTAL_STEPS}`}
+            {bonus ? 'Último paso' : `Paso ${num} de ${TOTAL_STEPS}`}
           </p>
           <h2 className="text-lg font-bold text-slate-900">{title}</h2>
         </div>

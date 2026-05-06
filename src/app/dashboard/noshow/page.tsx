@@ -36,7 +36,7 @@ export default async function NoShowPage({ searchParams }: { searchParams: Promi
       <div className="space-y-6">
         <div className="card-v2 p-12 text-center">
           <p className="text-4xl mb-4">🏥</p>
-          <p className="text-lg font-semibold" style={{ color: 'var(--v2-text)' }}>No hay clinica configurada</p>
+          <p className="text-lg font-semibold" style={{ color: 'var(--v2-text)' }}>No hay clínica configurada</p>
         </div>
       </div>
     )

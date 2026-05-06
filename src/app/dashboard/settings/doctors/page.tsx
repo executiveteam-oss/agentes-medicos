@@ -1,5 +1,5 @@
 // ============================================================
-// Doctores — Lista de medicos de la clinica
+// Doctores — Lista de médicos de la clínica
 // Ruta: /dashboard/settings/doctors
 // ============================================================
 

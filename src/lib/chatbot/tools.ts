@@ -17,7 +17,7 @@ export const chatbotTools: Anthropic.Messages.Tool[] = [
         },
         label: {
           type: 'string',
-          description: 'Nombre legible de la pagina para mostrar al usuario. Ej: "Configuracion de doctores"',
+          description: 'Nombre legible de la página para mostrar al usuario. Ej: "Configuración de doctores"',
         },
       },
       required: ['path', 'label'],

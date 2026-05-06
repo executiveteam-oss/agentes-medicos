@@ -21,7 +21,7 @@ export async function updateAgentPersonality(
     const clinicId = await checkWritePermission('whatsapp')
 
     if (!VALID_PERSONALITIES.includes(personality as typeof VALID_PERSONALITIES[number])) {
-      return { success: false, error: 'Valor de personalidad no valido' }
+      return { success: false, error: 'Valor de personalidad no válido' }
     }
 
     const { error } = await supabaseAdmin
@@ -46,7 +46,7 @@ export async function updateEscalationKeywords(
     const clinicId = await checkWritePermission('whatsapp')
 
     // Validate
-    if (keywords.length > 30) return { success: false, error: 'Maximo 30 keywords' }
+    if (keywords.length > 30) return { success: false, error: 'Máximo 30 keywords' }
     const cleaned = keywords
       .map((k) => k.trim().toLowerCase())
       .filter((k) => k.length > 0 && k.length <= 50)

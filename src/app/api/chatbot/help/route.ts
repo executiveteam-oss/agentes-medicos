@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json()
   } catch {
-    return Response.json({ error: 'Body invalido' }, { status: 400 })
+    return Response.json({ error: 'Body inválido' }, { status: 400 })
   }
 
   const { messages, sessionId } = body

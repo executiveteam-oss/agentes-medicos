@@ -73,6 +73,9 @@ export async function executeTool(
       case 'add_to_waitlist':
         return await addToWaitlist(input, clinicId)
 
+      case 'calculate_date':
+        return calculateDate(input)
+
       case 'check_eps_convenio':
         return await checkEpsConvenio(input, clinicId)
 
@@ -1254,6 +1257,64 @@ async function checkEpsConvenio(
       epsSearched: epsName,
       availableConvenios: uniqueEps.slice(0, 10),
       message: `No se encontró convenio con "${epsName}". Informa al paciente y ofrece agendar como particular.`,
+    },
+  }
+}
+
+// ============================================================
+// CALCULATE DATE — Resolver día de la semana a fecha exacta
+// Evita que Claude haga aritmética de calendario (alucinación)
+// ============================================================
+
+const DAY_MAP: Record<string, number> = {
+  domingo: 0, lunes: 1, martes: 2, miércoles: 3, 'miercoles': 3,
+  jueves: 4, viernes: 5, sábado: 6, 'sabado': 6,
+}
+
+function calculateDate(input: Record<string, unknown>): ToolResult {
+  const dayName = (input.day_of_week as string)?.toLowerCase().trim()
+  const reference = (input.reference as string) ?? 'this'
+
+  const targetDay = DAY_MAP[dayName]
+  if (targetDay === undefined) {
+    return { success: false, error: `Día "${dayName}" no reconocido. Usa: lunes, martes, miércoles, jueves, viernes, sábado, domingo.` }
+  }
+
+  const now = toZonedTime(new Date(), TIMEZONE)
+  const currentDay = now.getDay() // 0=domingo, 1=lunes, ...
+
+  let daysToAdd: number
+  if (reference === 'this') {
+    // "Este lunes" = el más próximo, puede ser hoy
+    daysToAdd = (targetDay - currentDay + 7) % 7
+    if (daysToAdd === 0) daysToAdd = 0 // today is that day
+  } else if (reference === 'next') {
+    // "Próximo lunes" = el de la siguiente semana (siempre > 0)
+    daysToAdd = (targetDay - currentDay + 7) % 7
+    if (daysToAdd === 0) daysToAdd = 7 // if today is that day, go to next week
+    else daysToAdd += 7 // always next week
+  } else {
+    // in_two_weeks
+    daysToAdd = (targetDay - currentDay + 7) % 7
+    if (daysToAdd === 0) daysToAdd = 14
+    else daysToAdd += 14
+  }
+
+  const targetDate = new Date(now)
+  targetDate.setDate(targetDate.getDate() + daysToAdd)
+
+  const dateStr = format(targetDate, 'yyyy-MM-dd')
+  const dayOfWeekSpanish = SPANISH_DAY_NAMES[targetDate.getDay()]
+  const formattedDate = format(targetDate, "EEEE d 'de' MMMM", { locale: es })
+
+  return {
+    success: true,
+    data: {
+      date: dateStr,
+      day_of_week_spanish: dayOfWeekSpanish,
+      formatted_date: formattedDate,
+      is_today: daysToAdd === 0,
+      days_from_today: daysToAdd,
     },
   }
 }

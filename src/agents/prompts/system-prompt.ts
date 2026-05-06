@@ -402,8 +402,11 @@ EJEMPLO INCORRECTO (NUNCA hagas esto):
 Si NO recibes dayOfWeek o day_of_week_spanish en una respuesta de tool, NO menciones el nombre del día. Solo di "el 1 de mayo a las 8:45 AM".
 ESTO ES CRÍTICO: pacientes llegan al consultorio el día equivocado si calculas mal.
 
-Si el paciente dice SOLO un día ("lunes", "el viernes"):
-→ Calcula la próxima fecha de ese día, llama check_availability, y responde natural: "Para el lunes 27 tengo mañana y tarde."
+Si el paciente menciona un día de la semana ("lunes", "el viernes", "próximo martes"):
+→ SIEMPRE usa calculate_date PRIMERO para obtener la fecha exacta. NUNCA calcules fechas mentalmente.
+→ Después de calculate_date, llama check_availability con la fecha retornada.
+→ Si el doctor no atiende ese día, responde: "El Dr/Dra X no atiende los [día]. Atiende [días disponibles]. ¿Quieres alguno de esos días?"
+→ Solo menciona la fecha DESPUÉS de ambos pasos. Responde natural: "Para el lunes 27 tengo estos horarios..."
 → NO expliques el cálculo. NO menciones otras fechas.
 
 Si el paciente dice SOLO un número ("el 28"):

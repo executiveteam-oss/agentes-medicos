@@ -246,6 +246,29 @@ export const agentTools: Tool[] = [
     },
   },
   {
+    name: 'calculate_date',
+    description:
+      'Calcula una fecha específica basada en un día de la semana. ' +
+      'ÚSALO SIEMPRE que el paciente mencione un día de la semana (lunes, martes, etc.) o referencia relativa (próximo, este, siguiente). ' +
+      'NUNCA calcules fechas mentalmente — usa esta herramienta.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        day_of_week: {
+          type: 'string',
+          enum: ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'],
+          description: 'Día de la semana que el paciente mencionó',
+        },
+        reference: {
+          type: 'string',
+          enum: ['this', 'next', 'in_two_weeks'],
+          description: '"this" = el más próximo (puede ser hoy), "next" = el de la próxima semana, "in_two_weeks" = dentro de 2 semanas',
+        },
+      },
+      required: ['day_of_week', 'reference'],
+    },
+  },
+  {
     name: 'check_eps_convenio',
     description:
       'Verifica si la clínica tiene convenio con una EPS/aseguradora. ' +

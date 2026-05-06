@@ -456,7 +456,7 @@ async function seed() {
       reason_text: 'Recordatorio 24h no entregado — fuera de ventana',
       patient_name: patients[2].name,
       patient_phone: patients[2].phone,
-      doctor_name: (futApts[0].doctors as { name: string })?.name ?? '',
+      doctor_name: ((futApts[0].doctors as unknown as { name: string })?.name ?? ''),
       appointment_date: futApts[0].starts_at,
       consultation_type: 'Primera vez',
     })
@@ -470,7 +470,7 @@ async function seed() {
       reason_text: 'Cita cancelada por bloqueo de agenda — WhatsApp no entregado',
       patient_name: patients[7].name,
       patient_phone: patients[7].phone,
-      doctor_name: (futApts[1]?.doctors as { name: string })?.name ?? (futApts[0].doctors as { name: string })?.name ?? '',
+      doctor_name: (futApts[1]?.doctors as unknown as { name: string })?.name ?? ((futApts[0].doctors as unknown as { name: string })?.name ?? ''),
       appointment_date: futApts[1]?.starts_at ?? futApts[0].starts_at,
       consultation_type: 'Control',
     })
@@ -484,7 +484,7 @@ async function seed() {
       reason_text: 'Recordatorio 72h no entregado',
       patient_name: patients[10].name,
       patient_phone: patients[10].phone,
-      doctor_name: (futApts[2]?.doctors as { name: string })?.name ?? '',
+      doctor_name: (futApts[2]?.doctors as unknown as { name: string })?.name ?? '',
       appointment_date: futApts[2]?.starts_at ?? futApts[0].starts_at,
       resolved_at: new Date(Date.now() - 3600000).toISOString(),
       resolution_method: 'manual_whatsapp',

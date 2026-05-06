@@ -873,7 +873,6 @@ const FAQ_ITEMS = [
   { q: '¿Qué pasa si Omuwan se equivoca o no entiende?', a: 'Omuwan escala la conversación a un humano si no está seguro. Está diseñado para no inventar información. Si no sabe algo, dice "Lo consulto con el consultorio" y te notifica.' },
   { q: '¿Cuánto tarda en estar funcionando?', a: 'Pocos días hábiles. Tú configuras horarios, doctores, precios, FAQ y EPS desde el dashboard.' },
   { q: '¿Mis datos médicos están seguros?', a: 'Sí. Cumplimos con la Ley 1581/2012 (Habeas Data). Los datos se almacenan con encriptación, acceso controlado por roles, y RLS (Row Level Security) para multi-tenancy.' },
-  { q: '¿Puedo cancelar cuando quiera?', a: 'Sí. Sin permanencia mínima, sin penalidades. Cancelas y tus datos siguen disponibles por 30 días para exportar.' },
   { q: '¿Funciona con iSalud, Carisma u otros sistemas?', a: 'Estamos trabajando en integraciones directas. Por ahora, sincronizamos la agenda manualmente.' },
 ]
 

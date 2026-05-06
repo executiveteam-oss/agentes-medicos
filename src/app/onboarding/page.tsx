@@ -1,8 +1,9 @@
 'use client'
 
 // ============================================================
-// Wizard de onboarding — 4 pasos para configurar la clínica
+// Wizard de onboarding — 3 pasos para configurar la clínica
 // Ruta: /onboarding
+// WhatsApp se configura después en Settings > WhatsApp
 // ============================================================
 
 import { useState } from 'react'
@@ -10,21 +11,20 @@ import { useRouter } from 'next/navigation'
 import {
   updateClinicData,
   inviteUser,
-  updateWhatsappConfig,
   markOnboarded,
   getClinicRoles,
 } from '@/app/actions/onboarding'
 
 // Tipos locales
-type Step = 1 | 2 | 3 | 4 | 5
+type Step = 1 | 2 | 3
 
-const STEP_LABELS = ['Consultorio', 'Equipo', 'WhatsApp', 'Listo']
+const STEP_LABELS = ['Consultorio', 'Equipo', 'Listo']
 
 // ============================================================
 // Progress bar + step labels
 // ============================================================
 function ProgressBar({ current }: { current: Step }) {
-  const totalSteps = 4
+  const totalSteps = 3
   const progress = ((current - 1) / (totalSteps - 1)) * 100
 
   return (
@@ -234,77 +234,9 @@ function Step2({ onNext }: { onNext: () => void }) {
 }
 
 // ============================================================
-// Paso 3: WhatsApp (skippable)
+// Paso 3: Resumen y finalizar
 // ============================================================
-function Step3({ onNext }: { onNext: () => void }) {
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    const fd = new FormData(e.currentTarget)
-    await updateWhatsappConfig({
-      whatsapp_phone_id: fd.get('phone_id') as string,
-      whatsapp_access_token: fd.get('token') as string,
-    })
-
-    onNext()
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex gap-3">
-          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-4 h-4 text-blue-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <p className="text-blue-800 text-sm leading-relaxed">
-            Para conectar WhatsApp necesitas una cuenta de Meta Business Manager con WhatsApp Business API.
-            Puedes configurar esto ahora o más tarde en Configuración.
-          </p>
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="label">Phone Number ID</label>
-          <input name="phone_id" className="input-v2" placeholder="123456789012345" />
-        </div>
-        <div>
-          <label className="label">Access Token</label>
-          <input name="token" type="password" className="input-v2" placeholder="EAAG..." />
-        </div>
-
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-            {error}
-          </div>
-        )}
-
-        <button type="submit" disabled={loading} className="btn-v2-primary w-full">
-          {loading ? 'Guardando...' : 'Guardar y continuar'}
-        </button>
-      </form>
-
-      <button
-        onClick={onNext}
-        className="w-full text-center text-slate-500 hover:text-slate-700 text-sm py-2 transition-colors"
-      >
-        Saltar por ahora
-      </button>
-    </div>
-  )
-}
-
-// ============================================================
-// Paso 4: Resumen y finalizar
-// ============================================================
-function Step4() {
+function Step3Final() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -340,7 +272,7 @@ function Step4() {
         <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Próximos pasos</p>
         <ul className="space-y-3">
           {[
-            'Completa la configuración de WhatsApp en Ajustes',
+            'Conecta WhatsApp en Configuración → WhatsApp',
             'Agrega el horario de tu doctor',
             'Personaliza las FAQ de tu asistente IA',
             'Comparte el número de WhatsApp con tus pacientes',
@@ -374,14 +306,14 @@ function Step4() {
 export default function OnboardingPage() {
   const [step, setStep] = useState<Step>(1)
 
-  const next = () => setStep((s) => (s < 5 ? (s + 1) as Step : s))
+  const next = () => setStep((s) => (s < 3 ? ((s + 1) as Step) : s))
 
   return (
     <div>
       <ProgressBar current={step} />
 
       <div className="card-v2 p-8">
-        {step < 4 && (
+        {step < 3 && (
           <h2 className="text-xl font-semibold tracking-tight text-slate-900 mb-6">
             {STEP_LABELS[step - 1]}
           </h2>
@@ -389,8 +321,7 @@ export default function OnboardingPage() {
 
         {step === 1 && <Step1 onNext={next} />}
         {step === 2 && <Step2 onNext={next} />}
-        {step === 3 && <Step3 onNext={next} />}
-        {(step === 4 || step === 5) && <Step4 />}
+        {step === 3 && <Step3Final />}
       </div>
     </div>
   )

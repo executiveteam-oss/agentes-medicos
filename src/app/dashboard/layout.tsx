@@ -156,6 +156,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
     }
   }
 
+  // WhatsApp connection check (for banner)
+  const { data: clinicWA } = await supabaseAdmin
+    .from('clinics')
+    .select('whatsapp_phone_id')
+    .eq('id', session.clinicId)
+    .single()
+  const showWhatsAppBanner = !isDoctor && !clinicWA?.whatsapp_phone_id
+
   // User initials
   const userInitials = (session.fullName || 'U')
     .split(' ')
@@ -343,6 +351,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
             }}
           >
             {showDoctorIncompleteBanner && <DoctorIncompleteBanner />}
+            {showWhatsAppBanner && (
+              <div className="mb-6" style={{ background: 'var(--v2-primary-tint)', border: '1px solid var(--v2-primary-soft)', borderRadius: 'var(--v2-radius-lg)', padding: '14px 20px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '20px' }}>📱</span>
+                <p style={{ fontSize: '13px', color: 'var(--v2-text)', flex: 1 }}>
+                  <strong>Conecta WhatsApp</strong> para activar el agente automático.
+                </p>
+                <a href="/dashboard/settings/whatsapp" style={{ fontSize: '12px', fontWeight: 700, color: '#fff', background: 'var(--v2-primary)', padding: '6px 16px', borderRadius: '8px', textDecoration: 'none' }}>
+                  Configurar
+                </a>
+              </div>
+            )}
             {children}
           </main>
         </div>

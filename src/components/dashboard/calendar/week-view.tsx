@@ -9,6 +9,25 @@ import { AppointmentDetail } from './appointment-detail'
 import type { CalendarAppointment } from './types'
 import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, STATUS_LABELS } from './types'
 
+/** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
+function toTitleCase(str: string): string {
+  const words = str.trim().split(/\s+/)
+  if (words.length === 1 && words[0].length < 4) return str
+  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+}
+
+/** Abbreviate long names: "María Fernanda López Gómez" → "María F. López" */
+function abbreviateName(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/)
+  if (parts.length <= 2) return fullName
+  // First name + initial of second + last word (likely apellido)
+  const first = parts[0]
+  const last = parts[parts.length - 1]
+  if (parts.length === 3) return `${first} ${parts[1][0]}. ${last}`
+  // 4+ words: first + initial second + last
+  return `${first} ${parts[1][0]}. ${last}`
+}
+
 // Status colors for single-doctor view (redesigned)
 const STATUS_CELL_COLORS: Record<string, { bg: string; border: string }> = {
   confirmed:       { bg: '#EEEDFE', border: '#534AB7' },
@@ -133,23 +152,27 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                       {hourAppts.map((apt) => {
                         const colors = STATUS_CELL_COLORS[apt.status] ?? STATUS_CELL_COLORS.confirmed
                         const minutes = getColombiaMinutes(apt.starts_at)
-                        const topOffset = (minutes / 60) * 100
-                        const patientName = apt.patient?.name ?? 'Paciente'
-                        const consultType = apt.reason ?? apt.free_text_reason ?? ''
+                        const topPx = minutes // 1 min = 1px (cell is 60px = 60 min)
 
-                        // Calculate duration for height
+                        // Calculate duration for height (1 min = 1px, -2px gap between consecutive)
                         const startMs = new Date(apt.starts_at).getTime()
                         const endMs = new Date(apt.ends_at).getTime()
                         const durationMin = Math.round((endMs - startMs) / 60000)
-                        const heightPx = Math.max(20, (durationMin / 60) * 60) // 60px per hour
+                        const heightPx = Math.max(16, durationMin - 2) // -2px creates visual gap
 
-                        // Content matrix by duration
-                        const showType = durationMin >= 30
-                        const showHour = durationMin >= 15
-                        const fontSize = durationMin < 15 ? '10px' : '11px'
+                        // Patient name: real patients have patient.name, iSalud uses reason
+                        const rawName = apt.patient?.name ?? apt.reason ?? 'Sin nombre'
+                        const fullName = toTitleCase(rawName)
+                        const patientName = abbreviateName(fullName)
+                        const consultType = apt.consultation_type_name ?? apt.free_text_reason ?? ''
+
+                        // Content matrix: name ALWAYS visible, hour + type conditional
+                        const showHour = durationMin >= 20
+                        const showType = durationMin >= 35
+                        const fontSize = durationMin < 20 ? '10px' : '11px'
 
                         const tooltipContent = [
-                          patientName,
+                          fullName,
                           consultType && `Tipo: ${consultType}`,
                           `Estado: ${STATUS_LABELS[apt.status] ?? apt.status}`,
                           apt.payment_type && `Pago: ${apt.payment_type}`,
@@ -163,7 +186,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                               style={{
                                 position: 'absolute',
                                 left: '2px', right: '2px',
-                                top: `${topOffset}%`,
+                                top: `${topPx}px`,
                                 height: `${heightPx}px`,
                                 maxHeight: '95%',
                                 background: colors.bg,
@@ -187,14 +210,14 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                               onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)' }}
                               onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none' }}
                             >
+                              <p style={{ fontSize, fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                                {patientName}
+                              </p>
                               {showHour && (
                                 <p style={{ fontSize: '10px', fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 500, color: colors.border, lineHeight: 1.2, opacity: 0.8 }}>
                                   {formatTimeForPatient(apt.starts_at)}
                                 </p>
                               )}
-                              <p style={{ fontSize, fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
-                                {patientName}
-                              </p>
                               {showType && consultType && (
                                 <p style={{ fontSize: '10px', color: 'var(--v2-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                                   {consultType}

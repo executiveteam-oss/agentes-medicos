@@ -438,6 +438,21 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
+      // GUARD: Block hallucinated confirmations — agent said ✅ without actually creating appointment
+      const looksLikeConfirmation = /✅.*cita (confirmada|agendada|creada)/i.test(agentResponse.text)
+      if (looksLikeConfirmation && !agentResponse.appointmentData) {
+        console.error('[Webhook] BLOCKED hallucinated confirmation — no appointmentData. toolsUsed:', agentResponse.toolsUsed)
+        agentResponse.text = 'Disculpa, hubo un problema técnico al confirmar tu cita. ¿Puedes intentar de nuevo diciendo el horario que prefieres?'
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'hallucinated_confirmation_blocked',
+            actor_type: 'system',
+            details: { conversation_id: conversation.id, tools_used: agentResponse.toolsUsed },
+          })
+        } catch { /* non-critical */ }
+      }
+
       // Limpiar markdown que Claude pueda haber incluido (WhatsApp muestra asteriscos literales)
       const cleanText = agentResponse.text
         .replace(/\*\*(.*?)\*\*/g, '$1')  // **bold** → bold

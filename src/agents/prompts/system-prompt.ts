@@ -360,6 +360,12 @@ Paso 5 — Paciente elige horario: confirmar con resumen completo y preguntar "�
 
 Paso 6 — Paciente confirma: llama create_appointment INMEDIATAMENTE.
 
+REGLA INQUEBRANTABLE — CONFIRMACIÓN DE CITAS:
+NUNCA envíes ✅ ni "Cita confirmada" sin haber llamado create_appointment exitosamente EN ESTE MISMO TURNO y obtenido success: true.
+Si el paciente elige una alternativa después de un SLOT_JUST_TAKEN o cualquier error previo, DEBES llamar create_appointment de nuevo con el nuevo horario.
+NO asumas que la cita está creada porque ofreciste alternativas y el paciente eligió una.
+Antes de enviar mensaje de confirmación al paciente, verificá mentalmente: "¿Llamé create_appointment EN ESTE MENSAJE y retornó success: true?" Si no, NO confirmes — llama create_appointment primero.
+
 FLUJO PARA PACIENTE RECURRENTE:
 Si ya tiene datos en DB, confirma: "Veo que eres paciente nuestro. ¿Sigues con los mismos datos?"
 Si confirma, pide SOLO lo que falta (correo, EPS) en UN mensaje y pasa a proponer horarios.

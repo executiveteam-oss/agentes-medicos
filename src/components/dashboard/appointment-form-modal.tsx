@@ -45,15 +45,7 @@ interface AppointmentFormModalProps {
 
 const PAYMENT_TYPES: PaymentType[] = ['Particular', 'EPS', 'Póliza', 'ARL', 'SOAT']
 
-const EPS_OPTIONS = [
-  'Sura',
-  'Compensar',
-  'Nueva EPS',
-  'Sanitas',
-  'Coosalud',
-  'Medimás',
-  'Otra',
-]
+import { EPS_OPTIONS } from '@/lib/utils/eps-options'
 
 export function AppointmentFormModal({
   isOpen,

@@ -296,7 +296,7 @@ export type AppointmentSource =
 
 export type PaymentType = 'EPS' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
 
-export type EpsName = 'Sura' | 'Compensar' | 'Nueva EPS' | 'Sanitas'
+export type EpsName = 'Sura' | 'Compensar' | 'Nueva EPS' | 'Sanitas' | 'Salud Total' | 'Famisanar' | 'SOS' | 'Coosalud' | 'Medimás' | 'Mutual Ser' | 'Comfenalco' | 'Aliansalud' | string
 
 export interface Appointment {
   id: string

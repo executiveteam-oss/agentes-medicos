@@ -9,16 +9,7 @@ import { createPatient, updatePatient } from '@/app/actions/patients'
 import type { PatientInput } from '@/app/actions/patients'
 import type { DocumentType } from '@/types/database'
 
-const EPS_OPTIONS = [
-  'Sura',
-  'Compensar',
-  'Nueva EPS',
-  'Sanitas',
-  'Coosalud',
-  'Medimas',
-  'Particular',
-  'Otra',
-]
+import { EPS_OPTIONS } from '@/lib/utils/eps-options'
 
 const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
   { value: 'CC', label: 'Cédula de Ciudadanía' },

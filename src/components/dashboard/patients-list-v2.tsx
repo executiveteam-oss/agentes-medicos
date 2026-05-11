@@ -34,7 +34,7 @@ const FILTERS: { key: FilterTab; label: string; emoji: string }[] = [
   { key: 'risk', label: 'En riesgo', emoji: '⚠️' },
 ]
 
-const EPS_OPTIONS = ['todas', 'Sura', 'Compensar', 'Nueva EPS', 'Sanitas', 'Coosalud', 'Medimas', 'Particular']
+import { EPS_FILTER_OPTIONS } from '@/lib/utils/eps-options'
 
 
 
@@ -128,7 +128,7 @@ export function PatientsListV2({ initialPatients }: { initialPatients: Patient[]
             className="input-v2"
             style={{ width: 'auto', minWidth: '140px' }}
           >
-            {EPS_OPTIONS.map((eps) => (
+            {EPS_FILTER_OPTIONS.map((eps) => (
               <option key={eps} value={eps}>{eps === 'todas' ? 'Todas las EPS' : eps}</option>
             ))}
           </select>

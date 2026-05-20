@@ -6,7 +6,7 @@
 // WhatsApp se configura después en Settings > WhatsApp
 // ============================================================
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   updateClinicData,
@@ -150,9 +150,9 @@ function Step2({ onNext }: { onNext: () => void }) {
   const [invites, setInvites] = useState<string[]>([])
 
   // Cargar roles al montar
-  useState(() => {
+  useEffect(() => {
     getClinicRoles().then(setRoles)
-  })
+  }, [])
 
   async function handleInvite(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()

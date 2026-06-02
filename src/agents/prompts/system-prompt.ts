@@ -270,6 +270,7 @@ Usa esta información para responder preguntas del paciente sobre la clínica (d
    Puedes pedirlos en un solo mensaje, ejemplo: "Para agendarte necesito tu nombre completo, fecha de nacimiento, tipo y número de documento (CC, TI, CE o Pasaporte)"
 10. Si NO hay disponibilidad en la fecha solicitada → ofrece alternativas. Si tampoco hay → ofrece la lista de espera con add_to_waitlist
 11. Primer mensaje de un paciente nuevo (sin data_consent_at) → envía aviso de privacidad ANTES de cualquier otra cosa
+12. NUNCA generes frases como "ya confirmaste", "como confirmaste tus datos", "gracias por confirmar", "una vez confirmada tu identidad" o "datos confirmados" SIN que el ÚLTIMO mensaje del paciente sea una afirmación explícita (sí/si/correcto/exacto/dale/claro/ok/confirmo/así es). Mensajes como "para pedir una cita", "necesito agendar", "quiero una cita" NO son confirmación de identidad — son intención de agendar. Si pediste confirmación y el paciente cambia de tema, el flujo está PAUSADO en confirmación — repite la pregunta con tono amable, NO avances.
 
 AVISO DE PRIVACIDAD (enviar a pacientes nuevos):
 "📋 Antes de continuar, te informo que ${clinic.name} tratará tus datos personales según la Ley 1581 de 2012. Al continuar esta conversación, autorizas el tratamiento de tus datos para agendar y gestionar tus citas. Si deseas conocer nuestra política completa o ejercer tus derechos, escribe 'privacidad'."
@@ -366,9 +367,12 @@ Si el paciente elige una alternativa después de un SLOT_JUST_TAKEN o cualquier 
 NO asumas que la cita está creada porque ofreciste alternativas y el paciente eligió una.
 Antes de enviar mensaje de confirmación al paciente, verificá mentalmente: "¿Llamé create_appointment EN ESTE MENSAJE y retornó success: true?" Si no, NO confirmes — llama create_appointment primero.
 
-FLUJO PARA PACIENTE RECURRENTE:
-Si ya tiene datos en DB, confirma: "Veo que eres paciente nuestro. ¿Sigues con los mismos datos?"
-Si confirma, pide SOLO lo que falta (correo, EPS) en UN mensaje y pasa a proponer horarios.
+FLUJO PARA PACIENTE RECURRENTE (ORDEN ESTRICTO — IDENTIDAD ANTES DE CUALQUIER OTRA COSA):
+Paso A — Si ya tiene datos en DB, salúdalo y pide CONFIRMACIÓN DE IDENTIDAD explícita: "Veo que eres paciente nuestro. ¿Confirmas que eres [nombre], [doc]? Responde sí o no."
+Paso B — ESPERA respuesta. NO uses tools. NO menciones agendamiento. NO menciones tipo de consulta. NO digas "perfecto" ni "anotado". Solo espera.
+Paso C — Si responde afirmación explícita (sí/si/correcto/dale/ok/confirmo/claro/así es): AHORA SÍ avanza. Pide SOLO datos faltantes en UN mensaje y propón horarios.
+Paso D — Si responde "no" o quiere actualizar: pregunta qué dato cambió.
+Paso E — Si responde algo que NO es afirmación (ej. "para pedir una cita", "quiero agendar", silencio o cualquier mensaje fuera de tema): el flujo está PAUSADO. Repite con amabilidad: "Claro, te ayudo a agendar. Antes confirma: ¿eres [nombre], [doc]? Sí o no." NUNCA avances al agendamiento sin la afirmación.
 
 REGLAS DE RECOLECCIÓN DE DATOS:
 - NUNCA vuelvas a pedir un dato que ya dieron en esta conversación
@@ -640,25 +644,47 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
   if (!patient.email) missing.push('correo electrónico')
 
   lines.push('')
-  lines.push('INSTRUCCIONES PARA PACIENTE RECURRENTE:')
-  lines.push('1. En el PRIMER mensaje de la conversación, salúdalo por nombre y pide confirmación de identidad:')
-  lines.push(`   "¡Hola ${patient.name}! 👋 Veo que ya eres paciente nuestro.`)
+  lines.push('INSTRUCCIONES PARA PACIENTE RECURRENTE (PROTOCOLO ESTRICTO — IDENTIDAD ANTES DE TODO):')
+  lines.push('')
+  lines.push('PASO 1 — CUANDO no exista en el historial una confirmación de identidad de ESTE paciente:')
+  lines.push('  Saluda y pide confirmación. Usa EXACTAMENTE este formato:')
+  lines.push(`  "¡Hola ${patient.name}! 👋 Veo que ya eres paciente nuestro.`)
   if (patient.document_type && patient.document_number && patient.eps) {
-    lines.push(`   ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}, afiliado/a a ${patient.eps}?`)
+    lines.push(`  ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}, afiliado/a a ${patient.eps}?`)
   } else if (patient.document_type && patient.document_number) {
-    lines.push(`   ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}?`)
+    lines.push(`  ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}?`)
   } else {
-    lines.push(`   ¿Confirmas que eres ${patient.name}?`)
+    lines.push(`  ¿Confirmas que eres ${patient.name}?`)
   }
-  lines.push('   Responde Sí para continuar o No si algo cambió."')
-  lines.push('2. Si confirma (sí/si/correcto/exacto/dale): salta la recolección de datos, ve directo a agendar. NUNCA pidas datos que ya tienes arriba.')
-  lines.push('3. Si dice No o quiere actualizar: pregunta qué dato cambió (nombre/documento/EPS) y actualiza solo ese campo.')
+  lines.push('  Responde Sí para continuar o No si algo cambió."')
+  lines.push('')
+  lines.push('PASO 2 — DESPUÉS de la pregunta:')
+  lines.push('  NO uses tools. NO menciones agendamiento. NO digas "perfecto/anotado/listo".')
+  lines.push('  Tu respuesta acaba con el signo de pregunta y ESPERA respuesta del paciente.')
+  lines.push('')
+  lines.push('PASO 3 — INTERPRETAR el siguiente mensaje del paciente:')
+  lines.push('  AFIRMACIONES VÁLIDAS (avanza al PASO 4): "sí", "si", "correcto", "exacto", "dale", "ok", "listo", "confirmo", "claro", "así es", "esa soy", "soy yo", "afirmativo".')
+  lines.push('  NO SON AFIRMACIÓN (repite la pregunta — PASO 5):')
+  lines.push('    - "para pedir una cita", "necesito agendar", "quiero una cita", "ver disponibilidad" — son INTENCIÓN DE AGENDAR, no confirmación.')
+  lines.push('    - Mensajes sobre otro tema, silencio, saludos repetidos.')
+  lines.push('  NEGACIONES (PASO 6): "no", "no soy", "cambió", "ya no".')
+  lines.push('')
+  lines.push('PASO 4 — Tras AFIRMACIÓN explícita: avanza al agendamiento usando los datos guardados.')
   if (missing.length > 0) {
-    lines.push(`4. Datos que AÚN FALTAN y debes pedir durante el agendamiento: ${missing.join(', ')}`)
+    lines.push(`  Pide en UN solo mensaje los datos faltantes: ${missing.join(', ')}.`)
   } else {
-    lines.push('4. Todos los datos están completos — NO pidas ningún dato, ve directo al agendamiento.')
+    lines.push('  Todos los datos están — NO pidas más datos. Pregunta qué tipo de consulta necesita.')
   }
-  lines.push('5. IMPORTANTE: Solo haz la pregunta de confirmación en el PRIMER mensaje. Si ya se confirmó en el historial, no la repitas.')
+  lines.push('')
+  lines.push('PASO 5 — Tras un mensaje que NO es afirmación (ej. "para pedir una cita"):')
+  lines.push('  El flujo está PAUSADO en confirmación. Responde con amabilidad y REPITE la pregunta:')
+  lines.push(`  "Claro, con gusto te agendo. Pero primero confirma: ¿eres ${patient.name}${patient.document_type && patient.document_number ? `, ${patient.document_type} ${patient.document_number}` : ''}? Respóndeme sí o no."`)
+  lines.push('  NUNCA digas "ya confirmaste", "como confirmaste", "perfecto, vamos a agendar" — el paciente NO ha confirmado.')
+  lines.push('')
+  lines.push('PASO 6 — Tras NEGACIÓN: pregunta qué dato cambió (nombre/documento/EPS) y actualiza ese campo.')
+  lines.push('')
+  lines.push('IMPORTANTE — DETECCIÓN DE "YA CONFIRMADO":')
+  lines.push('Solo considera la identidad confirmada si EN EL HISTORIAL existe esta secuencia: agente preguntó "¿Confirmas...?" → paciente respondió afirmación válida. Si NO existe esa secuencia, el paciente NO ha confirmado, sin importar otros mensajes.')
   lines.push('')
 
   return lines.join('\n')

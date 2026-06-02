@@ -30,6 +30,12 @@ import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
+import {
+  detectHallucinatedAppointmentConfirmation,
+  detectHallucinatedCancellation,
+  detectHallucinatedIdentity,
+  detectHallucinatedReschedule,
+} from '@/lib/whatsapp/agent-guards'
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 
 // Máximo tiempo de ejecución en Vercel (en segundos)
@@ -438,19 +444,49 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
-      // GUARD: Block hallucinated confirmations — agent said ✅ without actually creating appointment
-      const looksLikeConfirmation = /✅.*cita (confirmada|agendada|creada)/i.test(agentResponse.text)
-      if (looksLikeConfirmation && !agentResponse.appointmentData) {
-        console.error('[Webhook] BLOCKED hallucinated confirmation — no appointmentData. toolsUsed:', agentResponse.toolsUsed)
-        agentResponse.text = 'Disculpa, hubo un problema técnico al confirmar tu cita. ¿Puedes intentar de nuevo diciendo el horario que prefieres?'
+      // GUARDS DEFENSIVOS: detectar alucinaciones del agente
+      // Cada guard reemplaza el texto y registra en audit_log si bloquea.
+      const guardResults = [
+        detectHallucinatedAppointmentConfirmation({
+          agentText: agentResponse.text,
+          hasAppointmentData: !!agentResponse.appointmentData,
+          toolsUsed: agentResponse.toolsUsed,
+        }),
+        detectHallucinatedCancellation({
+          agentText: agentResponse.text,
+          toolsUsed: agentResponse.toolsUsed,
+        }),
+        detectHallucinatedReschedule({
+          agentText: agentResponse.text,
+          toolsUsed: agentResponse.toolsUsed,
+        }),
+        detectHallucinatedIdentity({
+          agentText: agentResponse.text,
+          messageHistory,
+          currentPatientMsg: sanitizedText,
+          patientName: patient.name,
+          patientDocType: patient.document_type,
+          patientDocNumber: patient.document_number,
+        }),
+      ]
+      for (const guard of guardResults) {
+        if (!guard.blocked || !guard.replacement) continue
+        const originalText = agentResponse.text
+        console.error(`[Webhook] BLOCKED ${guard.reason}. details:`, guard.details)
+        agentResponse.text = guard.replacement
         try {
           await supabaseAdmin.from('audit_log').insert({
             clinic_id: clinic.id,
-            action: 'hallucinated_confirmation_blocked',
+            action: `${guard.reason}_blocked`,
             actor_type: 'system',
-            details: { conversation_id: conversation.id, tools_used: agentResponse.toolsUsed },
+            details: {
+              conversation_id: conversation.id,
+              original_response: originalText.slice(0, 300),
+              ...guard.details,
+            },
           })
         } catch { /* non-critical */ }
+        break // un guard bloqueó, no aplicar más
       }
 
       // Limpiar markdown que Claude pueda haber incluido (WhatsApp muestra asteriscos literales)

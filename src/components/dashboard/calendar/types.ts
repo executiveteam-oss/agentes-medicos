@@ -16,6 +16,7 @@ export interface CalendarAppointment {
   documents_requested: boolean
   documents_received: boolean
   free_text_reason: string | null
+  consultation_type_name: string | null
   doctor_id: string | null
   patient: {
     id: string

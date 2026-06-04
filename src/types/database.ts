@@ -233,8 +233,13 @@ export interface ConsultationType {
   required_documents_description: string | null  // Instrucciones de documentos (migración 00025)
   modality: ConsultationModality  // presencial / virtual / ambas (migración 00027)
   eps_name: string | null         // EPS/convenio/aseguradora (migración 00051)
+  insurer_type: InsurerType | null  // EPS vs Prepagada (migración 00071). NULL = sin clasificar
+  insurer_type_set_by_staff: boolean // TRUE si clasificado manualmente (migración 00071)
   created_at: string
 }
+
+// --- Categoría de aseguradora (migración 00071) ---
+export type InsurerType = 'EPS' | 'Prepagada'
 
 // --- DOCTORES (tabla: doctors) ---
 export type DoctorScheduleType = 'fixed' | 'manual'
@@ -294,7 +299,7 @@ export type AppointmentSource =
   | 'dashboard'
   | 'isalud'
 
-export type PaymentType = 'EPS' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
+export type PaymentType = 'EPS' | 'Prepagada' | 'Particular' | 'Póliza' | 'ARL' | 'SOAT'
 
 export type EpsName = 'Sura' | 'Compensar' | 'Nueva EPS' | 'Sanitas' | 'Salud Total' | 'Famisanar' | 'SOS' | 'Coosalud' | 'Medimás' | 'Mutual Ser' | 'Comfenalco' | 'Aliansalud' | string
 

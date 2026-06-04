@@ -1200,38 +1200,50 @@ async function checkEpsConvenio(
   const epsName = (input.eps_name as string ?? '').trim()
   if (!epsName) return { success: false, error: 'Nombre de EPS vacío' }
 
+  const insurerTypeFilter = input.insurer_type === 'EPS' || input.insurer_type === 'Prepagada'
+    ? input.insurer_type as 'EPS' | 'Prepagada'
+    : null
+
   // Normalizar para búsqueda flexible
   const searchTerm = epsName.toLowerCase()
 
   // Buscar en consultation_types.eps_name (convenios importados de iSalud)
-  const { data: matches } = await supabaseAdmin
+  let query = supabaseAdmin
     .from('consultation_types')
-    .select('eps_name')
+    .select('eps_name, insurer_type')
     .eq('clinic_id', clinicId)
     .not('eps_name', 'is', null)
+  if (insurerTypeFilter) {
+    query = query.eq('insurer_type', insurerTypeFilter)
+  }
+  const { data: matches } = await query
 
   // Match flexible: partial match case-insensitive
-  const uniqueEps = [...new Set((matches ?? []).map((r) => r.eps_name as string))]
-  const found = uniqueEps.find((e) => {
-    const lower = e.toLowerCase()
+  type Row = { eps_name: string; insurer_type: 'EPS' | 'Prepagada' | null }
+  const rows = (matches ?? []) as Row[]
+  const found = rows.find((r) => {
+    const lower = r.eps_name.toLowerCase()
     return lower.includes(searchTerm) || searchTerm.includes(lower.replace(/[.\s]+/g, ''))
   })
 
   // También buscar en isalud_import_staging (puede haber convenios no importados aún)
-  if (!found) {
+  // Solo si no se filtró por insurer_type — staging no tiene clasificación
+  if (!found && !insurerTypeFilter) {
     const { data: staging } = await supabaseAdmin
       .from('isalud_import_staging')
       .select('convenio_nombre_abreviado')
       .eq('clinic_id', clinicId)
       .limit(1)
       .ilike('convenio_nombre_abreviado', `%${searchTerm}%`)
-    
+
     if (staging && staging.length > 0) {
       return {
         success: true,
         data: {
           hasConvenio: true,
           convenioExacto: staging[0].convenio_nombre_abreviado,
+          insurerType: null,
+          needsClassification: true,
           source: 'staging',
         },
       }
@@ -1243,20 +1255,26 @@ async function checkEpsConvenio(
       success: true,
       data: {
         hasConvenio: true,
-        convenioExacto: found,
+        convenioExacto: found.eps_name,
+        insurerType: found.insurer_type,
+        needsClassification: found.insurer_type === null,
         source: 'consultation_types',
       },
     }
   }
 
-  // No encontrado — listar los que SÍ tiene para referencia
+  // No encontrado — listar los que SÍ tiene para referencia (filtrados por tipo si aplica)
+  const uniqueAvailable = [...new Set(rows.map((r) => r.eps_name))]
   return {
     success: true,
     data: {
       hasConvenio: false,
       epsSearched: epsName,
-      availableConvenios: uniqueEps.slice(0, 10),
-      message: `No se encontró convenio con "${epsName}". Informa al paciente y ofrece agendar como particular.`,
+      insurerTypeFilter,
+      availableConvenios: uniqueAvailable.slice(0, 10),
+      message: insurerTypeFilter
+        ? `No se encontró convenio ${insurerTypeFilter} con "${epsName}". Informa al paciente y ofrece particular.`
+        : `No se encontró convenio con "${epsName}". Informa al paciente y ofrece agendar como particular.`,
     },
   }
 }

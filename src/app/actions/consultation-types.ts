@@ -252,3 +252,48 @@ export async function toggleConsultationType(
 ): Promise<{ ok: boolean; error?: string }> {
   return updateConsultationType(id, { is_active: isActive })
 }
+
+/**
+ * Clasificar manualmente un tipo de consulta como EPS o Prepagada (migración 00071).
+ * Setea el flag insurer_type_set_by_staff=true para que el sync de iSalud (futuro UPDATE)
+ * no sobrescriba la decisión manual.
+ *
+ * @param insurerType 'EPS' | 'Prepagada' | null (null para "des-clasificar")
+ */
+export async function classifyInsurerType(
+  id: string,
+  insurerType: 'EPS' | 'Prepagada' | null
+): Promise<{ ok: boolean; error?: string }> {
+  const clinicId = await checkWritePermission('whatsapp')
+
+  if (insurerType !== null && insurerType !== 'EPS' && insurerType !== 'Prepagada') {
+    return { ok: false, error: 'insurer_type inválido' }
+  }
+
+  const { error } = await supabaseAdmin
+    .from('consultation_types')
+    .update({
+      insurer_type: insurerType,
+      insurer_type_set_by_staff: insurerType !== null,
+    })
+    .eq('id', id)
+    .eq('clinic_id', clinicId)
+
+  if (error) {
+    console.error('[classifyInsurerType] Error:', error)
+    return { ok: false, error: 'Error clasificando tipo de consulta' }
+  }
+
+  try {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'consultation_type_insurer_classified',
+      actor_type: 'staff',
+      target_type: 'consultation_type',
+      target_id: id,
+      details: { insurer_type: insurerType },
+    })
+  } catch { /* no crítico */ }
+
+  return { ok: true }
+}

@@ -244,6 +244,10 @@ export async function confirmImport(items: ConfirmItem[]): Promise<ConfirmResult
         is_active: true,
         bookable_via_whatsapp: true,
         modality: 'presencial',
+        // Migración 00071: el sync NO clasifica EPS vs Prepagada.
+        // Staff debe clasificar manualmente desde dashboard. NULL = sin clasificar.
+        insurer_type: null,
+        insurer_type_set_by_staff: false,
       })
 
     if (insErr) {
@@ -411,6 +415,9 @@ export async function confirmImportForDoctor(
         bookable_via_whatsapp: true,
         modality: 'presencial',
         eps_name: it.epsName?.trim() || null,
+        // Migración 00071: sync no clasifica. Staff debe categorizar.
+        insurer_type: null,
+        insurer_type_set_by_staff: false,
       })
 
     if (insErr) {

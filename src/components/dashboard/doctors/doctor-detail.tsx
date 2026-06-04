@@ -22,6 +22,7 @@ import {
   updateConsultationType,
   deleteConsultationType,
   toggleConsultationType,
+  classifyInsurerType,
 } from '@/app/actions/consultation-types'
 import { getSchedulesForType, saveSchedulesForType, type CtSchedule } from '@/app/actions/consultation-type-schedules'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
@@ -486,7 +487,16 @@ function TypeRow({ ct, onUpdated, onDeleted, onError }: { ct: ConsultationType; 
     })
   }
 
+  function handleClassify(type: 'EPS' | 'Prepagada') {
+    startTransition(async () => {
+      const r = await classifyInsurerType(ct.id, type)
+      if (r.ok) onUpdated({ id: ct.id, insurer_type: type, insurer_type_set_by_staff: true })
+      else onError(r.error ?? 'Error clasificando')
+    })
+  }
+
   const priceFmt = ct.price ? `$${ct.price.toLocaleString('es-CO')}` : '-'
+  const needsClassification = ct.eps_name !== null && ct.insurer_type === null
 
   return (
     <div style={{ border: '1px solid var(--v2-border-soft)', borderRadius: 'var(--v2-radius)', overflow: 'hidden' }}>
@@ -497,6 +507,29 @@ function TypeRow({ ct, onUpdated, onDeleted, onError }: { ct: ConsultationType; 
         <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: ct.eps_name ? 'var(--v2-primary-soft)' : 'var(--v2-bg-deeper)', color: ct.eps_name ? 'var(--v2-primary)' : 'var(--v2-text-subtle)' }}>
           {ct.eps_name ?? 'Particular'}
         </span>
+        {ct.eps_name && (
+          ct.insurer_type ? (
+            <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: ct.insurer_type === 'EPS' ? '#dbeafe' : '#fef3c7', color: ct.insurer_type === 'EPS' ? '#1e40af' : '#92400e' }}>
+              {ct.insurer_type}
+            </span>
+          ) : (
+            <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b' }}>Sin clasificar</span>
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); handleClassify('EPS') }}
+                style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#dbeafe', color: '#1e40af', cursor: 'pointer' }}
+                title="Clasificar como EPS"
+              >EPS</span>
+              <span
+                role="button"
+                onClick={(e) => { e.stopPropagation(); handleClassify('Prepagada') }}
+                style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', cursor: 'pointer' }}
+                title="Clasificar como Prepagada"
+              >Prepagada</span>
+            </span>
+          )
+        )}
         <span style={{ flex: 1, fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>{ct.name}</span>
         <span style={{ fontSize: '11px', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-muted)' }}>{ct.duration_minutes}min</span>
         <span style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text)' }}>{priceFmt}</span>

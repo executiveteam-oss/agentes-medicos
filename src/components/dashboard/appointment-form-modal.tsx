@@ -43,7 +43,7 @@ interface AppointmentFormModalProps {
   onSaved: () => void
 }
 
-const PAYMENT_TYPES: PaymentType[] = ['Particular', 'EPS', 'Póliza', 'ARL', 'SOAT']
+const PAYMENT_TYPES: PaymentType[] = ['Particular', 'EPS', 'Prepagada', 'Póliza', 'ARL', 'SOAT']
 
 import { EPS_OPTIONS } from '@/lib/utils/eps-options'
 

@@ -271,15 +271,21 @@ export const agentTools: Tool[] = [
   {
     name: 'check_eps_convenio',
     description:
-      'Verifica si la clínica tiene convenio con una EPS/aseguradora. ' +
-      'Úsala DESPUÉS de que el paciente diga su EPS y ANTES de proponer horarios. ' +
+      'Verifica si la clínica tiene convenio con una EPS o medicina prepagada. ' +
+      'Úsala DESPUÉS de que el paciente confirme su aseguradora + categoría ' +
+      '(EPS o Prepagada) y ANTES de proponer horarios. ' +
       'Si no hay convenio, informa al paciente y ofrece agendar como particular.',
     input_schema: {
       type: 'object' as const,
       properties: {
         eps_name: {
           type: 'string',
-          description: 'Nombre de la EPS o aseguradora que el paciente mencionó (ej: "Suramericana", "Coomeva", "Sanitas")',
+          description: 'Nombre de la EPS o aseguradora que el paciente mencionó (ej: "Sura", "Colsanitas", "Nueva EPS")',
+        },
+        insurer_type: {
+          type: 'string',
+          enum: ['EPS', 'Prepagada'],
+          description: 'Categoría confirmada por el paciente. Opcional pero MUY recomendado: cuando se pasa, filtra solo convenios de ese tipo. Pásalo cuando hayas confirmado con el paciente si es EPS o medicina prepagada.',
         },
       },
       required: ['eps_name'],

@@ -159,7 +159,10 @@ async function checkAvailability(
 
   // Si no dan fecha, usar hoy
   const dateStr = preferredDate ?? format(toZonedTime(new Date(), TIMEZONE), 'yyyy-MM-dd')
-  const date = parseISO(dateStr)
+  // Anclar al mediodía COT para evitar TZ shift: parseISO('YYYY-MM-DD') produce midnight UTC,
+  // que en Vercel (TZ=UTC) al pasar por toZonedTime+getDay() devuelve el día ANTERIOR en Bogotá.
+  // Bug observado por Lady (Algia): "lunes" terminaba leyendo config de domingo → "no atiende".
+  const date = parseISO(`${dateStr}T12:00:00-05:00`)
 
   if (!isValid(date)) {
     return { success: false, error: 'Fecha no válida. Formato esperado: YYYY-MM-DD' }

@@ -284,7 +284,7 @@ export interface Patient {
   name: string
   phone: string                            // +573XXXXXXXXX
   email: string | null
-  document_type: DocumentType
+  document_type: DocumentType | null
   document_number: string | null
   date_of_birth: string | null             // YYYY-MM-DD
   eps: string | null

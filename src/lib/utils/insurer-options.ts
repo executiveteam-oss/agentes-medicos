@@ -29,6 +29,8 @@ export interface InsurerOption {
   aliases: readonly string[]
   /** Nota interna para futuros mantenedores */
   notes?: string
+  /** Migración 00072 — código EAPB para Res 256. Solo seteado en no-ambiguas. */
+  eapb_code?: string
 }
 
 // ============================================================
@@ -58,6 +60,7 @@ export const INSURER_OPTIONS: readonly InsurerOption[] = [
     hasAmbiguity: false,
     aliases: ['coomeva', 'coomeva prepagada', 'coomeva medicina prepagada'],
     notes: 'Coomeva EPS fue liquidada por Supersalud en enero 2022. Solo aplica la Prepagada.',
+    eapb_code: 'PRE003',
   },
   {
     name: 'Colsanitas',
@@ -65,24 +68,28 @@ export const INSURER_OPTIONS: readonly InsurerOption[] = [
     hasAmbiguity: false,
     aliases: ['colsanitas'],
     notes: 'Es la prepagada del grupo Sanitas. Marca distinta de Sanitas EPS.',
+    eapb_code: 'PRE001',
   },
   {
     name: 'Colmédica',
     type: 'Prepagada',
     hasAmbiguity: false,
     aliases: ['colmedica', 'colmédica'],
+    eapb_code: 'PRE004',
   },
   {
     name: 'MediPlus',
     type: 'Prepagada',
     hasAmbiguity: false,
     aliases: ['mediplus', 'medi plus'],
+    eapb_code: 'PRE007',
   },
   {
     name: 'AXA Colpatria Prepagada',
     type: 'Prepagada',
     hasAmbiguity: false,
     aliases: ['axa', 'axa colpatria', 'colpatria', 'axa prepagada'],
+    eapb_code: 'PRE006',
   },
   {
     name: 'Allianz Salud',
@@ -90,6 +97,7 @@ export const INSURER_OPTIONS: readonly InsurerOption[] = [
     hasAmbiguity: false,
     aliases: ['allianz', 'allianz salud', 'allianz care', 'allianz gold', 'allianz seguros de vida'],
     notes: 'Allianz no tiene EPS en Colombia. Si paciente menciona accidente laboral → flujo ARL (payment_type existente).',
+    eapb_code: 'PRE005',
   },
 
   // ---- SOLO EPS ----
@@ -98,54 +106,63 @@ export const INSURER_OPTIONS: readonly InsurerOption[] = [
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['nueva eps', 'nueva'],
+    eapb_code: 'EPS037',
   },
   {
     name: 'Compensar',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['compensar'],
+    eapb_code: 'EPS023',
   },
   {
     name: 'Salud Total',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['salud total'],
+    eapb_code: 'EPS010',
   },
   {
     name: 'Famisanar',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['famisanar'],
+    eapb_code: 'EPS017',
   },
   {
     name: 'SOS',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['sos', 'servicio occidental de salud'],
+    eapb_code: 'EPS002',
   },
   {
     name: 'Coosalud',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['coosalud'],
+    eapb_code: 'EPS012',
   },
   {
     name: 'Mutual Ser',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['mutual ser', 'mutualser'],
+    eapb_code: 'EPS022',
   },
   {
     name: 'Comfenalco',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['comfenalco'],
+    eapb_code: 'EPS013',
   },
   {
     name: 'Aliansalud',
     type: 'EPS',
     hasAmbiguity: false,
     aliases: ['aliansalud', 'alian salud'],
+    eapb_code: 'EPS015',
   },
 ] as const
 

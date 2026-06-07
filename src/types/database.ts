@@ -198,6 +198,7 @@ export interface FeatureConfig {
   dashboard: boolean
   virtual: boolean
   vacations: boolean
+  res256_enabled?: boolean               // Migración 00072 — habilita reportes Resolución 256
 }
 
 // --- NOTIFICACIONES ---
@@ -235,11 +236,24 @@ export interface ConsultationType {
   eps_name: string | null         // EPS/convenio/aseguradora (migración 00051)
   insurer_type: InsurerType | null  // EPS vs Prepagada (migración 00071). NULL = sin clasificar
   insurer_type_set_by_staff: boolean // TRUE si clasificado manualmente (migración 00071)
+  res256_category: Res256Category | null  // Categoría reportable Res 256 (migración 00072)
   created_at: string
 }
 
 // --- Categoría de aseguradora (migración 00071) ---
 export type InsurerType = 'EPS' | 'Prepagada'
+
+// --- Tipos para Resolución 256/16 (migración 00072) ---
+export type Gender = 'M' | 'F'
+export type Res256Category = 'Ginecología' | 'Obstetricia' | 'Ecografía' | 'Resonancia Magnética' | 'NoAplica'
+
+export interface EapbCode {
+  code: string                          // VARCHAR(6) PK
+  name: string
+  type: 'EPS' | 'Prepagada' | 'Plan Complementario'
+  aliases: string[]
+  created_at: string
+}
 
 // --- DOCTORES (tabla: doctors) ---
 export type DoctorScheduleType = 'fixed' | 'manual'
@@ -262,7 +276,7 @@ export interface Doctor {
 }
 
 // --- PACIENTES (tabla: patients) ---
-export type DocumentType = 'CC' | 'TI' | 'CE' | 'PP'
+export type DocumentType = 'CC' | 'TI' | 'CE' | 'PP' | 'RC' | 'PA' | 'MS' | 'AS'
 
 export interface Patient {
   id: string
@@ -280,6 +294,12 @@ export interface Patient {
   data_consent_at: string | null           // null = no ha aceptado privacidad
   last_reactivation_sent: string | null    // YYYY-MM-DD, última reactivación enviada (migración 00020)
   visit_frequency_days: number | null      // Promedio días entre visitas (migración 00030)
+  first_name: string | null              // Migración 00072
+  middle_name: string | null
+  first_last_name: string | null
+  second_last_name: string | null
+  gender: Gender | null
+  eapb_code: string | null               // Código EAPB MinSalud, e.g. 'EPS037'
   created_at: string
   updated_at: string
 }
@@ -332,6 +352,8 @@ export interface Appointment {
   documents_received_at: string | null // Cuándo se recibieron (migración 00028)
   documents_notes: string | null       // Notas sobre los documentos (migración 00028)
   external_his_id: string | null          // ID en sistema de HC externo (migración 00032)
+  requested_at: string | null            // Migración 00072 — cuando paciente solicitó
+  desired_at: string | null              // YYYY-MM-DD — fecha deseada por paciente
   created_at: string
   updated_at: string
 }

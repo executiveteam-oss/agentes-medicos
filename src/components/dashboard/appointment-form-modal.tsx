@@ -32,6 +32,7 @@ interface InitialData {
   reason: string
   payment_type: PaymentType
   eps_name: string
+  desired_at?: string | null  // YYYY-MM-DD
 }
 
 interface AppointmentFormModalProps {
@@ -69,6 +70,7 @@ export function AppointmentFormModal({
   const [epsName, setEpsName] = useState('')
   const [modality, setModality] = useState<AppointmentModality>('presencial')
   const [virtualLink, setVirtualLink] = useState('')
+  const [desiredAt, setDesiredAt] = useState('')
 
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
@@ -103,6 +105,7 @@ export function AppointmentFormModal({
       setReason(initialData.reason || '')
       setPaymentType(initialData.payment_type || 'Particular')
       setEpsName(initialData.eps_name || '')
+      setDesiredAt(initialData.desired_at ?? '')
     } else {
       // Reset para creación nueva
       setPatientId('')
@@ -116,6 +119,7 @@ export function AppointmentFormModal({
       setEpsName('')
       setModality('presencial')
       setVirtualLink('')
+      setDesiredAt('')
     }
     setError('')
     setFieldErrors({})
@@ -176,6 +180,7 @@ export function AppointmentFormModal({
       eps_name: paymentType === 'EPS' ? epsName : '',
       modality,
       virtual_link: modality === 'virtual' ? virtualLink.trim() || null : null,
+      desired_at: desiredAt || null,
     }
 
     startTransition(async () => {
@@ -304,6 +309,24 @@ export function AppointmentFormModal({
               {advanceWarning}
             </div>
           )}
+
+          {/* Fecha deseada por el paciente (opcional) */}
+          <div>
+            <label className="label">
+              Fecha deseada por paciente
+              <span className="text-slate-400 font-normal ml-1">(opcional)</span>
+            </label>
+            <input
+              type="date"
+              className="input-v2 w-full"
+              value={desiredAt}
+              onChange={(e) => setDesiredAt(e.target.value)}
+              style={{ fontSize: '12px' }}
+            />
+            <p className="text-xs text-slate-400 mt-1">
+              Si difiere de la fecha asignada (e.g. paciente quería viernes pero solo había lunes).
+            </p>
+          </div>
 
           {/* Duración */}
           <div>

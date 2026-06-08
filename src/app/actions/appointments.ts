@@ -143,6 +143,7 @@ export interface AppointmentInput {
   eps_name: string
   modality?: 'presencial' | 'virtual'
   virtual_link?: string | null
+  desired_at?: string | null  // YYYY-MM-DD, fecha que quería el paciente
 }
 
 /** Crear cita desde el dashboard */
@@ -189,6 +190,7 @@ export async function createAppointment(
         source: 'dashboard',
         modality: input.modality ?? 'presencial',
         virtual_link: input.virtual_link ?? null,
+        desired_at: input.desired_at || null,
       })
       .select('id')
       .single()
@@ -341,6 +343,7 @@ export async function updateAppointmentFromDashboard(
         eps_name: input.payment_type === 'EPS' ? (input.eps_name || null) : null,
         modality: input.modality ?? 'presencial',
         virtual_link: input.virtual_link ?? null,
+        desired_at: input.desired_at || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', appointmentId)

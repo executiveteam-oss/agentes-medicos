@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { Res256DownloadForm } from '@/components/dashboard/reports/res256-download-form'
 
 export default function Res256Page() {
@@ -11,6 +12,12 @@ export default function Res256Page() {
 
       <div style={{ marginTop: 24 }}>
         <Res256DownloadForm />
+      </div>
+
+      <div style={{ marginTop: 16, fontSize: 13 }}>
+        <Link href="/dashboard/configuracion/res256-categories" style={{ color: 'var(--v2-primary)', fontWeight: 600 }}>
+          ¿No ves citas? Clasifica primero los tipos de consulta →
+        </Link>
       </div>
 
       <details style={{ marginTop: 32, fontSize: 13, color: 'var(--v2-text-subtle)' }}>

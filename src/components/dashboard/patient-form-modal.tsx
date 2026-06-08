@@ -10,6 +10,7 @@ import type { PatientInput } from '@/app/actions/patients'
 import type { DocumentType } from '@/types/database'
 
 import { EPS_OPTIONS } from '@/lib/utils/eps-options'
+import { getAllEapbCodes } from '@/lib/utils/eapb-codes'
 
 const DOCUMENT_TYPES: { value: DocumentType; label: string }[] = [
   { value: 'CC', label: 'Cédula de Ciudadanía' },
@@ -28,6 +29,13 @@ interface PatientFormData {
   eps: string
   email: string
   notes: string
+  // Campos Resolución 256
+  first_name?: string | null
+  middle_name?: string | null
+  first_last_name?: string | null
+  second_last_name?: string | null
+  gender?: 'M' | 'F' | null
+  eapb_code?: string | null
 }
 
 interface PatientFormModalProps {
@@ -46,6 +54,12 @@ const EMPTY_FORM: PatientFormData = {
   eps: '',
   email: '',
   notes: '',
+  first_name: null,
+  middle_name: null,
+  first_last_name: null,
+  second_last_name: null,
+  gender: null,
+  eapb_code: null,
 }
 
 export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: PatientFormModalProps) {
@@ -124,6 +138,13 @@ export function PatientFormModal({ isOpen, onClose, initialData, onSaved }: Pati
       eps: form.eps,
       email: form.email,
       notes: form.notes,
+      // Campos Resolución 256
+      first_name: form.first_name || null,
+      middle_name: form.middle_name || null,
+      first_last_name: form.first_last_name || null,
+      second_last_name: form.second_last_name || null,
+      gender: form.gender ?? null,
+      eapb_code: form.eapb_code ?? null,
     }
 
     startTransition(async () => {

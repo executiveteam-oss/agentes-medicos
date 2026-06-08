@@ -7,7 +7,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
-import type { DocumentType } from '@/types/database'
+import type { DocumentType, Gender } from '@/types/database'
 
 const PAGE_SIZE = 20
 
@@ -248,6 +248,13 @@ export interface PatientInput {
   eps: string
   email: string
   notes: string
+  // Campos Resolución 256
+  first_name?: string | null
+  middle_name?: string | null
+  first_last_name?: string | null
+  second_last_name?: string | null
+  gender?: Gender | null
+  eapb_code?: string | null
 }
 
 /** Crear paciente */
@@ -288,6 +295,13 @@ export async function createPatient(
         eps: input.eps.trim() || null,
         email: input.email.trim() || null,
         notes: input.notes.trim() || null,
+        // Campos Resolución 256
+        first_name: input.first_name?.trim() || null,
+        middle_name: input.middle_name?.trim() || null,
+        first_last_name: input.first_last_name?.trim() || null,
+        second_last_name: input.second_last_name?.trim() || null,
+        gender: input.gender ?? null,
+        eapb_code: input.eapb_code ?? null,
       })
       .select('id')
       .single()
@@ -347,6 +361,13 @@ export async function updatePatient(
         eps: input.eps.trim() || null,
         email: input.email.trim() || null,
         notes: input.notes.trim() || null,
+        // Campos Resolución 256
+        first_name: input.first_name?.trim() || null,
+        middle_name: input.middle_name?.trim() || null,
+        first_last_name: input.first_last_name?.trim() || null,
+        second_last_name: input.second_last_name?.trim() || null,
+        gender: input.gender ?? null,
+        eapb_code: input.eapb_code ?? null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', patientId)
@@ -422,7 +443,7 @@ export async function getPatientForEdit(
 
     const { data, error } = await supabaseAdmin
       .from('patients')
-      .select('id, name, phone, document_type, document_number, date_of_birth, eps, email, notes')
+      .select('id, name, phone, document_type, document_number, date_of_birth, eps, email, notes, first_name, middle_name, first_last_name, second_last_name, gender, eapb_code')
       .eq('id', patientId)
       .eq('clinic_id', clinicId)
       .single()
@@ -439,6 +460,12 @@ export async function getPatientForEdit(
       eps: data.eps ?? '',
       email: data.email ?? '',
       notes: data.notes ?? '',
+      first_name: data.first_name ?? null,
+      middle_name: data.middle_name ?? null,
+      first_last_name: data.first_last_name ?? null,
+      second_last_name: data.second_last_name ?? null,
+      gender: (data.gender as Gender) ?? null,
+      eapb_code: data.eapb_code ?? null,
     }
   } catch {
     return null
@@ -455,6 +482,13 @@ export interface PatientFormData {
   eps: string
   email: string
   notes: string
+  // Campos Resolución 256
+  first_name?: string | null
+  middle_name?: string | null
+  first_last_name?: string | null
+  second_last_name?: string | null
+  gender?: Gender | null
+  eapb_code?: string | null
 }
 
 /** Buscar pacientes para dropdown (nombre o teléfono) */

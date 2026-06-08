@@ -30,6 +30,8 @@ interface NavItem {
   module: ModuleKey
   section: 'operation' | 'config'
   featureKey?: keyof FeatureConfig
+  /** Ocultar el item completamente cuando este feature flag NO está activo */
+  hideIfFeatureDisabled?: keyof FeatureConfig
 }
 
 const ALL_NAV_ITEMS: NavItem[] = [
@@ -40,6 +42,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients', section: 'operation' },
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow', section: 'operation' },
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', section: 'operation', featureKey: 'waitlist' },
+  { href: '/dashboard/reportes', label: 'Reportes', iconName: 'BarChart2', module: 'agenda', section: 'operation', hideIfFeatureDisabled: 'res256_enabled' },
   // Configuración
   { href: '/dashboard/tu-agente', label: 'Tu agente', iconName: 'Sparkles', module: 'whatsapp', section: 'config' },
   { href: '/dashboard/vacaciones', label: 'Vacaciones', iconName: 'Palmtree', module: 'agenda', section: 'config' },
@@ -81,6 +84,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const visibleNavItems = ALL_NAV_ITEMS.filter((item) => {
     if (!session.permissions[item.module]?.read) return false
     if (isDoctor && !DOCTOR_ALLOWED_MODULES.includes(item.module)) return false
+    // Ocultar completamente si el feature flag requerido no está activo
+    if (item.hideIfFeatureDisabled && !featureConfig?.[item.hideIfFeatureDisabled]) return false
     if (item.featureKey && !features[item.featureKey]) {
       lockedFeatureItems.add(item.href)
     }

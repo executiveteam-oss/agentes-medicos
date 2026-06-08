@@ -26,7 +26,8 @@ import {
 } from '@/app/actions/consultation-types'
 import { getSchedulesForType, saveSchedulesForType, type CtSchedule } from '@/app/actions/consultation-type-schedules'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
-import type { ConsultationType } from '@/types/database'
+import { classifyRes256Category } from '@/app/actions/res256'
+import type { ConsultationType, Res256Category } from '@/types/database'
 import type { BlockedDate } from '@/app/actions/blocked-dates'
 import { format, formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -573,6 +574,29 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
           <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-text-subtle)' }}>Modalidad</label>
           <select className="input-v2" value={modality} onChange={(e) => setModality(e.target.value as typeof modality)} style={{ fontSize: '12px', marginTop: '2px' }}>
             <option value="presencial">Presencial</option><option value="virtual">Virtual</option><option value="ambas">Ambas</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-text-subtle)' }}>Categoría Res-256 (reporte MinSalud)</label>
+          <select
+            className="input-v2"
+            value={ct.res256_category ?? ''}
+            onChange={(e) => {
+              const value = e.target.value === '' ? null : (e.target.value as Res256Category)
+              startTransition(async () => {
+                const r = await classifyRes256Category(ct.id, value)
+                if (r.ok) onUpdated({ id: ct.id, res256_category: value })
+                else onError(r.error ?? 'Error')
+              })
+            }}
+            style={{ fontSize: '12px', marginTop: '2px' }}
+          >
+            <option value="">— Sin clasificar —</option>
+            <option value="Ginecología">Ginecología</option>
+            <option value="Obstetricia">Obstetricia</option>
+            <option value="Ecografía">Ecografía</option>
+            <option value="Resonancia Magnética">Resonancia Magnética</option>
+            <option value="NoAplica">No aplica al reporte</option>
           </select>
         </div>
       </div>

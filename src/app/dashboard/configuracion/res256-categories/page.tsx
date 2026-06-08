@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkReadPermission } from '@/lib/actions-helpers'
 import { BulkClassifyList } from '@/components/dashboard/res256/bulk-classify-list'

@@ -592,4 +592,82 @@ Si necesitas cambiar algo, escríbenos."
 
 ---
 
-*Última actualización: Abril 2026 | Versión: 2.0 — Piloto Algia + iSalud Sync*
+## 🆕 Sesión del 6-7 junio 2026 — Trabajo del día
+
+### Bug fixes deployados (orden cronológico)
+1. **Hallucination de confirmación de identidad** (Lady reportó) — `src/lib/whatsapp/agent-guards.ts` con 4 guards puros (identidad, cancelación, reagendamiento, cita confirmada) + system prompt endurecido. 54 tests. Commit `ab71e83`.
+2. **Distinguir EPS / Prepagada / Particular** (Sub-fase A) — migración `00071_add_insurer_type.sql` + `src/lib/utils/insurer-options.ts` con `{name, type, aliases, hasAmbiguity}` + tool `check_eps_convenio` acepta `insurer_type` opcional + dashboard UI con badges. 53 tests. Commit `3dfc17d`.
+3. **TZ shift en check_availability** (Lady reportó) — `parseISO('YYYY-MM-DD')` → `parseISO('YYYY-MM-DDT12:00:00-05:00')` en `src/agents/tools/executor.ts:162`. Afectaba 25/29 doctores en 6 clínicas (86%). 36 tests. Commit `f4136ad`.
+4. **omuwan.co pinned a deploy abril** — usado `npx vercel alias set` para promover deploy nuevo a omuwan.co + www.omuwan.co. Antes de esto, mis deploys quedaban en limbo y Lady chateaba con código de 7 semanas atrás. **Importante para futuro**: nunca usar `vercel deploy --prod` manual, queda anclado el dominio.
+
+### Feature Resolución 256 — Fase 1 completo (6-7 jun 2026)
+
+**Reporte semestral MinSalud Colombia** (Resolución 256 de 2016, Registro Tipo 2). Algia lo descarga directo de Omuwan con un click.
+
+**Estado**: Fase 1 funcional para citas creadas en Omuwan. Fase 2 (pendiente mañana) cubre citas históricas iSalud.
+
+#### Schema (migración `00072_resolucion_256_schema.sql`, APLICADA en prod)
+- `patients`: + `first_name`, `middle_name`, `first_last_name`, `second_last_name`, `gender` (CHECK M/F), `eapb_code` VARCHAR(6) — todas nullable
+- `patients.document_type` CHECK ampliado: `CC, TI, CE, PP, RC, PA, MS, AS`
+- `appointments`: + `requested_at` TIMESTAMPTZ, `desired_at` DATE — nullable
+- `consultation_types`: + `res256_category` CHECK (`Ginecología`, `Obstetricia`, `Ecografía`, `Resonancia Magnética`, `NoAplica`) — nullable
+- Tabla nueva `eapb_codes` con 19 seed (12 EPS + 7 Prepagadas — `EPS037 Nueva EPS`, `PRE003 Coomeva Prepagada`, etc.)
+- `clinics.feature_config.res256_enabled?: boolean` (activado para Algia via SQL UPDATE)
+
+#### Archivos nuevos (lógica pura — testable sin DB)
+- `src/lib/reports/resolucion-256/types.ts` — `Res256Row`, `Res256SourceRow`, `Res256ReportResult`
+- `src/lib/reports/resolucion-256/column-mapping.ts` — `mapSourceRowToRes256Row` + `PISIS_COLUMNS_ORDER` + `PISIS_COLUMN_HEADERS` (12 cols exactas)
+- `src/lib/reports/resolucion-256/validate.ts` — `validateRes256Row` + `REQUIRED_FIELDS` (10 obligatorios)
+- `src/lib/reports/resolucion-256/dedup.ts` — `dedupFirstOfYear` (Gineco/Obst primera del año, Eco/RMN todas)
+- `src/lib/reports/resolucion-256/xlsx-generator.ts` — `generateRes256Xlsx` con 2 hojas (`exceljs` dep nueva)
+- `src/lib/reports/resolucion-256/query.ts` — `fetchSourceRows` con filtros (clinic_id, status, payment_type NOT IN Póliza/SOAT, fecha)
+- `src/lib/utils/eapb-codes.ts` — `findEapbCodeByName` + `getEapbCodeFromInsurerOption` + `EAPB_CODE_PARTICULAR = 'NA'`
+- `src/lib/utils/res256-heuristics.ts` — `suggestRes256Category` puro con regex por keyword. Casos dudosos (CONTROL POSQUIRURGICO, ENTREGA RESULTADOS, COLPOSCOPIA sola) retornan `null` intencionalmente
+
+#### Endpoint y UI
+- `GET /api/reports/resolucion-256?from=YYYY-MM-DD&to=YYYY-MM-DD` — valida rango (max 1 año, no futuro), retorna xlsx con headers `X-Res256-Ready` y `X-Res256-Incomplete`
+- `/dashboard/reportes` (hub) + `/dashboard/reportes/resolucion-256` — date pickers default semestre actual + botón descarga + summary
+- `/dashboard/configuracion/res256-categories` — bulk-classify con sugerencias en gris, checkbox por tipo, batch action "Aplicar sugerencias seleccionadas". Link desde reporte: "¿No ves citas? Clasifica primero"
+- Sidebar item "Reportes" condicional a `feature_config.res256_enabled` (item `hideIfFeatureDisabled` en NavItem)
+- Dropdown `res256_category` agregado a `TypeExpandedEditor` en `doctor-detail.tsx` (Task 7, además del bulk-classify)
+- Patient form: 4 campos nombre + gender + eapb_code dropdown
+- Appointment form: campo `desired_at` opcional
+
+#### Server actions
+- `classifyRes256Category(consultationTypeId, category)` — individual
+- `applyRes256Suggestions(classifications[])` — batch para bulk-classify page
+
+#### Tests
+- `test-res256-column-mapping.ts` (24), `test-res256-validate.ts` (17), `test-res256-dedup.ts` (12), `test-res256-xlsx.ts` (13), `test-res256-heuristics.ts` (23), `test-eapb-codes.ts` (12) — **total 101 nuevos**
+- Regresivos (insurer-options, agent-guards, availability-tz) — 137 siguen verdes
+- **Total suite: 238 tests pasando**
+- Smoke E2E (`scripts/smoke-res256-e2e.ts`) contra prod data de Algia — heurística cubre 16/20 tipos, 4 sin sugerencia (esperado)
+
+#### Reglas regulatorias en código
+- `EXCLUDED_PAYMENT_TYPES = ['Póliza', 'SOAT']` en query (art. 2 de la resolución)
+- Dedup primera-del-año solo para Gineco/Obst (Eco/RMN todas)
+- `EAPB_CODE_PARTICULAR = 'NA'` para particulares (formato PISIS)
+- Document type `PP` (interno) mapea a `PA` (formato PISIS) en column-mapping
+- Pacientes sin documento usan `MS` (menor) o `AS` (adulto) — staff selecciona
+
+### Deuda técnica para mañana (Fase 2)
+1. **PRÓXIMO PRIORITARIO**: mejorar sync iSalud (`src/lib/isalud/`) para parsear campos Res-256 (`birth_date`, `gender`, `eapb_code`, `requested_at`, `res256_category` heurístico desde `procedimiento`) desde `external_data` antes del sync real de Algia. Sin esto, las 498 citas iSalud no aparecen en el reporte.
+2. Tabla `appointment_res256_complement` para que staff complete manualmente campos faltantes por cita histórica
+3. UI CRUD para `eapb_codes` (hoy es seed estático)
+4. Captura demográfica via agente WhatsApp (Fase 3) — modificar prompt + nueva tool `capture_demographic_data`
+5. Validación de cédula contra Registraduría (futuro)
+
+### Comandos útiles del feature
+- Bulk smoke: `TZ=America/Bogota npx tsx scripts/smoke-res256-e2e.ts`
+- Suite completa Res-256: `for t in test-eapb-codes test-res256-column-mapping test-res256-validate test-res256-dedup test-res256-xlsx test-res256-heuristics; do npx tsx scripts/${t}.ts | tail -1; done`
+- Activar feature en otra clínica: `UPDATE clinics SET feature_config = COALESCE(feature_config, '{}'::jsonb) || '{"res256_enabled": true}'::jsonb WHERE id = '<UUID>'`
+
+### Plan completo de implementación
+`docs/superpowers/plans/2026-06-06-resolucion-256.md` — Fase 1 ejecutada via subagent-driven-development (15 tasks + Task 13.5 bulk-classify). Plan tiene también el roadmap de Fase 2 y 3.
+
+### Manual de usuario
+`docs/REPORTE_RES256.md` — Para Lady y futuros usuarios.
+
+---
+
+*Última actualización: 7 de junio 2026 | Versión: 2.1 — Piloto Algia + iSalud Sync + Resolución 256 Fase 1*

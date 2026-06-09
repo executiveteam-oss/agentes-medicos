@@ -589,6 +589,8 @@ Si necesitas cambiar algo, escríbenos."
 4. **Datepicker /admision** — no confirmado que el cambio de fecha funciona para todos los días (puede devolver solo citas de hoy)
 5. **Pacientes** — iSalud tiene nombre + CC pero no WhatsApp. No se crean registros en tabla patients
 6. **Duración de citas** — usa hora_final real de col[15] cuando disponible, fallback +30min
+7. ~~**Falso positivo del auth check en adapter.ts:151-156**~~ — **RESUELTO el 9 jun 2026**. Se reemplazó el login HTTP por login Playwright nativo (`loginAndInjectCookies` en `src/lib/isalud/adapter.ts`). El nuevo flujo valida éxito/fallo desde el DOM (URL != root Y form de login ausente), eliminando la ambigüedad del 302→/. Helpers `extractAllSetCookies` + `ParsedCookie` eliminados. Histórico del bug en `docs/AUDIT_ISALUD_SYNC_2026_06_08.md` sección "Bug auth check".
+8. **`waitForTimeout(1500)` fijo post-submit en `loginAndInjectCookies`** — reemplazar a futuro por `waitForSelector` de un elemento de página interna (ej. nav del dashboard, link de logout, header de `/inicio`). Tiempo fijo genera falsos fallos si iSalud tarda más en redirigir; espera por condición es robusta. Mismo aplica al `waitForTimeout(2000)` post-`/disponibilidad`. Riesgo bajo hoy porque iSalud es predecible, pero conviene endurecerlo cuando agreguemos más clínicas con latencia variable
 
 ---
 

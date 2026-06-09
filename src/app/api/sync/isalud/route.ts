@@ -11,7 +11,10 @@ import { importISalud, syncAllISaludIntegrations } from '@/lib/isalud/sync-agent
 import { testISaludConnection } from '@/lib/isalud/adapter'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
-export const maxDuration = 300
+// Medido 2026-06-09 en Vercel: run real toma ~280s con 60 días + ~450 admisiones.
+// Margen de 20s vs 300s es ajustado; subir a 600s da cushion para crecimiento de
+// volumen sin tocar dias_adelante. Tope del plan Pro es 800s; 600s deja headroom.
+export const maxDuration = 600
 
 // GET — Cron
 export async function GET(request: NextRequest) {

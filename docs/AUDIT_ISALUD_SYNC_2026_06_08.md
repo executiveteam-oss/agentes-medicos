@@ -259,3 +259,98 @@ Además, hace falta:
 - ✅ No forcé un sync manual
 
 Solo lectura: queries de auditoría a DB + curl a `algia.isalud.co` para validar form structure.
+
+---
+
+## 8. Bug auth check — Falso positivo (descubierto 2026-06-09)
+
+### Síntoma observable
+
+Durante el diagnóstico HTTP single-shot del 2026-06-09 (post-fix del catch silencioso), el POST a `/autenticacion/login` con la credencial vieja devolvió:
+
+```
+Status: 302 Found
+Location: "/"
+Body: <html><head><meta http-equiv="refresh" content="0;url=/"/></head></html>
+Body length: 72 chars
+```
+
+Esto es el patrón estándar de **iSalud rechazando credenciales**: redirect 302 con `location=/` y un meta-refresh HTML que vuelve a la página de login.
+
+### Bug en el código
+
+`src/lib/isalud/adapter.ts` líneas 151-156:
+
+```ts
+// Login success = 302 redirect to somewhere other than root
+// Login fail = 422 or redirect back to / or no redirect at all
+if (loginRes.status === 422 || (loginRes.status !== 302 && loginRes.status !== 301)) {
+  console.error(`[iSalud] Login FAILED — status ${loginRes.status}, no redirect`)
+  throw new Error('Login fallido — credenciales inválidas')
+}
+```
+
+**El comment dice "Login fail = ... redirect back to /" pero el check NO valida que `location !== '/'`.**
+
+### Comportamiento que esto produce
+
+1. POST devuelve 302 con `location=/`
+2. El check pasa (status 302 es uno de los casos permitidos)
+3. Step 3 sigue el redirect → vuelve a la página de login (HTML del form)
+4. Step 4 inyecta cookies en Playwright (las cookies son válidas pero NO autenticadas)
+5. Step 5 (`page.goto('/disponibilidad')` línea 196) → la sesión inválida redirige a la página de login
+6. La verificación de línea 203-205 detecta `finalUrl === ${baseUrl}/` y dispara:
+   ```ts
+   throw new Error('Login HTTP exitoso pero las cookies no mantienen la sesión en Playwright')
+   ```
+
+**El mensaje del error es engañoso.** Dice que las cookies fallaron, cuando en realidad el login fue rechazado mucho antes. Esto confundió el diagnóstico del break del 21 abril durante 48 días: si hubieran existido logs de Vercel de esa época, habrían mostrado el error "cookies no mantienen sesión" y nadie habría pensado en una rotación de password.
+
+### Fix correcto (no aplicado — pendiente backlog)
+
+```ts
+const location = loginRes.headers.get('location') ?? ''
+const redirectIsRoot =
+  location === '/' ||
+  location === '' ||
+  location === baseUrl ||
+  location === `${baseUrl}/`
+
+const isAuthFail =
+  loginRes.status === 422 ||
+  (loginRes.status !== 302 && loginRes.status !== 301) ||
+  redirectIsRoot
+
+if (isAuthFail) {
+  console.error(`[iSalud] Login REJECTED — status=${loginRes.status}, location="${location}"`)
+  throw new Error(
+    `Login rechazado por iSalud — status=${loginRes.status} location="${location}" ` +
+    `(credenciales inválidas o expiradas — verificar usuario/password en sync_integrations.credentials)`
+  )
+}
+```
+
+Cambios respecto al original:
+- Captura `location` ANTES del check
+- Agrega `redirectIsRoot` como cuarta condición de fail
+- El mensaje del Error menciona explícitamente "credenciales inválidas o expiradas" + dónde buscar (`sync_integrations.credentials`)
+- Loguea status + location para post-mortem
+
+### Tests sugeridos al aplicar el fix
+
+- POST devuelve 422 → debe arrojar `'Login rechazado por iSalud'`
+- POST devuelve 200 → debe arrojar (status no es 302/301)
+- POST devuelve 302 con `location='/'` → **debe arrojar** (este es el caso que se le escapaba)
+- POST devuelve 302 con `location='/dashboard'` → debe pasar
+- POST devuelve 302 con `location='https://algia.isalud.co/dashboard'` → debe pasar
+- POST devuelve 302 con `location=''` → debe arrojar
+
+### Prioridad
+
+**Media.** No bloquea el sync funcionando hoy (si la credencial es válida, el comportamiento es correcto). Pero el día que vuelva a haber otra rotación de password / lockout / cambio del backend, el mensaje engañoso volverá a confundir el diagnóstico. Antes de la próxima rotación previsible, aplicar el fix.
+
+**Estimación**: 30 min (3 líneas de código + 6 tests unitarios contra fixtures de Response). Sin tocar otros archivos.
+
+### Línea en CLAUDE.md
+
+Se agregó item #7 en la sección "Deuda técnica pendiente" del CLAUDE.md para que sea visible al inicio de cada sesión, con referencia a esta sección.

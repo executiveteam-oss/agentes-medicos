@@ -93,139 +93,80 @@ export async function launchBrowserAndContext(): Promise<{ browser: Browser; con
   return { browser, context }
 }
 
-// --- Login via HTTP, then inject cookies into Playwright context ---
+// --- Login via Playwright (browser-native — fixes false-positive auth check from HTTP version) ---
 
 export async function loginAndInjectCookies(context: BrowserContext, credentials: ISaludCredentials): Promise<Page> {
   const baseUrl = `https://${credentials.subdomain}.isalud.co`
-  console.log(`[iSalud] VERSION 3 - ${new Date().toISOString()}`)
-  console.log(`[iSalud] HTTP login to ${baseUrl}/`)
+  console.log(`[iSalud] VERSION 4 (Playwright-native login) - ${new Date().toISOString()}`)
+  console.log(`[iSalud] Login to ${baseUrl}/ via Playwright`)
 
-  // Step 1: GET login page to extract CSRF token + cookies
-  const loginPageRes = await fetch(`${baseUrl}/`, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36' },
-  })
-  const loginHtml = await loginPageRes.text()
-  const initialCookies = extractAllSetCookies(loginPageRes)
-  console.log(`[iSalud] GET /login: status ${loginPageRes.status}, HTML ${loginHtml.length} chars, cookies: ${initialCookies.length}`)
-
-  // Extract CSRF token (try multiple patterns)
-  const csrfMatch = loginHtml.match(/name="login\[_csrf_token\]"\s+value="([^"]+)"/)
-    ?? loginHtml.match(/name="_csrf_token"\s+value="([^"]+)"/)
-    ?? loginHtml.match(/name="_token"\s+value="([^"]+)"/)
-  const csrfToken = csrfMatch?.[1] ?? ''
-
-  // Extract form action
-  const actionMatch = loginHtml.match(/<form[^>]*action="([^"]*)"/)
-  const formAction = actionMatch?.[1] ?? '/'
-  console.log(`[iSalud] CSRF token: ${csrfToken ? csrfToken.slice(0, 10) + '...' : 'NOT FOUND'}`)
-  console.log(`[iSalud] Form action: ${formAction}`)
-  console.log(`[iSalud] Has login[Usuario]: ${loginHtml.includes('login[Usuario]')}`)
-  console.log(`[iSalud] HTML preview: ${loginHtml.slice(0, 300)}`)
-
-  // Step 2: POST login
-  const cookieHeader = initialCookies.map((c) => `${c.name}=${c.value}`).join('; ')
-  const formData = new URLSearchParams({
-    'login[Usuario]': credentials.username,
-    'login[Clave]': credentials.password,
-    'login[_csrf_token]': csrfToken,
-  })
-
-  const postUrl = formAction.startsWith('http') ? formAction : `${baseUrl}${formAction.startsWith('/') ? formAction : '/' + formAction}`
-  console.log(`[iSalud] POST to: ${postUrl}`)
-  const loginRes = await fetch(postUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': cookieHeader,
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Referer': `${baseUrl}/`,
-    },
-    body: formData.toString(),
-    redirect: 'manual',
-  })
-
-  const postCookies = extractAllSetCookies(loginRes)
-  const location = loginRes.headers.get('location') ?? ''
-  console.log(`[iSalud] POST /login: status ${loginRes.status}, redirect: "${location}", new cookies: ${postCookies.length}`)
-
-  // Login success = 302 redirect to somewhere other than root
-  // Login fail = 422 or redirect back to / or no redirect at all
-  if (loginRes.status === 422 || (loginRes.status !== 302 && loginRes.status !== 301)) {
-    console.error(`[iSalud] Login FAILED — status ${loginRes.status}, no redirect`)
-    throw new Error('Login fallido — credenciales inválidas')
-  }
-
-  // Merge all cookies
-  const allCookies = [...initialCookies]
-  for (const nc of postCookies) {
-    const idx = allCookies.findIndex((c) => c.name === nc.name)
-    if (idx >= 0) allCookies[idx] = nc; else allCookies.push(nc)
-  }
-  console.log(`[iSalud] Total cookies to inject: ${allCookies.length} (${allCookies.map((c) => c.name).join(', ')})`)
-
-  // Step 3: Follow redirect (to get more cookies + confirm login)
-  if (location) {
-    const redirectUrl = location.startsWith('http') ? location : `${baseUrl}${location}`
-    const redirectRes = await fetch(redirectUrl, {
-      headers: {
-        'Cookie': allCookies.map((c) => `${c.name}=${c.value}`).join('; '),
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-      },
-      redirect: 'manual',
-    })
-    const redirectCookies = extractAllSetCookies(redirectRes)
-    for (const nc of redirectCookies) {
-      const idx = allCookies.findIndex((c) => c.name === nc.name)
-      if (idx >= 0) allCookies[idx] = nc; else allCookies.push(nc)
-    }
-    console.log(`[iSalud] Redirect ${redirectRes.status} → ${redirectRes.headers.get('location') ?? 'no further redirect'}, +${redirectCookies.length} cookies`)
-  }
-
-  // Step 4: Inject cookies into Playwright context
-  const domain = `${credentials.subdomain}.isalud.co`
-  await context.addCookies(allCookies.map((c) => ({
-    name: c.name,
-    value: c.value,
-    domain,
-    path: '/',
-  })))
-  console.log(`[iSalud] Cookies injected into Playwright context`)
-
-  // Step 5: Navigate Playwright to a post-login page to verify
   const page = await context.newPage()
+
+  // Step 1: Cargar la página de login (el browser maneja Origin, Accept, Sec-Fetch-*, cookies, CSRF nativos)
+  await page.goto(`${baseUrl}/`, { waitUntil: 'domcontentloaded', timeout: 30000 })
+  console.log(`[iSalud] Login page: ${page.url()}, title: "${await page.title()}"`)
+
+  // Step 2: Verificar que el form está realmente presente (iSalud podría haber cambiado markup)
+  const usuarioField = page.locator('input[name="login[Usuario]"]')
+  const claveField = page.locator('input[name="login[Clave]"]')
+  if ((await usuarioField.count()) === 0 || (await claveField.count()) === 0) {
+    throw new Error(`Login form no encontrado en ${page.url()} — iSalud cambió el markup`)
+  }
+
+  // Step 3: Llenar credenciales
+  await usuarioField.fill(credentials.username)
+  await claveField.fill(credentials.password)
+  console.log(`[iSalud] Form filled (user: ${credentials.username.slice(0, 2)}***)`)
+
+  // Step 4: Click "Ingresar" y esperar navegación post-submit
+  await Promise.all([
+    page.waitForLoadState('domcontentloaded', { timeout: 30000 }),
+    page.locator('form#form-login button[type="submit"]').click(),
+  ])
+  // Settle por si hay redirect adicional client-side
+  await page.waitForTimeout(1500)
+
+  // Step 5: Detección de rechazo canónico. La señal SÓLIDA es la presencia del form
+  // (iSalud re-renderiza el login form cuando rechaza credenciales).
+  // La URL en `/` NO es señal de fail: iSalud puede servir dashboard en `/` para sesiones
+  // autenticadas. El veredicto real de sesión válida lo da Step 6 (navegar a /disponibilidad).
+  const postUrl = page.url()
+  const stillHasLoginForm = (await page.locator('input[name="login[Usuario]"]').count()) > 0
+  const isRoot = postUrl === `${baseUrl}/` || postUrl === baseUrl
+
+  console.log(`[iSalud] After submit: url=${postUrl}, stillHasLoginForm=${stillHasLoginForm}, isRoot=${isRoot} (info)`)
+
+  if (stillHasLoginForm) {
+    // form aún visible = rechazo canónico de iSalud
+    const errorMsg = await page
+      .locator('.alert, .error, .flash-error, [class*="error"]')
+      .first()
+      .textContent({ timeout: 1000 })
+      .catch(() => null)
+    console.error(
+      `[iSalud] Login FAILED — url=${postUrl}, formStillPresent=${stillHasLoginForm}, errorMsg="${(errorMsg ?? '').trim() || '(no message)'}"`,
+    )
+    throw new Error('Login fallido — iSalud rechazó las credenciales (form sigue presente)')
+  }
+
+  console.log(`[iSalud] Login parece OK — landed at ${postUrl}. Confirmando sesión con /disponibilidad...`)
+
+  // Step 6: Confirmar que la sesión persiste navegando a una página interna conocida
   await page.goto(`${baseUrl}/disponibilidad`, { waitUntil: 'domcontentloaded', timeout: 30000 })
   await page.waitForTimeout(2000)
 
   const finalUrl = page.url()
-  console.log(`[iSalud] Playwright navigated to: ${finalUrl}, title: "${await page.title()}"`)
+  const bouncedBack =
+    finalUrl === `${baseUrl}/` ||
+    finalUrl === baseUrl ||
+    (await page.locator('input[name="login[Usuario]"]').count()) > 0
 
-  // If we're back at root (login page) or the URL hasn't changed from baseUrl, cookies didn't work
-  if (finalUrl === `${baseUrl}/` || finalUrl === baseUrl) {
-    console.error(`[iSalud] Session cookies not working — still at root: ${finalUrl}`)
-    throw new Error('Login HTTP exitoso pero las cookies no mantienen la sesión en Playwright')
+  if (bouncedBack) {
+    throw new Error(`Login pareció exitoso pero la sesión no se mantuvo (rebotó a ${finalUrl})`)
   }
 
-  console.log('[iSalud] Login complete via HTTP + cookie injection')
+  console.log(`[iSalud] Login complete via Playwright — session active on ${finalUrl}`)
   return page
-}
-
-// --- Cookie parser for fetch responses ---
-
-interface ParsedCookie { name: string; value: string }
-
-function extractAllSetCookies(res: Response): ParsedCookie[] {
-  const cookies: ParsedCookie[] = []
-  // Headers.forEach iterates all headers including duplicates
-  res.headers.forEach((value, key) => {
-    if (key.toLowerCase() === 'set-cookie') {
-      const nameValue = value.split(';')[0]
-      const eqIdx = nameValue.indexOf('=')
-      if (eqIdx > 0) {
-        cookies.push({ name: nameValue.slice(0, eqIdx), value: nameValue.slice(eqIdx + 1) })
-      }
-    }
-  })
-  return cookies
 }
 
 // --- Scrape profesionales ---

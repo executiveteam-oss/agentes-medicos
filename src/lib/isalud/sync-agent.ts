@@ -4,6 +4,12 @@
 // importISalud()  — Initial: save creds + scrape + ingest
 // syncAllISaludIntegrations() — Cron: scrape + ingest for all orgs
 // ingestISaludData() — DB-only: create doctors + block appointments
+//
+// State management hardening (2026-06-08):
+// - Stale-running detection: cron picks up rows stuck in 'running' for >1h
+// - finally block: recovers state if try/catch path doesn't reach a terminal status
+// - Inner try/catch around catch's DB write: error msg never lost silently
+// - RUN START/END logs with duration for future post-mortem
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -22,10 +28,45 @@ export interface ImportResult {
   errors: string[]
 }
 
+/**
+ * Umbral de detección de runs colgados en 'running'.
+ * Si un run lleva más que esto sin actualizar `updated_at`, el cron lo retoma.
+ * 1 hora es seguro porque el cron corre `30 * * * *` y un run normal dura ~75s.
+ */
+const STALE_RUNNING_MS = 60 * 60 * 1000
+
+/**
+ * Helper para persistir el error en sync_integrations.
+ * Si el propio UPDATE falla (RLS, red), loguea pero no propaga — la garantía
+ * es "best-effort": preferimos un error logueado que perder la traza completa.
+ */
+async function persistSyncError(filter: { id?: string; clinic_id?: string }, errMsg: string, context: string): Promise<boolean> {
+  try {
+    let q = supabaseAdmin.from('sync_integrations').update({
+      sync_status: 'error',
+      sync_error: errMsg.slice(0, 500),  // cap por seguridad
+      updated_at: new Date().toISOString(),
+    })
+    if (filter.id) q = q.eq('id', filter.id)
+    if (filter.clinic_id) q = q.eq('clinic_id', filter.clinic_id).eq('provider', 'isalud')
+    const { error: updateErr } = await q
+    if (updateErr) {
+      console.error(`[iSalud ${context}] Failed to persist sync_error: ${updateErr.message}`)
+      return false
+    }
+    return true
+  } catch (writeErr) {
+    console.error(`[iSalud ${context}] Exception while persisting sync_error: ${writeErr instanceof Error ? writeErr.message : writeErr}`)
+    return false
+  }
+}
+
 // --- Import (initial setup from dashboard) ---
 
 export async function importISalud(credentials: ISaludCredentials, clinicId: string): Promise<ImportResult> {
-  console.log(`[iSalud importISalud] START for clinic ${clinicId}, subdomain: ${credentials.subdomain}`)
+  const runStart = Date.now()
+  const runStartIso = new Date(runStart).toISOString()
+  console.log(`[iSalud importISalud] RUN START at ${runStartIso} for clinic ${clinicId}, subdomain: ${credentials.subdomain}`)
 
   // Save credentials
   await supabaseAdmin
@@ -38,33 +79,55 @@ export async function importISalud(credentials: ISaludCredentials, clinicId: str
       updated_at: new Date().toISOString(),
     }, { onConflict: 'clinic_id,provider' })
 
+  let reachedTerminal = false  // true cuando llegamos a 'idle' (vía ingestISaludData) o 'error' (vía catch)
+
   try {
     console.log('[iSalud importISalud] Calling scrapeISalud...')
     const result = await scrapeISalud(credentials, { diasAdelante: 60 })
     console.log(`[iSalud importISalud] Scrape returned: ${result.profesionales.length} profs, ${result.admisiones.length} admisiones, ${result.errors.length} errors`)
     if (result.errors.length > 0) console.log(`[iSalud importISalud] Scrape errors: ${result.errors.slice(0, 3).join('; ')}`)
-    return await ingestISaludData(clinicId, result.profesionales, result.admisiones, result.errors)
+    const ingestResult = await ingestISaludData(clinicId, result.profesionales, result.admisiones, result.errors)
+    reachedTerminal = true  // ingestISaludData ya setea status='idle' o 'error' internamente
+    return ingestResult
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? err.stack : ''
     console.error(`[iSalud importISalud] FATAL ERROR: ${errMsg}`)
     console.error(`[iSalud importISalud] STACK: ${stack}`)
-    await supabaseAdmin
-      .from('sync_integrations')
-      .update({ sync_status: 'error', sync_error: errMsg, updated_at: new Date().toISOString() })
-      .eq('clinic_id', clinicId).eq('provider', 'isalud')
+    const persisted = await persistSyncError({ clinic_id: clinicId }, errMsg, 'importISalud')
+    if (persisted) reachedTerminal = true
     return { doctors_created: 0, doctors_existing: 0, appointments_blocked: 0, errors: [errMsg] }
+  } finally {
+    const durationS = (Date.now() - runStart) / 1000
+    console.log(`[iSalud importISalud] RUN END at ${new Date().toISOString()}, duration=${durationS.toFixed(2)}s, reachedTerminal=${reachedTerminal}`)
+    if (!reachedTerminal) {
+      // El try/catch debería haber alcanzado un estado terminal. Si llegamos acá sin él,
+      // algo raro pasó (ej: el catch's UPDATE falló y returnó false). Forzamos error.
+      console.error(`[iSalud importISalud] UNEXPECTED: finally with reachedTerminal=false. Forzando sync_status=error.`)
+      await persistSyncError(
+        { clinic_id: clinicId },
+        'sync interrupted before reaching terminal state (no error captured by try/catch)',
+        'importISalud.finally'
+      )
+    }
   }
 }
 
 // --- Cron: sync all active integrations ---
 
 export async function syncAllISaludIntegrations(): Promise<{ synced: number; errors: string[] }> {
+  // Fix 2 — Stale-running detection.
+  // Original filtro: .not('sync_status', 'in', '("running","disabled")') hacía
+  // que un row pegado en 'running' nunca volviera a ejecutarse. Ahora permitimos
+  // pickup si lleva >1h sin updated_at — auto-recuperación si el process muere
+  // sin ejecutar try/catch (SIGKILL, OOM, timeout externo).
+  const staleThresholdIso = new Date(Date.now() - STALE_RUNNING_MS).toISOString()
   const { data: integrations } = await supabaseAdmin
     .from('sync_integrations')
-    .select('id, clinic_id, credentials, config')
+    .select('id, clinic_id, credentials, config, sync_status, updated_at')
     .eq('provider', 'isalud')
-    .not('sync_status', 'in', '("running","disabled")')
+    .neq('sync_status', 'disabled')
+    .or(`sync_status.neq.running,updated_at.lt.${staleThresholdIso}`)
 
   if (!integrations || integrations.length === 0) return { synced: 0, errors: [] }
 
@@ -72,14 +135,21 @@ export async function syncAllISaludIntegrations(): Promise<{ synced: number; err
   const errors: string[] = []
 
   for (const raw of integrations) {
-    const integration = raw as { id: string; clinic_id: string; credentials: Record<string, unknown>; config: { dias_adelante?: number } }
+    const integration = raw as { id: string; clinic_id: string; credentials: Record<string, unknown>; config: { dias_adelante?: number }; sync_status?: string; updated_at?: string }
     const creds: ISaludCredentials = {
       subdomain: integration.credentials.subdomain as string,
       username: integration.credentials.username as string,
       password: integration.credentials.password as string,
     }
 
+    const runStart = Date.now()
+    const runStartIso = new Date(runStart).toISOString()
+    const wasStaleRecovery = integration.sync_status === 'running'  // entró por el bypass de stale
+    console.log(`[iSalud syncAll] RUN START at ${runStartIso}, clinic=${integration.clinic_id}, subdomain=${creds.subdomain}, staleRecovery=${wasStaleRecovery}`)
+
     await supabaseAdmin.from('sync_integrations').update({ sync_status: 'running', updated_at: new Date().toISOString() }).eq('id', integration.id)
+
+    let reachedTerminal = false
 
     try {
       const dias = integration.config?.dias_adelante ?? 60
@@ -88,13 +158,28 @@ export async function syncAllISaludIntegrations(): Promise<{ synced: number; err
       console.log(`[iSalud syncAll] Scrape result: ${result.profesionales.length} profs, ${result.admisiones.length} admisiones, ${result.errors.length} errors`)
       if (result.errors.length > 0) console.log(`[iSalud syncAll] Errors: ${result.errors.slice(0, 3).join('; ')}`)
       await ingestISaludData(integration.clinic_id, result.profesionales, result.admisiones, result.errors)
+      reachedTerminal = true  // ingestISaludData seteó status a 'idle' o 'error'
       synced++
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
       console.error(`[iSalud syncAll] FATAL for clinic ${integration.clinic_id}: ${errMsg}`)
       console.error(`[iSalud syncAll] STACK: ${err instanceof Error ? err.stack : ''}`)
       errors.push(`Clinic ${integration.clinic_id}: ${errMsg}`)
-      await supabaseAdmin.from('sync_integrations').update({ sync_status: 'error', sync_error: errMsg, updated_at: new Date().toISOString() }).eq('id', integration.id)
+      const persisted = await persistSyncError({ id: integration.id }, errMsg, 'syncAll')
+      if (persisted) reachedTerminal = true
+    } finally {
+      const durationS = (Date.now() - runStart) / 1000
+      console.log(`[iSalud syncAll] RUN END at ${new Date().toISOString()}, clinic=${integration.clinic_id}, duration=${durationS.toFixed(2)}s, reachedTerminal=${reachedTerminal}`)
+      if (!reachedTerminal) {
+        // Safety net: catch's UPDATE falló y no marcamos terminal. Forzamos error
+        // para que el próximo cron pueda decidir (con stale-detection, igual lo retomaría).
+        console.error(`[iSalud syncAll] UNEXPECTED: finally with reachedTerminal=false. Forzando sync_status=error.`)
+        await persistSyncError(
+          { id: integration.id },
+          'sync interrupted before reaching terminal state (no error captured by try/catch)',
+          'syncAll.finally'
+        )
+      }
     }
   }
 
@@ -109,10 +194,14 @@ export async function ingestISaludData(
   admisiones: ISaludAdmision[],
   scrapeErrors: string[] = []
 ): Promise<ImportResult> {
+  const runStart = Date.now()
+  console.log(`[iSalud ingest] RUN START at ${new Date(runStart).toISOString()}, clinic=${clinicId}, profs=${profesionales.length}, admisiones=${admisiones.length}`)
   const errors = [...scrapeErrors]
   let doctorsCreated = 0, doctorsExisting = 0
 
   await supabaseAdmin.from('sync_integrations').update({ sync_status: 'running', updated_at: new Date().toISOString() }).eq('clinic_id', clinicId).eq('provider', 'isalud')
+
+  let reachedTerminal = false
 
   try {
     for (const prof of profesionales) {
@@ -123,11 +212,16 @@ export async function ingestISaludData(
     const appointmentsBlocked = await upsertBlockedAppointments(clinicId, admisiones, errors)
     await cleanupOrphans(clinicId, admisiones)
 
-    await supabaseAdmin.from('sync_integrations').update({
+    const { error: idleUpdErr } = await supabaseAdmin.from('sync_integrations').update({
       sync_status: 'idle', last_synced_at: new Date().toISOString(),
-      sync_error: errors.length > 0 ? errors.slice(0, 3).join('; ') : null,
+      sync_error: errors.length > 0 ? errors.slice(0, 3).join('; ').slice(0, 500) : null,
       updated_at: new Date().toISOString(),
     }).eq('clinic_id', clinicId).eq('provider', 'isalud')
+    if (idleUpdErr) {
+      console.error(`[iSalud ingest] Failed to set sync_status=idle: ${idleUpdErr.message}`)
+      // Aún así marcamos terminal: el work se completó, solo falló el UPDATE final
+    }
+    reachedTerminal = true
 
     const insertErrors = errors.filter((e) => e.startsWith('Insert ')).length
     console.log(`[iSalud] Clinic ${clinicId}: +${doctorsCreated} docs, ${appointmentsBlocked} blocked, ${insertErrors} insert errors, ${errors.length} total errors`)
@@ -135,8 +229,23 @@ export async function ingestISaludData(
     return { doctors_created: doctorsCreated, doctors_existing: doctorsExisting, appointments_blocked: appointmentsBlocked, errors }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
-    await supabaseAdmin.from('sync_integrations').update({ sync_status: 'error', sync_error: errMsg, updated_at: new Date().toISOString() }).eq('clinic_id', clinicId).eq('provider', 'isalud')
+    const stack = err instanceof Error ? err.stack : ''
+    console.error(`[iSalud ingest] FATAL: ${errMsg}`)
+    console.error(`[iSalud ingest] STACK: ${stack}`)
+    const persisted = await persistSyncError({ clinic_id: clinicId }, errMsg, 'ingest')
+    if (persisted) reachedTerminal = true
     return { doctors_created: 0, doctors_existing: 0, appointments_blocked: 0, errors: [errMsg] }
+  } finally {
+    const durationS = (Date.now() - runStart) / 1000
+    console.log(`[iSalud ingest] RUN END at ${new Date().toISOString()}, clinic=${clinicId}, duration=${durationS.toFixed(2)}s, reachedTerminal=${reachedTerminal}`)
+    if (!reachedTerminal) {
+      console.error(`[iSalud ingest] UNEXPECTED: finally with reachedTerminal=false. Forzando sync_status=error.`)
+      await persistSyncError(
+        { clinic_id: clinicId },
+        'ingest interrupted before reaching terminal state (no error captured by try/catch)',
+        'ingest.finally'
+      )
+    }
   }
 }
 

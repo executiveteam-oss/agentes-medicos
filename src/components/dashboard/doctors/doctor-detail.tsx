@@ -27,6 +27,8 @@ import {
 import { getSchedulesForType, saveSchedulesForType, type CtSchedule } from '@/app/actions/consultation-type-schedules'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
 import { classifyRes256Category } from '@/app/actions/res256'
+import { getConsultationTypes } from '@/app/actions/consultation-types'
+import { TypesImportPanel } from '@/components/dashboard/doctors/types-import-panel'
 import type { ConsultationType, Res256Category } from '@/types/database'
 import type { BlockedDate } from '@/app/actions/blocked-dates'
 import { format, formatDistanceToNow } from 'date-fns'
@@ -64,6 +66,7 @@ export function DoctorDetailClient({
   const [activeTab, setActiveTab] = useState<TabKey>('basic')
   const [toast, setToast] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [importPanelOpen, setImportPanelOpen] = useState(false)
 
   // Basic tab state
   const [name, setName] = useState(doctor.name)
@@ -246,9 +249,19 @@ export function DoctorDetailClient({
 
       {activeTab === 'types' && (
         <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '8px', flexWrap: 'wrap' }}>
             <SectionTitle title="Tipos de consulta" />
-            <NewTypeBtn doctorId={doctor.id} onCreated={(ct) => { setCts((prev) => [...prev, ct]); showToast('Tipo creado') }} />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setImportPanelOpen(true)}
+                className="btn-v2-ghost"
+                style={{ fontSize: '12px' }}
+                title="Sugerencias derivadas de citas iSalud del médico + catálogo completo"
+              >
+                + Importar sugerencias de iSalud
+              </button>
+              <NewTypeBtn doctorId={doctor.id} onCreated={(ct) => { setCts((prev) => [...prev, ct]); showToast('Tipo creado') }} />
+            </div>
           </div>
           {cts.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center' }}>
@@ -297,6 +310,25 @@ export function DoctorDetailClient({
       {/* Toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: '24px', right: '24px', zIndex: 50, padding: '10px 18px', borderRadius: 'var(--v2-radius)', fontSize: '13px', fontWeight: 600, color: '#fff', background: 'var(--v2-text)', boxShadow: 'var(--v2-shadow-lg)' }}>{toast}</div>
+      )}
+
+      {/* Modal: import sugerencias iSalud doctor-first */}
+      {importPanelOpen && (
+        <TypesImportPanel
+          doctorId={doctor.id}
+          doctorName={doctor.name}
+          existingConsultationTypes={cts}
+          onClose={() => setImportPanelOpen(false)}
+          onCreated={(count) => {
+            if (count > 0) {
+              // Refrescar la lista de consultation_types tras la creación
+              getConsultationTypes(doctor.id).then((types) => {
+                if (Array.isArray(types)) setCts(types)
+              })
+              showToast(`${count} tipo${count === 1 ? '' : 's'} creado${count === 1 ? '' : 's'}`)
+            }
+          }}
+        />
       )}
     </div>
   )

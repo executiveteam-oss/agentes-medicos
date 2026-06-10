@@ -418,6 +418,57 @@ ZONA HORARIA: America/Bogota (UTC-5). Fecha actual: {now}
 
 ---
 
+## ⏳ MIGRACIÓN ALGIA — código de un solo uso, NO es feature del producto Omuwan
+
+**Decisión de alcance (2026-06-10)**: TODO el código que toca iSalud — sync de citas, importador de convenios, parseo de aseguradora, derivación consulta-convenio, derivación de horarios (descartada) — es **infraestructura de migración de Algia**, no feature del producto Omuwan.
+
+**Razón**: Algia es el ÚNICO cliente que migra de iSalud. Futuros clientes configuran horarios, convenios y tipos de consulta DIRECTAMENTE en Omuwan desde cero, sin importador. Generalizar este código para "cualquier clínica con iSalud" sería esfuerzo desperdiciado.
+
+**Implicaciones para sesiones futuras**:
+
+1. **NO generalizar.** El código puede ser Algia-specific. Hardcodear los 26 convenios reales de Algia uno por uno está OK. Lo que importa es que **los datos de Algia queden bien**, no que el método sirva para otros.
+
+2. **NO reusar para otro cliente.** Si en el futuro otro cliente quiere migrar desde iSalud, **diseñá un importador nuevo desde cero** con lo aprendido. El código de Algia no es plantilla.
+
+3. **Tiene fecha de caducidad.** Cuando Algia opere 100% en Omuwan (sync cortado, agenda no se duplica con iSalud), este código se puede borrar entero. No tiene valor histórico que justifique mantenerlo.
+
+4. **NO tratarlo como deuda técnica a refactorizar.** El código puede ser feo, hardcodeado, single-purpose. Eso es FEATURE, no bug — no inviertan tiempo en limpiarlo "para hacerlo bonito".
+
+5. **La cautela sobre datos NO se relaja por ser de un solo uso.** Algia es el único cliente real, no hay donde practicar. Cualquier escritura a la DB de producción de Algia es producción real.
+
+**Archivos en esta categoría (migración Algia, un solo uso)**:
+
+| Archivo | Rol |
+|---|---|
+| `src/lib/isalud/consulta-convenio-derivation.ts` | Lógica pura — derivar combinaciones procedimiento×convenio desde citas |
+| `src/lib/isalud/working-hours-derivation.ts` | Lógica pura — derivación de horarios (DESCARTADA, queda como referencia) |
+| `src/lib/isalud/convenios-agent.ts` | Scrape Playwright del Manual Tarifario |
+| `src/app/actions/isalud-consulta-convenio.ts` | Server actions: getSuggestionsForDoctor + confirmSuggestionsForDoctor |
+| `src/app/actions/isalud-convenios.ts` | Server actions del flujo viejo product-first |
+| `src/components/dashboard/doctors/types-import-panel.tsx` | UI doctor-first |
+| `scripts/import-isalud-working-hours.ts` | Diagnóstico de horarios (descartado, queda como herramienta) |
+| `scripts/test-consulta-convenio-derivation.ts` | Tests módulo derivación (38) |
+| `scripts/test-working-hours-derivation.ts` | Tests módulo horarios descartado (29) |
+| `scripts/dryrun-consulta-convenio-suggestions.ts` | Dry-run del feature contra Algia |
+
+**Archivos del SYNC PRODUCTIVO que también son Algia-specific PERO siguen activos hoy** (corren por cron cada 30 min mientras dure la transición):
+
+| Archivo | Estado |
+|---|---|
+| `src/lib/isalud/adapter.ts` | ACTIVO (Playwright login + scrape de admisiones) |
+| `src/lib/isalud/sync-agent.ts` | ACTIVO (cron sync de citas para evitar doble-agendamiento) |
+| `src/app/api/sync/isalud/route.ts` | ACTIVO (cron endpoint) |
+
+Cuando Algia corte iSalud para agenda, **estos 3 también se apagan y se borran**.
+
+**Cómo distinguir si algo es migración Algia vs feature productivo**:
+- Si vive en `src/lib/isalud/` → migración Algia
+- Si tiene `isalud` en el nombre del archivo → migración Algia
+- Si menciona conceptos de iSalud (admisión, profesional, disponibilidad, convenio importado) → migración Algia
+- Si es del producto Omuwan (citas, doctores, consultation_types como modelo, agente WhatsApp, dashboard) → NO migración, es feature productivo
+
+---
+
 ## 🧪 Tests Críticos
 
 | Escenario | Esperado |
@@ -696,10 +747,35 @@ Detalle del cruce numérico que descartó la idea: ver sesión 2026-06-10 en est
 - Document type `PP` (interno) mapea a `PA` (formato PISIS) en column-mapping
 - Pacientes sin documento usan `MS` (menor) o `AS` (adulto) — staff selecciona
 
+### 🚨 PENDIENTE CRÍTICO — Auditar `eapb_codes` contra catálogo oficial MinSalud
+
+**Estado** (2026-06-10, descubierto al diseñar feature convenios doctor-first): los códigos del seed `eapb_codes` (migración 00072) **pueden NO ser los oficiales del catálogo SISPRO**, a pesar de lo que dice el comentario de la migración. Hallazgos durante investigación:
+
+- **EPS017 y EPS018 aparecen cruzados**: el seed dice `EPS017=Famisanar` y `EPS018=Sanitas EPS`, pero dos fuentes externas independientes ([DSSA](https://www.dssa.gov.co/images/salud/herramientas/paisoft2/tablas/13_Administradoras.pdf), búsqueda cross-source confirmando) indican `EPS017=Coomeva EPS` y `EPS018=EPS Famisanar Ltda`.
+- **Prefijo "PRE" para prepagadas probablemente NO existe** en SISPRO. Las fuentes oficiales mencionan prefijos `EPS`, `EMP`, `EAS` (entidades adaptadas). Nuestros `PRE001..PRE007` son **códigos internos inventados al armar el seed**.
+- **PRE007 = "MediPlus" tiene typo**: el oficial es "MedPlus" (sin i) confirmado en el sitio oficial + iSalud productivo.
+
+**No se ha enviado nada al MinSalud aún** — Algia no ha generado ningún reporte Res-256. Pero el primer reporte que se descargue tendrá códigos potencialmente inválidos.
+
+**Por qué NO se arregló al descubrirlo**: la auditoría requiere el catálogo oficial completo del MinSalud/SISPRO (no accesible via WebFetch en formato parseable). El trabajo es regulatorio y necesita input de Lady/Algia cumplimiento + tiempo dedicado. Esto NO bloquea el feature de convenios para agendar (que usa el **nombre** del convenio, no el código).
+
+**Antes de que Algia genere el primer reporte Res-256, hacer**:
+1. Conseguir el catálogo SISPRO oficial 2026 en formato accesible (CSV/Excel desde [datos.gov.co](https://datos.gov.co), o API REPS si existe pública)
+2. Auditar los 19 códigos actuales contra el catálogo
+3. Corregir cruces (EPS017/EPS018) y el prefijo PRE→ el oficial (probablemente EAS)
+4. Re-verificar nombres (MedPlus, etc.)
+5. Re-correr la suite de tests Res-256 con códigos corregidos
+
+**Fuentes consultadas en la investigación**:
+- [Tabla DSSA Administradoras](https://www.dssa.gov.co/images/salud/herramientas/paisoft2/tablas/13_Administradoras.pdf) (PDF, formato no parseable directo)
+- [Listado SISPRO EAPB por IPS](https://sig.sispro.gov.co/aihospitalcontigo/pdf/listadoeapbxips_publicar.pdf) (PDF idem)
+- [Título II EAPB SuperSalud](https://docs.supersalud.gov.co/PortalWeb/metodologias/OtrosDocumentosMetodologias/Titulo%20II%20EAPB.pdf)
+- Sitio oficial [medplus.com.co](https://medplus.com.co) confirmando escritura "MedPlus" sin i
+
 ### Deuda técnica para mañana (Fase 2)
 1. **PRÓXIMO PRIORITARIO**: mejorar sync iSalud (`src/lib/isalud/`) para parsear campos Res-256 (`birth_date`, `gender`, `eapb_code`, `requested_at`, `res256_category` heurístico desde `procedimiento`) desde `external_data` antes del sync real de Algia. Sin esto, las 498 citas iSalud no aparecen en el reporte.
 2. Tabla `appointment_res256_complement` para que staff complete manualmente campos faltantes por cita histórica
-3. UI CRUD para `eapb_codes` (hoy es seed estático)
+3. UI CRUD para `eapb_codes` (hoy es seed estático) — combinable con la auditoría arriba
 4. Captura demográfica via agente WhatsApp (Fase 3) — modificar prompt + nueva tool `capture_demographic_data`
 5. Validación de cédula contra Registraduría (futuro)
 

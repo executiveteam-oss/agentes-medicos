@@ -1,3 +1,6 @@
+// ⏳ MIGRACIÓN ALGIA — código de un solo uso. NO es feature del producto Omuwan.
+// Además: este módulo en particular NO se usa en producción (ver sección "Horarios
+// NO se importan de iSalud" en CLAUDE.md). Queda como referencia.
 // ============================================================
 // Working Hours Derivation — pure logic, no DB, no I/O
 //

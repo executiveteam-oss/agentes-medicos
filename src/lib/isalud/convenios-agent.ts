@@ -1,3 +1,5 @@
+// ⏳ MIGRACIÓN ALGIA — código de un solo uso. NO es feature del producto Omuwan.
+// Ver sección "MIGRACIÓN ALGIA" en CLAUDE.md antes de modificar o reusar.
 // ============================================================
 // iSalud Convenios Agent — scraping de productos de convenios
 //

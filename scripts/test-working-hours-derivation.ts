@@ -1,4 +1,7 @@
 /**
+ * ⏳ MIGRACIÓN ALGIA — código de un solo uso (ver CLAUDE.md).
+ * Además: este módulo NO se usa en producción (ver "Horarios NO se importan de iSalud").
+ *
  * Tests para src/lib/isalud/working-hours-derivation.ts
  *
  * 26 tests sobre lógica pura:

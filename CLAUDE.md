@@ -592,6 +592,28 @@ Si necesitas cambiar algo, escríbenos."
 7. ~~**Falso positivo del auth check en adapter.ts:151-156**~~ — **RESUELTO el 9 jun 2026**. Se reemplazó el login HTTP por login Playwright nativo (`loginAndInjectCookies` en `src/lib/isalud/adapter.ts`). El nuevo flujo valida éxito/fallo desde el DOM (URL != root Y form de login ausente), eliminando la ambigüedad del 302→/. Helpers `extractAllSetCookies` + `ParsedCookie` eliminados. Histórico del bug en `docs/AUDIT_ISALUD_SYNC_2026_06_08.md` sección "Bug auth check".
 8. **`waitForTimeout(1500)` fijo post-submit en `loginAndInjectCookies`** — reemplazar a futuro por `waitForSelector` de un elemento de página interna (ej. nav del dashboard, link de logout, header de `/inicio`). Tiempo fijo genera falsos fallos si iSalud tarda más en redirigir; espera por condición es robusta. Mismo aplica al `waitForTimeout(2000)` post-`/disponibilidad`. Riesgo bajo hoy porque iSalud es predecible, pero conviene endurecerlo cuando agreguemos más clínicas con latencia variable
 
+### ⚠️ Integraciones sandbox iSalud — NO REACTIVAR (anotado 2026-06-10)
+
+Hay **2 filas de `sync_integrations` con `provider='isalud'`** que **NO son clientes productivos** y deben permanecer en `sync_status='disabled'` indefinidamente:
+
+| Integración | clinic_id | Subdomain | Por qué NO reactivar |
+|---|---|---|---|
+| **LondoMEdical (legacy)** | `eb1ab762-7265-40cc-bf6e-ea7d49c9c9af` | `algia` ← MISMO subdomain que el cliente REAL Algia | User `amfranco` con clave inválida (login devuelve "Clave incorrecta"). Si se reactiva, **golpea el iSalud REAL del cliente Algia cada 30 min con logins fallidos** → riesgo de lockout de la cuenta `amfranco` + ruido para el cliente. |
+| **demo** | `a1b2c3d4-0000-0000-0000-000000000001` | `demo` | `demo.isalud.co` **no resuelve** (NXDOMAIN). No es un iSalud productivo. Mantener solo para testing local. |
+
+**Razones para conservarlas y no borrarlas**:
+- Permiten testear el sync agent (con `subdomain` mockeado) sin tocar la integración real de Algia
+- Sirven para validar que el filtro `.neq('sync_status', 'disabled')` del cron sigue funcionando — cada vez que un cron tick devuelve `synced=0`, lo confirmamos
+
+**Salvaguardas activas**:
+- Ambas tienen `sync_error` con prefijo `'SANDBOX — DO NOT ENABLE'` + explicación específica
+- El cron de Vercel (`syncAllISaludIntegrations`) las excluye por la cláusula `.neq('sync_status', 'disabled')`
+- Si en alguna sesión futura aparece la idea de "reactivar todas las iSalud disabled de golpe" — **STOP, leer este bloque**
+
+**Si necesitás un sandbox nuevo de verdad**: crear una clínica de pruebas con su propio `clinic_id` + un `subdomain` que NO sea `algia` (para no confundir con productivo) — no reutilizar estas 2.
+
+**Cliente real único**: ALGIA (`dac775fe-6ebd-47e3-89b4-eeb1a821facb`), sync corriendo cada hora (`30 * * * *`) en producción desde 2026-06-09.
+
 ---
 
 ## 🆕 Sesión del 6-7 junio 2026 — Trabajo del día

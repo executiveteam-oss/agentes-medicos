@@ -614,6 +614,28 @@ Hay **2 filas de `sync_integrations` con `provider='isalud'`** que **NO son clie
 
 **Cliente real único**: ALGIA (`dac775fe-6ebd-47e3-89b4-eeb1a821facb`), sync corriendo cada hora (`30 * * * *`) en producción desde 2026-06-09.
 
+### ⛔ Horarios (working_hours) — NO se importan de iSalud (decisión 2026-06-10)
+
+**Política**: los `doctors.working_hours` se configuran **manualmente en Omuwan desde el dashboard**. Ningún auto-populate desde iSalud.
+
+**Por qué se descartó importar de iSalud** (diagnóstico ejecutado y descartado):
+- `/disponibilidad` **subestima** el horario real: muestra solo slots configurados para agendamiento web, no la jornada completa del médico.
+- Las citas históricas también subestiman desde el ángulo opuesto (un médico que atiende 8–18 puede tener primera cita a las 9 y última a las 16).
+- **Casos concretos de Algia que confirmaron la insuficiencia**:
+  - **JOSÉ DUVÁN**: tiene 243 citas reales con rango 07–16 en mié/jue, pero `/disponibilidad` solo capturó 07–11. Importar desde ahí hubiera perdido ~121 citas reales.
+  - **JORGE DARIO**: 10 citas reales en lunes, pero `/disponibilidad` lo marcaba INACTIVO.
+
+**Qué quedó en el repo (útil a futuro, sin uso productivo)**:
+- `src/lib/isalud/working-hours-derivation.ts` — lógica pura de derivación de patrón semanal (mode-based, split-shift, confidence levels). 26 tests verdes en `scripts/test-working-hours-derivation.ts`. Comentario al inicio del archivo explica el estado.
+- `scripts/import-isalud-working-hours.ts` — script con default DRY-RUN. **Marcado en header como "DIAGNÓSTICO, NO usar para poblar producción"**. Sirve para correr el cruce iSalud-vs-realidad si en el futuro alguien quiere re-evaluar la fuente.
+
+**Si en el futuro se quiere intentar de nuevo** auto-populate de horarios, la opción menos mala es **derivar de citas YA acumuladas en Omuwan** (no iSalud), porque:
+- Respeta el principio "Omuwan independiente de iSalud"
+- Las citas creadas en Omuwan son evento real (paciente confirmó hora con el agente)
+- El módulo de derivación funciona tal cual — solo cambia la fuente de slots
+
+Detalle del cruce numérico que descartó la idea: ver sesión 2026-06-10 en este archivo (búsqueda: "Cruce: /disponibilidad derivado vs citas reales").
+
 ---
 
 ## 🆕 Sesión del 6-7 junio 2026 — Trabajo del día

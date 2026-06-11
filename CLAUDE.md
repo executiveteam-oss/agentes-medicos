@@ -467,6 +467,40 @@ Cuando Algia corte iSalud para agenda, **estos 3 también se apagan y se borran*
 - Si menciona conceptos de iSalud (admisión, profesional, disponibilidad, convenio importado) → migración Algia
 - Si es del producto Omuwan (citas, doctores, consultation_types como modelo, agente WhatsApp, dashboard) → NO migración, es feature productivo
 
+### Estado al cierre de sesión 2026-06-10
+
+**FEATURE CONVENIOS — COMPLETO Y DEPLOYADO EN PRODUCCIÓN** (commit `82aa975`)
+
+Importador doctor-first de tipos de consulta desde citas iSalud:
+- Lady abre la ficha de un médico en `/dashboard/settings/doctors/[id]` → tab "Tipos de consulta"
+- Click en botón `+ Importar sugerencias de iSalud` → modal con sugerencias derivadas
+- Para cada combinación (procedimiento × convenio): nombre, duración, precio, eapb_code (informativo), insurer_type (EPS/Prepagada — soft warn si falta)
+- 3 niveles de UI: eapb gris/informativo, insurer amarillo/warn, datos básicos rojo/bloquea
+- Catálogo completo buscable abajo para agregar manual
+- Confirmación crea consultation_types en bloque; staging NO se borra para iterar por médicos
+
+**Validado en producción** (2026-06-10): precios del staging del 2026-04-23 confirmados vigentes por el usuario mirando José Duván. El "VM" (procedimiento sin precio que cruza por prefix) queda como decisión de Lady al configurar — si no lo reconoce, no lo selecciona.
+
+**Cobertura**:
+- 1026 citas iSalud parseables (0 unparseable de aseguradora — formato iSalud estable)
+- 129 combinaciones distintas (doctor, procedimiento, convenio) derivables
+- 9 médicos cubiertos en distintas magnitudes (JOSÉ DUVÁN máximo con 35 combinaciones; CHRISTIAN mínimo con 2)
+- 16 de 21 convenios con auto-classify eapb; 5 NEEDS_CLASSIFICATION (MEDPLUS, CALCULASER, SEGUROS BOLIVAR, SURAMERICANA, ASOCOEN)
+
+**PENDIENTES para dejar Algia operativa** (trabajo de CONFIGURACIÓN, no de código):
+
+1. **Lady configura horarios** de los 9 médicos a mano en Omuwan (auto-import desde iSalud fue descartado; fuente subestima el horario real, ver sección "Horarios NO se importan de iSalud"). 2 médicos ya tienen split-shift custom configurado (LINA, DANIELA). Faltan los 7 restantes.
+
+2. **Lady usa el feature de convenios** para poblar consultation_types médico por médico:
+   - Recomendado empezar por los más activos (JOSÉ DUVÁN 243 citas, JORGE DARIO 135, LINA 242, DANIELA 140)
+   - El feature ya respeta su flujo: revisa sugerencias → ajusta → confirma cuando esté segura. Nada se aplica solo.
+
+**PENDIENTE separado** (no bloquea agendamiento, NO afecta el flujo de Lady para configurar convenios):
+
+3. **Auditoría de códigos EAPB** antes del primer reporte Res-256 que se envíe a MinSalud. Detalle en sección "PENDIENTE CRÍTICO" arriba. El eapb_code que el sistema sugiere/muestra es informativo en el feature de convenios; el problema regulatorio aparece solo cuando Lady descarga el reporte Res-256 para subir a PISIS.
+
+**Tests al cierre**: 305 verdes (38 consulta-convenio + 29 working-hours derivation [descartado, queda como referencia] + 137 regresivos + 101 Res-256).
+
 ---
 
 ## 🧪 Tests Críticos

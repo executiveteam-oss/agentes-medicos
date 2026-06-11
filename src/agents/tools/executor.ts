@@ -12,6 +12,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { calculateEndTime, formatForPatient, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
 import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
+import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-notify'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
@@ -679,6 +680,19 @@ async function createAppointment(
     const { data: ctForIcs } = await supabaseAdmin.from('consultation_types').select('name').eq('id', consultationTypeId).single()
     consultationTypeNameForIcs = ctForIcs?.name ?? null
   }
+
+  // Notificar al staff por WhatsApp (mitiga gap transición Algia ↔ iSalud — fire-and-forget)
+  notifyStaffAppointmentCreated({
+    clinicId,
+    patientName,
+    patientPhone,
+    doctorName: doctorNameForIcs,
+    startsAt: appointment.starts_at,
+    endsAt: appointment.ends_at,
+    consultationTypeName: consultationTypeNameForIcs,
+    reason,
+    modality,
+  }).catch(() => { /* never throw — el helper ya hace su propio try/catch */ })
 
   // Construir mensaje de éxito
   let successMessage = 'Cita creada exitosamente'

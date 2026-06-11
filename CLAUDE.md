@@ -418,6 +418,92 @@ ZONA HORARIA: America/Bogota (UTC-5). Fecha actual: {now}
 
 ---
 
+## 🚀 LANZAMIENTO ALGIA — martes 16 de junio 2026
+
+**Contexto**: Algia está saturada de WhatsApps sin responder. Lanzamiento del agente IA respondiendo + agendando, aunque no esté todo perfecto.
+
+### Roster del lanzamiento
+
+**ACTIVOS (5 médicos)** — agendables por el agente desde el martes:
+
+| Médico | Horario | Tipos | Pre-martes pendiente |
+|---|---|---|---|
+| **LINA MARIA GRAJALES MARULANDA** (Fisioterapia) | ✅ custom | 8 | ninguno |
+| **DANIELA OSORIO POSADA** (Fisioterapia) | ✅ custom | 1 | revisar 1 tipo suficiente |
+| **JUAN DIEGO VILLEGAS ECHEVERRI** (Ginecología) | ⚠ default | 10 | configurar horario real |
+| **JOSÉ DUVÁN LÓPEZ JARAMILLO** (Ginecología) | ⚠ default | 0 | **tipos** (feature nuevo) + horario real |
+| **JORGE DARIO LOPEZ ISANOA** (Ginecología) | ⚠ default | 0 | **tipos** (feature nuevo) + horario real |
+
+**CERRADOS (4 médicos)** — `agenda_closed=true`, el agente responderá "agenda cerrada, propone otro doctor":
+
+- ADRIANA ESTEVEZ DURAN (Colposcopia) — 0 tipos
+- CHRISTIAN ANDRES QUINTERO RIVAS (Radiología) — 0 tipos
+- JAZMIN DANIELA GOMEZ RAMIREZ (Psicología) — 0 tipos
+- ANGELICA MARIA QUINTERO MONTAÑO (Ginecología) — 1 tipo, marcada * en roster
+
+### Protocolo de transición Algia ↔ iSalud (sync unidireccional)
+
+El staff de Algia sigue operando en iSalud mientras transicionan. Las citas que el agente cree en Omuwan **NO van a iSalud** → riesgo de doble-agendamiento. Mitigación:
+
+1. **Notificación WhatsApp automática al staff** por cada cita que el agente cree (commit del 2026-06-11): el helper `notifyStaffAppointmentCreated` (`src/lib/whatsapp/staff-appointment-notify.ts`) envía a `clinics.escalation_contact_phone` un resumen (paciente, médico, día, hora, tipo) + recordatorio "no agendar esta hora en iSalud". Fire-and-forget, no rompe el flujo si falla.
+
+2. **Lady revisa `/dashboard/agenda` ANTES de agendar en iSalud**. Las citas iSalud importadas (vía cron cada 30 min) y las creadas por el agente conviven en la misma vista.
+
+3. **Escalación por keyword** ("urgencia", "dolor", etc.) → conversation marcada `escalated`, el agente NO sigue respondiendo, `notifyEscalationContact` avisa al staff por WhatsApp. **Requiere `escalation_contact_phone` configurado** (sin eso, escala silenciosamente).
+
+### Crons confirmados activos al lanzamiento
+
+| Cron | Schedule | Función |
+|---|---|---|
+| `/api/cron/send-reminders` | `0 * * * *` (cada hora) | Recordatorios 72h + 24h + 2h (en mismo handler, filtros internos) |
+| `/api/cron/morning-report` | `0 11 * * *` | Reporte diario a Lady |
+| `/api/cron/post-consulta` | `0 14 * * *` | Followup post-consulta (feature_config controla activación) |
+| `/api/cron/reactivacion` | `0 15 * * 1` | Reactivación pacientes inactivos (lunes) |
+| `/api/cron/reopen-agendas` | `0 10 * * *` | Reabrir agendas que vencieron su agenda_closed_until |
+| `/api/cron/weekly-report` | `0 13 * * 1` | Reporte semanal lunes |
+| `/api/sync/isalud` | `30 * * * *` | Sync citas iSalud cada hora |
+| `/api/cron/cleanup-notifications` | `0 4 * * *` | Limpieza de notifs viejas |
+
+### Config crítica de Algia al lanzamiento
+
+| Campo | Valor | Estado |
+|---|---|---|
+| `whatsapp_connected` | `true` (desde 2026-06-04) | ⚠ **conectado al Test Number `+1 555-137-2411` de Meta sandbox, no al productivo 3245820722** — Lady/equipo Algia migra antes del martes |
+| `whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token` | presentes | ✅ |
+| `escalation_contact_phone` | **NULL** | 🚨 **bloqueante** — sin esto no llegan alertas al staff |
+| `feature_config.agent` | `true` | ✅ |
+| `feature_config.reminders_24h` + `reminders_72h` | ambos `true` | ✅ |
+| `feature_config.res256_enabled` | `true` | ✅ (pendiente auditoría EAPB pre-primer reporte) |
+| `subscription_plan` | `"core"` | ⚠ no está en `TOKEN_LIMITS` dict (`src/lib/api-usage.ts:12`) → fallback a `basic = 100K tokens/mes` |
+| `whatsapp_config.schedule` | L-S 07:00-20:00 + `out_of_hours_message` | ⚠ el `out_of_hours_message` configurado **NO se usa** — el agente improvisa siempre (system prompt línea 244) |
+| `min_booking_advance_hours` | 24 | ✅ |
+| `max_booking_advance_days` | 60 | ✅ |
+
+### Límite de tokens Anthropic — ajuste recomendado pre-martes
+
+Algia plan `core` cae al fallback `basic = 100K tokens/mes`. Estimación primer día con backlog:
+- ~80 turnos del agente × ~3,200 tokens = **~256K tokens**
+- Se pausaría a media mañana del martes (peor caso de lanzamiento)
+
+**Pendiente**: agregar `'core': 1_000_000` (1M tokens/mes) al `TOKEN_LIMITS` dict en `src/lib/api-usage.ts:12`. Cambio de 1 línea. Holgura ~4× sobre el peor escenario primer día.
+
+### Bloqueantes pendientes para el martes (resumen)
+
+1. **Migración del número WhatsApp real** Test Number → 3245820722 (Lady + Meta Business Manager)
+2. **`UPDATE clinics SET escalation_contact_phone = '<numero>'`** — sin esto las escalaciones quedan mudas
+3. **`UPDATE doctors SET agenda_closed=true` para los 4 cerrados** (Adriana, Christian, Jazmin, Angelica)
+4. **Configurar tipos de consulta + horario real** para JOSÉ DUVÁN y JORGE DARIO (feature nuevo)
+5. **Configurar horario real** para JUAN DIEGO y revisar de DANIELA, LINA
+6. **Ajustar TOKEN_LIMITS** para incluir plan `core` con 1M tokens
+
+### Decisiones diferidas (lanzables sin esto)
+
+- `out_of_hours_message` activación real (el agente sigue improvisando — funciona OK)
+- Auditoría EAPB para Res-256 (primer reporte regulatorio será post-lanzamiento)
+- Notificación al staff por cancelaciones/reagendamientos (la de creación ya cubre lo crítico)
+
+---
+
 ## ⏳ MIGRACIÓN ALGIA — código de un solo uso, NO es feature del producto Omuwan
 
 **Decisión de alcance (2026-06-10)**: TODO el código que toca iSalud — sync de citas, importador de convenios, parseo de aseguradora, derivación consulta-convenio, derivación de horarios (descartada) — es **infraestructura de migración de Algia**, no feature del producto Omuwan.

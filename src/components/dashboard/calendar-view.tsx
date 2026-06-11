@@ -149,6 +149,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           starts_at: newApt.starts_at as string,
           ends_at: newApt.ends_at as string,
           status: newApt.status as string,
+          attendance_outcome: (newApt.attendance_outcome as CalendarAppointment['attendance_outcome']) ?? null,
           reason: (newApt.reason as string | null) ?? null,
           reminder_24h_sent: false,
           reminder_confirmed: null,
@@ -159,6 +160,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           documents_requested: false,
           documents_received: false,
           free_text_reason: null,
+          consultation_type_name: null,
           patient: null,
           doctor: doctors.find((d) => d.id === newApt.doctor_id)
             ? { name: doctors.find((d) => d.id === newApt.doctor_id)!.name, specialty: null }

@@ -10,6 +10,13 @@ import { AppointmentDetail } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
 import { STATUS_STYLES, STATUS_LABELS, toDateStr, MONTHS_ES } from './types'
+
+/** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
+function toTitleCase(str: string): string {
+  const words = str.trim().split(/\s+/)
+  if (words.length === 1 && words[0].length < 4) return str
+  return words.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+}
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -33,8 +40,8 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
   const [toast, setToast] = useState<string | null>(null)
 
   const total = appointments.length
-  const completed = appointments.filter((a) => a.status === 'completed').length
-  const noShows = appointments.filter((a) => a.status === 'no_show').length
+  const completed = appointments.filter((a) => a.attendance_outcome === 'facturado').length
+  const noShows = appointments.filter((a) => a.attendance_outcome === 'inasistente').length
   const pending = appointments.filter((a) => a.status === 'confirmed' || a.status === 'rescheduled').length
 
   const dateFormatted = format(date, "EEEE d 'de' MMMM", { locale: es })
@@ -127,7 +134,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
             const doctor = apt.doctor
             const isExpanded = expandedApt === apt.id
             const st = STATUS_STYLES[apt.status] ?? STATUS_STYLES.confirmed
-            const patientName = patient?.name ?? apt.reason ?? 'Paciente'
+            const patientName = toTitleCase(patient?.name ?? apt.reason ?? 'Sin nombre')
 
             return (
               <div key={apt.id} style={{ borderBottom: '1px solid var(--v2-border-soft)' }}>
@@ -181,7 +188,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
 
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: '13.5px', fontWeight: 700, color: apt.status === 'no_show' ? 'var(--v2-text-subtle)' : 'var(--v2-text)', textDecoration: apt.status === 'no_show' ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <p style={{ fontSize: '13.5px', fontWeight: 700, color: apt.attendance_outcome === 'inasistente' ? 'var(--v2-text-subtle)' : 'var(--v2-text)', textDecoration: apt.attendance_outcome === 'inasistente' ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {patientName}
                     </p>
                     {doctor && <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>{doctor.name}</p>}

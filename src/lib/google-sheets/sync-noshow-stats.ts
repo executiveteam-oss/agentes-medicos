@@ -15,12 +15,12 @@ const TIME_SLOTS = ['8:00 - 10:00', '10:00 - 12:00', '12:00 - 14:00', '14:00 - 1
 export async function syncNoShowStatsTab(clinicId: string, sheetId: string): Promise<void> {
   const sheets = getSheetsClient()
 
-  // Todas las citas completadas o no-show (históricas)
+  // Todas las citas con outcome registrado (facturado o inasistente — histórico)
   const { data: appointments } = await supabaseAdmin
     .from('appointments')
-    .select('starts_at, status')
+    .select('starts_at, attendance_outcome')
     .eq('clinic_id', clinicId)
-    .in('status', ['completed', 'no_show'])
+    .in('attendance_outcome', ['facturado', 'inasistente'])
 
   if (!appointments) return
 
@@ -39,7 +39,7 @@ export async function syncNoShowStatsTab(clinicId: string, sheetId: string): Pro
 
     // Por día
     byDay[dayIndex].total++
-    if (apt.status === 'no_show') byDay[dayIndex].noShows++
+    if (apt.attendance_outcome === 'inasistente') byDay[dayIndex].noShows++
 
     // Por franja horaria
     let slotKey: string | null = null
@@ -51,7 +51,7 @@ export async function syncNoShowStatsTab(clinicId: string, sheetId: string): Pro
 
     if (slotKey) {
       bySlot[slotKey].total++
-      if (apt.status === 'no_show') bySlot[slotKey].noShows++
+      if (apt.attendance_outcome === 'inasistente') bySlot[slotKey].noShows++
     }
   }
 

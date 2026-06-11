@@ -96,7 +96,7 @@ export function AppointmentDetail({ appointment: apt, onClose }: Props) {
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-        <QuickActions appointmentId={apt.id} currentStatus={apt.status as AppointmentStatus} />
+        <QuickActions appointmentId={apt.id} currentStatus={apt.status as AppointmentStatus} attendanceOutcome={apt.attendance_outcome} />
       </div>
       {(apt.status === 'confirmed' || apt.status === 'rescheduled') && (
         <CancelAppointmentButton appointmentId={apt.id} />

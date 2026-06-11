@@ -79,7 +79,7 @@ export async function getPatientsList(opts: {
       .from('appointments')
       .select('patient_id, starts_at')
       .eq('clinic_id', clinicId)
-      .eq('status', 'no_show')
+      .eq('attendance_outcome', 'inasistente')
       .in('patient_id', patientIds)
       .order('starts_at', { ascending: false })
 
@@ -169,7 +169,7 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
   const [apptRes, convRes] = await Promise.all([
     supabaseAdmin
       .from('appointments')
-      .select('id, starts_at, status, reason, payment_type, documents_requested, documents_received, doctors(name)')
+      .select('id, starts_at, status, attendance_outcome, reason, payment_type, documents_requested, documents_received, doctors(name)')
       .eq('clinic_id', clinicId)
       .eq('patient_id', patientId)
       .order('starts_at', { ascending: false })
@@ -196,8 +196,8 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
     }
   }
 
-  // Última visita completada
-  const completedAppts = (apptRes.data ?? []).filter((a) => a.status === 'completed')
+  // Última visita facturada (= atendida completamente, semántica iSalud)
+  const completedAppts = (apptRes.data ?? []).filter((a) => (a as { attendance_outcome?: string }).attendance_outcome === 'facturado')
   const lastVisit = completedAppts.length > 0 ? completedAppts[0] : null // ya ordenadas desc
   const lastVisitAt = lastVisit?.starts_at ?? null
   const daysSinceLastVisit = lastVisitAt

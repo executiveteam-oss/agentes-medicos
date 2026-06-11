@@ -65,18 +65,18 @@ export default async function NoShowPage({ searchParams }: { searchParams: Promi
   // ---- Queries in parallel ----
   let currentQuery = supabaseAdmin
     .from('appointments')
-    .select('id, starts_at, status, consultation_type_id, patients(name, phone, no_show_count, total_appointments)')
+    .select('id, starts_at, attendance_outcome, consultation_type_id, patients(name, phone, no_show_count, total_appointments)')
     .eq('clinic_id', clinic.id)
-    .in('status', ['completed', 'no_show'])
+    .in('attendance_outcome', ['facturado', 'inasistente'])
     .gte('starts_at', currentStart.toISOString())
     .lte('starts_at', now.toISOString())
     .order('starts_at', { ascending: false })
 
   let previousQuery = supabaseAdmin
     .from('appointments')
-    .select('id, status')
+    .select('id, attendance_outcome')
     .eq('clinic_id', clinic.id)
-    .in('status', ['completed', 'no_show'])
+    .in('attendance_outcome', ['facturado', 'inasistente'])
     .gte('starts_at', previousStart.toISOString())
     .lt('starts_at', currentStart.toISOString())
 
@@ -92,7 +92,7 @@ export default async function NoShowPage({ searchParams }: { searchParams: Promi
 
   // ---- Current period stats ----
   const currentTotal = currentAppts.length
-  const currentNoShows = currentAppts.filter((a) => a.status === 'no_show')
+  const currentNoShows = currentAppts.filter((a) => a.attendance_outcome === 'inasistente')
   const currentNoShowCount = currentNoShows.length
   const currentRate = currentTotal > 0 ? Math.round((currentNoShowCount / currentTotal) * 100) : 0
 
@@ -109,7 +109,7 @@ export default async function NoShowPage({ searchParams }: { searchParams: Promi
     const d = new Date(apt.starts_at as string)
     const idx = d.getDay()
     byWeekday[idx].total++
-    if (apt.status === 'no_show') byWeekday[idx].noShows++
+    if (apt.attendance_outcome === 'inasistente') byWeekday[idx].noShows++
   }
   for (const wd of byWeekday) {
     wd.rate = wd.total > 0 ? Math.round((wd.noShows / wd.total) * 100) : 0
@@ -144,7 +144,7 @@ export default async function NoShowPage({ searchParams }: { searchParams: Promi
 
   // ---- Previous period stats ----
   const previousTotal = previousAppts.length
-  const previousNoShowCount = previousAppts.filter((a) => a.status === 'no_show').length
+  const previousNoShowCount = previousAppts.filter((a) => a.attendance_outcome === 'inasistente').length
   const previousRate = previousTotal > 0 ? Math.round((previousNoShowCount / previousTotal) * 100) : 0
   const hasEnoughHistory = previousTotal >= 5
 

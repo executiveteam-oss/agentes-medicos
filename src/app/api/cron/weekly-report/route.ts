@@ -83,13 +83,16 @@ export async function GET(request: NextRequest) {
       const weekStart = lastMonday.toISOString()
       const weekEnd = lastSunday.toISOString()
 
-      // Métricas de la semana
+      // Métricas de la semana (post-migración 00073: attendance_outcome)
+      // NOTA: 'completed' representa hoy solo las FACTURADAS, no las admitidas.
+      // Si Lady eventualmente pide sumar admitidas al revenue, cambiar este
+      // filtro a IN ('admitido','facturado') — espeja la decisión de sync-finances.ts
       const [completedRes, scheduledRes, noShowRes, newPatientsRes] = await Promise.all([
         supabaseAdmin
           .from('appointments')
           .select('id', { count: 'exact', head: true })
           .eq('clinic_id', clinic.id)
-          .eq('status', 'completed')
+          .eq('attendance_outcome', 'facturado')
           .gte('starts_at', weekStart)
           .lt('starts_at', weekEnd),
         supabaseAdmin
@@ -103,7 +106,7 @@ export async function GET(request: NextRequest) {
           .from('appointments')
           .select('id', { count: 'exact', head: true })
           .eq('clinic_id', clinic.id)
-          .eq('status', 'no_show')
+          .eq('attendance_outcome', 'inasistente')
           .gte('starts_at', weekStart)
           .lt('starts_at', weekEnd),
         supabaseAdmin

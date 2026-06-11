@@ -9,8 +9,11 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { format } from 'date-fns'
 
 // Límites por plan (input + output tokens combinados)
+// 'core' agregado 2026-06-11 para Algia (lanzamiento martes 16 jun) — ver CLAUDE.md
+// sección "LANZAMIENTO ALGIA". Holgura ~4× sobre el peor escenario primer día con backlog.
 const TOKEN_LIMITS: Record<string, number> = {
   basic: 100_000,
+  core: 1_000_000,
   pro: 500_000,
 }
 

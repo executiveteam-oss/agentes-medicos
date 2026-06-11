@@ -7,6 +7,7 @@ export interface CalendarAppointment {
   starts_at: string
   ends_at: string
   status: string
+  attendance_outcome: 'admitido' | 'facturado' | 'inasistente' | null
   reason: string | null
   reminder_24h_sent: boolean
   reminder_confirmed: boolean | null

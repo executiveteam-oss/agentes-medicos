@@ -27,28 +27,31 @@ export async function calculateNoShowProbability(
   patientId: string,
   clinicId: string
 ): Promise<NoShowResult> {
-  // 1. Contar citas completadas y no-shows del paciente
+  // 1. Cargar citas del paciente:
+  //    - PASADAS con outcome registrado (facturado/inasistente) → para tasa histórica
+  //    - FUTURAS confirmed/rescheduled → para chequear el próximo recordatorio
+  //    Post-migración 00073: status y attendance_outcome son ejes independientes.
   const { data: appointments } = await supabaseAdmin
     .from('appointments')
-    .select('status, reminder_confirmed')
+    .select('status, attendance_outcome, reminder_confirmed')
     .eq('clinic_id', clinicId)
     .eq('patient_id', patientId)
-    .in('status', ['completed', 'no_show', 'confirmed'])
+    .or('attendance_outcome.in.(facturado,inasistente),status.in.(confirmed,rescheduled)')
 
   const allPast = (appointments ?? []).filter(
-    (a) => a.status === 'completed' || a.status === 'no_show'
+    (a) => a.attendance_outcome === 'facturado' || a.attendance_outcome === 'inasistente'
   )
   const totalAppointments = allPast.length
-  const totalNoShows = allPast.filter((a) => a.status === 'no_show').length
+  const totalNoShows = allPast.filter((a) => a.attendance_outcome === 'inasistente').length
 
   // 2. Calcular probabilidad base
   let probability = totalAppointments > 0
     ? (totalNoShows / totalAppointments) * 100
     : 0
 
-  // 3. Verificar si confirmó el recordatorio de la próxima cita
+  // 3. Verificar si confirmó el recordatorio de la próxima cita futura
   const nextAppointment = (appointments ?? []).find(
-    (a) => a.status === 'confirmed'
+    (a) => a.status === 'confirmed' || a.status === 'rescheduled'
   )
   const confirmedReminder = nextAppointment?.reminder_confirmed ?? null
 

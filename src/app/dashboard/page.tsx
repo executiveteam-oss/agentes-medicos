@@ -75,7 +75,7 @@ export default async function DashboardPage() {
   let todayAptsQuery = supabaseAdmin
     .from('appointments')
     .select(`
-      id, starts_at, ends_at, status, reason, payment_type, doctor_id, free_text_reason,
+      id, starts_at, ends_at, status, attendance_outcome, reason, payment_type, doctor_id, free_text_reason,
       patients(id, name, phone),
       doctors(name)
     `)
@@ -89,19 +89,19 @@ export default async function DashboardPage() {
     todayAptsQuery = todayAptsQuery.eq('doctor_id', restrictDoctorId)
   }
 
-  // ---- No-show stats ----
+  // ---- No-show stats (basadas en attendance_outcome — migración 00073) ----
   let allTimeQuery = supabaseAdmin
     .from('appointments')
     .select('id', { count: 'exact', head: true })
     .eq('clinic_id', clinic.id)
-    .in('status', ['completed', 'no_show'])
+    .not('attendance_outcome', 'is', null)
   if (restrictDoctorId) allTimeQuery = allTimeQuery.eq('doctor_id', restrictDoctorId)
 
   let noShowQuery = supabaseAdmin
     .from('appointments')
     .select('id', { count: 'exact', head: true })
     .eq('clinic_id', clinic.id)
-    .eq('status', 'no_show')
+    .eq('attendance_outcome', 'inasistente')
   if (restrictDoctorId) noShowQuery = noShowQuery.eq('doctor_id', restrictDoctorId)
 
   // ---- Week stats ----
@@ -143,6 +143,7 @@ export default async function DashboardPage() {
     id: string
     starts_at: string
     status: string
+    attendance_outcome: 'admitido' | 'facturado' | 'inasistente' | null
     reason: string | null
     payment_type: string
     free_text_reason: string | null
@@ -156,6 +157,7 @@ export default async function DashboardPage() {
       id: apt.id as string,
       starts_at: apt.starts_at as string,
       status: apt.status as string,
+      attendance_outcome: (raw.attendance_outcome as TodayApt['attendance_outcome']) ?? null,
       reason: (apt.reason as string) ?? null,
       payment_type: (apt.payment_type as string) ?? 'Particular',
       free_text_reason: (raw.free_text_reason as string) ?? null,
@@ -211,7 +213,7 @@ export default async function DashboardPage() {
     {
       label: 'Citas hoy',
       value: todayNonExternal.length,
-      detail: `${todayAppts.filter((a) => a.status === 'completed').length} completadas`,
+      detail: `${todayAppts.filter((a) => a.attendance_outcome === 'facturado').length} facturadas`,
       icon: 'calendar',
       color: 'primary',
     },

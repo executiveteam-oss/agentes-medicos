@@ -313,6 +313,12 @@ export type AppointmentStatus =
   | 'rescheduled'
   | 'blocked_external'
 
+// Resultado de asistencia del día (eje separado de status — migración 00073).
+// Modelado según columna FASE del export iSalud.
+// NULL = "Programado" (estado inicial, nadie lo marca).
+// 'Alta administrativa' de iSalud queda FUERA del enum (1 caso raro, se maneja aparte).
+export type AttendanceOutcome = 'admitido' | 'facturado' | 'inasistente'
+
 export type AppointmentSource =
   | 'whatsapp_agent'
   | 'manual'
@@ -354,6 +360,7 @@ export interface Appointment {
   external_his_id: string | null          // ID en sistema de HC externo (migración 00032)
   requested_at: string | null            // Migración 00072 — cuando paciente solicitó
   desired_at: string | null              // YYYY-MM-DD — fecha deseada por paciente
+  attendance_outcome: AttendanceOutcome | null  // Migración 00073 — resultado del día (NULL = Programado)
   created_at: string
   updated_at: string
 }

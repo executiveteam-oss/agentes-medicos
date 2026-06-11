@@ -7,14 +7,32 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
-import type { PaymentType } from '@/types/database'
+import type { PaymentType, AttendanceOutcome } from '@/types/database'
 import { getSessionClinicId, checkWritePermission } from '@/lib/actions-helpers'
+import { computeNoShowDelta } from '@/lib/utils/attendance-outcome'
 
-/** Marcar cita como completada */
-export async function markAppointmentCompleted(appointmentId: string): Promise<void> {
-  const clinicId = await getSessionClinicId()
+// ============================================================
+// Marcado de asistencia (campo attendance_outcome — migración 00073)
+//
+// Estados modelados según columna FASE del export iSalud:
+//   NULL          = "Programado" (estado inicial, nadie lo marca)
+//   'admitido'    = paciente llegó y se admitió
+//   'facturado'   = consulta facturada
+//   'inasistente' = paciente no se presentó
+//
+// Garantías:
+//   - Idempotencia: marcar 2× el mismo estado NO duplica no_show_count
+//   - Revertir 'inasistente' → NULL decrementa no_show_count
+//   - Cambiar de 'inasistente' a otro outcome decrementa no_show_count
+//   - Cambiar de otro outcome a 'inasistente' incrementa no_show_count
+//   - Marcar 'facturado' recalcula visit frequency
+// ============================================================
 
-  // Obtener patient_id antes de actualizar
+async function adjustNoShowCount(
+  appointmentId: string,
+  clinicId: string,
+  delta: 1 | -1,
+): Promise<void> {
   const { data: apt } = await supabaseAdmin
     .from('appointments')
     .select('patient_id')
@@ -22,84 +40,112 @@ export async function markAppointmentCompleted(appointmentId: string): Promise<v
     .eq('clinic_id', clinicId)
     .single()
 
+  if (!apt?.patient_id) return
+
+  const { data: patient } = await supabaseAdmin
+    .from('patients')
+    .select('no_show_count')
+    .eq('id', apt.patient_id)
+    .eq('clinic_id', clinicId)
+    .single()
+
+  if (!patient) return
+
+  const current = patient.no_show_count ?? 0
+  const next = delta === 1 ? current + 1 : Math.max(0, current - 1)
+
+  await supabaseAdmin
+    .from('patients')
+    .update({ no_show_count: next })
+    .eq('id', apt.patient_id)
+    .eq('clinic_id', clinicId)
+}
+
+async function setAttendanceOutcomeInternal(
+  appointmentId: string,
+  next: AttendanceOutcome | null,
+): Promise<{ clinicId: string; previous: AttendanceOutcome | null }> {
+  const clinicId = await getSessionClinicId()
+
+  const { data: apt } = await supabaseAdmin
+    .from('appointments')
+    .select('attendance_outcome')
+    .eq('id', appointmentId)
+    .eq('clinic_id', clinicId)
+    .single()
+
+  if (!apt) throw new Error('Cita no encontrada')
+
+  const previous = (apt.attendance_outcome ?? null) as AttendanceOutcome | null
+
+  if (previous === next) return { clinicId, previous }
+
   const { error } = await supabaseAdmin
     .from('appointments')
-    .update({ status: 'completed', updated_at: new Date().toISOString() })
+    .update({ attendance_outcome: next, updated_at: new Date().toISOString() })
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
 
   if (error) throw new Error('Error actualizando cita')
+
+  const delta = computeNoShowDelta(previous, next)
+  if (delta !== 0) {
+    await adjustNoShowCount(appointmentId, clinicId, delta)
+  }
 
   await supabaseAdmin.from('audit_log').insert({
     clinic_id: clinicId,
-    action: 'appointment_completed',
+    action: next ? `attendance_marked_${next}` : 'attendance_reverted',
     actor_type: 'staff',
     target_type: 'appointment',
     target_id: appointmentId,
-    details: {},
+    details: { previous },
   })
 
-  // Recalcular frecuencia de visita del paciente
-  if (apt?.patient_id) {
-    try {
-      const { calculateVisitFrequency } = await import('@/app/actions/reactivation')
-      await calculateVisitFrequency(apt.patient_id, clinicId)
-    } catch {
-      // No bloquear la operación principal
-    }
+  revalidatePath('/dashboard')
+  if (next === 'inasistente' || previous === 'inasistente') {
+    revalidatePath('/dashboard/noshow')
   }
 
-  revalidatePath('/dashboard')
+  return { clinicId, previous }
 }
 
-/** Marcar cita como no-show */
-export async function markAppointmentNoShow(appointmentId: string): Promise<void> {
-  const clinicId = await getSessionClinicId()
+/** Marcar cita como ADMITIDA — paciente llegó al consultorio */
+export async function markAsAdmitido(appointmentId: string): Promise<void> {
+  await setAttendanceOutcomeInternal(appointmentId, 'admitido')
+}
 
-  const { error } = await supabaseAdmin
-    .from('appointments')
-    .update({ status: 'no_show', updated_at: new Date().toISOString() })
-    .eq('id', appointmentId)
-    .eq('clinic_id', clinicId)
+/** Marcar cita como FACTURADA — consulta cobrada/facturada */
+export async function markAsFacturado(appointmentId: string): Promise<void> {
+  const { clinicId, previous } = await setAttendanceOutcomeInternal(appointmentId, 'facturado')
 
-  if (error) throw new Error('Error actualizando cita')
-
-  // Incrementar no_show_count del paciente
-  const { data: apt } = await supabaseAdmin
-    .from('appointments')
-    .select('patient_id')
-    .eq('id', appointmentId)
-    .eq('clinic_id', clinicId)
-    .single()
-
-  if (apt) {
-    const { data: patient } = await supabaseAdmin
-      .from('patients')
-      .select('no_show_count')
-      .eq('id', apt.patient_id)
+  if (previous !== 'facturado') {
+    const { data: apt } = await supabaseAdmin
+      .from('appointments')
+      .select('patient_id')
+      .eq('id', appointmentId)
       .eq('clinic_id', clinicId)
       .single()
 
-    if (patient) {
-      await supabaseAdmin
-        .from('patients')
-        .update({ no_show_count: (patient.no_show_count ?? 0) + 1 })
-        .eq('id', apt.patient_id)
-        .eq('clinic_id', clinicId)
+    if (apt?.patient_id) {
+      try {
+        const { calculateVisitFrequency } = await import('@/app/actions/reactivation')
+        await calculateVisitFrequency(apt.patient_id, clinicId)
+      } catch {
+        // No bloquear la operación principal
+      }
     }
   }
+}
 
-  await supabaseAdmin.from('audit_log').insert({
-    clinic_id: clinicId,
-    action: 'appointment_no_show',
-    actor_type: 'staff',
-    target_type: 'appointment',
-    target_id: appointmentId,
-    details: {},
-  })
+/** Marcar cita como INASISTENTE — paciente no se presentó */
+export async function markAsInasistente(appointmentId: string): Promise<void> {
+  await setAttendanceOutcomeInternal(appointmentId, 'inasistente')
+}
 
-  revalidatePath('/dashboard')
-  revalidatePath('/dashboard/noshow')
+/** Revertir asistencia a NULL ("Programado") — ajusta no_show_count si aplica */
+export async function revertAttendanceOutcome(appointmentId: string): Promise<void> {
+  await setAttendanceOutcomeInternal(appointmentId, null)
 }
 
 /** Actualizar tipo de pago de una cita */
@@ -374,7 +420,7 @@ export async function getAppointmentForCalendar(appointmentId: string) {
   const { data: apt } = await supabaseAdmin
     .from('appointments')
     .select(`
-      id, starts_at, ends_at, status, reason, reminder_24h_sent, reminder_confirmed,
+      id, starts_at, ends_at, status, attendance_outcome, reason, reminder_24h_sent, reminder_confirmed,
       payment_type, doctor_id, modality, virtual_link,
       documents_requested, documents_received, free_text_reason,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
@@ -393,6 +439,7 @@ export async function getAppointmentForCalendar(appointmentId: string) {
     starts_at: apt.starts_at as string,
     ends_at: apt.ends_at as string,
     status: apt.status as string,
+    attendance_outcome: (raw.attendance_outcome as 'admitido' | 'facturado' | 'inasistente' | null) ?? null,
     reason: (apt.reason as string) ?? null,
     reminder_24h_sent: (apt.reminder_24h_sent as boolean) ?? false,
     reminder_confirmed: (raw.reminder_confirmed as boolean | null) ?? null,

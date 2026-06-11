@@ -63,11 +63,12 @@ export default async function AgendaPage() {
   let aptsQuery = supabaseAdmin
     .from('appointments')
     .select(`
-      id, starts_at, ends_at, status, reason, reminder_24h_sent, reminder_confirmed,
+      id, starts_at, ends_at, status, attendance_outcome, reason, reminder_24h_sent, reminder_confirmed,
       payment_type, doctor_id, modality, virtual_link,
       documents_requested, documents_received, free_text_reason,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
-      doctors(name, specialty)
+      doctors(name, specialty),
+      consultation_types(name)
     `)
     .eq('clinic_id', clinic.id)
     .in('status', ['confirmed', 'rescheduled', 'completed', 'no_show', 'blocked_external'])
@@ -88,6 +89,7 @@ export default async function AgendaPage() {
       starts_at: apt.starts_at as string,
       ends_at: apt.ends_at as string,
       status: apt.status as string,
+      attendance_outcome: (raw.attendance_outcome as CalendarAppointment['attendance_outcome']) ?? null,
       reason: (apt.reason as string) ?? null,
       reminder_24h_sent: (apt.reminder_24h_sent as boolean) ?? false,
       reminder_confirmed: (raw.reminder_confirmed as boolean | null) ?? null,
@@ -97,6 +99,7 @@ export default async function AgendaPage() {
       documents_requested: (raw.documents_requested as boolean) ?? false,
       documents_received: (raw.documents_received as boolean) ?? false,
       free_text_reason: (raw.free_text_reason as string) ?? null,
+      consultation_type_name: (raw.consultation_types as { name: string } | null)?.name ?? null,
       doctor_id: (raw.doctor_id as string) ?? null,
       patient: raw.patients as CalendarAppointment['patient'],
       doctor: raw.doctors as CalendarAppointment['doctor'],

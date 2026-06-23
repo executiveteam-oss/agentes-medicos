@@ -26,7 +26,7 @@ interface DoctorItem {
 
 
 
-export function DoctorsListClient({ doctors, activeCount }: { doctors: DoctorItem[]; activeCount: number }) {
+export function DoctorsListClient({ doctors, activeCount, canWrite = true }: { doctors: DoctorItem[]; activeCount: number; canWrite?: boolean }) {
   const [showModal, setShowModal] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -49,9 +49,11 @@ export function DoctorsListClient({ doctors, activeCount }: { doctors: DoctorIte
             {activeCount} activos · {withFuture} con citas proximas
           </p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-v2-primary" style={{ fontSize: '13px', padding: '9px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Plus size={16} /> Nuevo doctor
-        </button>
+        {canWrite && (
+          <button onClick={() => setShowModal(true)} className="btn-v2-primary" style={{ fontSize: '13px', padding: '9px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Plus size={16} /> Nuevo doctor
+          </button>
+        )}
       </div>
 
       {/* List */}
@@ -60,9 +62,11 @@ export function DoctorsListClient({ doctors, activeCount }: { doctors: DoctorIte
           <UserPlus size={40} style={{ color: 'var(--v2-primary)', opacity: 0.3, margin: '0 auto 12px' }} />
           <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--v2-text-muted)' }}>Aun no tienes doctores</p>
           <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>Crea tu primer doctor para gestionar agendas</p>
-          <button onClick={() => setShowModal(true)} className="btn-v2-primary" style={{ fontSize: '13px', padding: '9px 18px', marginTop: '16px' }}>
-            + Nuevo doctor
-          </button>
+          {canWrite && (
+            <button onClick={() => setShowModal(true)} className="btn-v2-primary" style={{ fontSize: '13px', padding: '9px 18px', marginTop: '16px' }}>
+              + Nuevo doctor
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

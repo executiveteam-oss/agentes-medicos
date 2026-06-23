@@ -6,7 +6,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
+import { checkReadPermission, checkWritePermission, extractActionError } from '@/lib/actions-helpers'
 import type { ConsultationType, ConsultationModality } from '@/types/database'
 
 // --- Tipos ---
@@ -76,7 +76,9 @@ export async function getAllConsultationTypes(): Promise<ConsultationType[]> {
 export async function createConsultationType(
   input: ConsultationTypeInput
 ): Promise<{ ok: boolean; data?: ConsultationType; error?: string }> {
-  const clinicId = await checkWritePermission('whatsapp')
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
 
   if (!input.name.trim()) {
     return { ok: false, error: 'El nombre es obligatorio' }
@@ -135,7 +137,9 @@ export async function updateConsultationType(
   id: string,
   input: Partial<ConsultationTypeInput>
 ): Promise<{ ok: boolean; error?: string }> {
-  const clinicId = await checkWritePermission('whatsapp')
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
 
   const updateData: Record<string, unknown> = {}
   if (input.name !== undefined) updateData.name = input.name.trim()
@@ -203,7 +207,9 @@ export async function updateConsultationType(
 export async function deleteConsultationType(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const clinicId = await checkWritePermission('whatsapp')
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
 
   // Verificar que no haya citas futuras con este tipo
   const { count } = await supabaseAdmin
@@ -264,7 +270,9 @@ export async function classifyInsurerType(
   id: string,
   insurerType: 'EPS' | 'Prepagada' | null
 ): Promise<{ ok: boolean; error?: string }> {
-  const clinicId = await checkWritePermission('whatsapp')
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
 
   if (insurerType !== null && insurerType !== 'EPS' && insurerType !== 'Prepagada') {
     return { ok: false, error: 'insurer_type inválido' }

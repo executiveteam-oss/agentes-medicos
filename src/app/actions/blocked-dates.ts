@@ -1,7 +1,7 @@
 'use server'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
+import { checkReadPermission, checkWritePermission, extractActionError } from '@/lib/actions-helpers'
 import { cancelAndNotifyPatient } from '@/lib/cancel-notify'
 import { revalidatePath } from 'next/cache'
 
@@ -93,7 +93,9 @@ export async function createBlockedDate(input: {
   patientReason?: string | null
   cancelAndNotify?: boolean
 }): Promise<{ ok: boolean; error?: string; cancelled?: number; notified?: number }> {
-  const clinicId = await checkWritePermission('whatsapp')
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
   if (!input.startDate || !input.endDate) return { ok: false, error: 'Fechas obligatorias' }
   if (input.endDate < input.startDate) return { ok: false, error: 'La fecha fin debe ser igual o posterior' }
 
@@ -145,7 +147,9 @@ export async function createBlockedDate(input: {
 }
 
 export async function deleteBlockedDate(id: string): Promise<{ ok: boolean; error?: string }> {
-  const clinicId = await checkWritePermission('whatsapp')
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
   const { error } = await supabaseAdmin.from('blocked_dates').delete().eq('id', id).eq('clinic_id', clinicId)
   if (error) return { ok: false, error: 'Error eliminando bloqueo' }
 

@@ -1,7 +1,7 @@
 'use server'
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
+import { checkReadPermission, checkWritePermission, extractActionError } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
 
 export interface CtSchedule {
@@ -26,7 +26,8 @@ export async function saveSchedulesForType(
   consultationTypeId: string,
   schedules: Array<{ day_of_week: number; start_time: string; end_time: string }>
 ): Promise<{ ok: boolean; error?: string }> {
-  await checkWritePermission('whatsapp')
+  try { await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
 
   // Validate no overlaps per day
   const byDay = new Map<number, Array<{ start: string; end: string }>>()

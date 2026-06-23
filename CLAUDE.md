@@ -589,6 +589,47 @@ Importador doctor-first de tipos de consulta desde citas iSalud:
 
 ---
 
+## ⚠️ Permission gates en doctors + consultation-types — DEUDA TÉCNICA, NO RENOMBRAR
+
+**Hallazgo 2026-06-23, post bug Algia (Milena+Yuliana con rol Secretaria intentaron modificar horarios/servicios sin guardar)**:
+
+Las server actions de **`doctors.ts`** y **`consultation-types.ts`** + **`consultation-type-schedules.ts`** + **`blocked-dates.ts`** usan `checkWritePermission('whatsapp')` como gate de permisos — **NO `checkWritePermission('settings')` como uno esperaría** por estar bajo `/dashboard/settings/doctors/`.
+
+Convención histórica heredada de cuando todo esto vivía bajo `/dashboard/whatsapp/`. Quedó así por inercia tras el rename de rutas.
+
+**🚨 NO "ordenar" cambiando a `'settings'`**. Si alguien refactoriza por estética, **rompe Coordinadora**:
+
+| Rol | `whatsapp.write` | `settings.write` |
+|---|---|---|
+| Admin | ✅ | ✅ |
+| Coordinadora (default) | ✅ | ❌ |
+| Secretaria | ❌ | ❌ |
+| Doctor | ❌ | ❌ |
+| Contador | ❌ | ❌ |
+
+Cambiar el gate a `'settings'` significaría que **solo Admin** puede editar médicos. Coordinadora — el rol por defecto del equipo operativo — perdería el acceso de un día para otro.
+
+**Si en algún momento se quiere refactorizar correctamente**:
+1. Migrar permisos: `Coordinadora.settings.write = true` (UPDATE clinic_roles)
+2. Cambiar las actions a `checkWritePermission('settings')`
+3. Verificar con Lady que nadie del equipo perdió acceso
+4. NO hacer 1 sin 2, ni 2 sin 1
+
+Hasta entonces: el gate sigue siendo `'whatsapp'`. Las páginas server-side calculan `canWrite = session.permissions.whatsapp?.write === true` y pasan ese flag al cliente para esconder/deshabilitar controles de escritura (`/dashboard/settings/doctors/page.tsx` y `[id]/page.tsx`).
+
+Archivos involucrados:
+- `src/lib/actions-helpers.ts` — define `checkWritePermission`, `extractActionError`, mensajes user-friendly
+- `src/app/actions/doctors.ts` — 8 actions con gate
+- `src/app/actions/consultation-types.ts` — 4 actions con gate
+- `src/app/actions/consultation-type-schedules.ts` — 1 action con gate
+- `src/app/actions/blocked-dates.ts` — 2 actions con gate
+- `src/app/dashboard/settings/doctors/page.tsx` — calcula canWrite y lo pasa al componente
+- `src/app/dashboard/settings/doctors/[id]/page.tsx` — idem
+- `src/components/dashboard/doctors/doctor-detail.tsx` — recibe canWrite, banner read-only, esconde botones, deshabilita inputs
+- `src/components/dashboard/doctors/doctors-list.tsx` — recibe canWrite, esconde "+ Nuevo doctor"
+
+---
+
 ## 🧪 Tests Críticos
 
 | Escenario | Esperado |

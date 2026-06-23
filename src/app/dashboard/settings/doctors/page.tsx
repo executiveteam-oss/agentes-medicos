@@ -39,10 +39,14 @@ export default async function DoctorsPage() {
 
   const activeCount = doctorList.filter((d) => d.is_active && !d.agenda_closed).length
 
+  // Ver CLAUDE.md "Permission gates en doctors" — las actions usan 'whatsapp', no 'settings'
+  const canWrite = session.permissions.whatsapp?.write === true
+
   return (
     <DoctorsListClient
       doctors={doctorList}
       activeCount={activeCount}
+      canWrite={canWrite}
     />
   )
 }

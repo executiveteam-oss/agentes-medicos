@@ -5,7 +5,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { checkWritePermission } from '@/lib/actions-helpers'
+import { checkWritePermission, extractActionError } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
 import { normalizeWorkingHours, validateBlocks, WORKING_HOURS_DAY_KEYS } from '@/lib/utils/working-hours'
 import type { WorkingHours } from '@/types/database'
@@ -65,8 +65,8 @@ export async function createDoctor(
 
     revalidatePath('/dashboard/whatsapp')
     return { ok: true, doctor: data as DoctorResult }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }
 
@@ -104,8 +104,8 @@ export async function updateDoctor(
 
     revalidatePath('/dashboard/whatsapp')
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }
 
@@ -136,8 +136,8 @@ export async function toggleDoctorActive(
 
     revalidatePath('/dashboard/whatsapp')
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }
 
@@ -174,8 +174,8 @@ export async function closeDoctorAgenda(
     revalidatePath('/dashboard/whatsapp')
     revalidatePath('/dashboard')
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }
 
@@ -210,8 +210,8 @@ export async function reopenDoctorAgenda(
     revalidatePath('/dashboard/whatsapp')
     revalidatePath('/dashboard')
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }
 
@@ -247,8 +247,8 @@ export async function updateDoctorScheduleType(
     revalidatePath('/dashboard/whatsapp')
     revalidatePath('/dashboard')
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }
 
@@ -304,8 +304,8 @@ export async function updateDoctorWorkingHours(
     revalidatePath('/dashboard/whatsapp')
     revalidatePath('/dashboard')
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }
 
@@ -352,7 +352,7 @@ export async function deleteDoctor(
 
     revalidatePath('/dashboard/whatsapp')
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
   }
 }

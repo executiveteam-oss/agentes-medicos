@@ -33,8 +33,15 @@ export default async function DoctorDetailPage({ params }: { params: Promise<{ i
     getBlockedDatesForDoctor(id),
   ])
 
+  // Las actions de doctors + consultation-types usan checkWritePermission('whatsapp')
+  // — no 'settings'. Ver CLAUDE.md sección "Permission gates en doctors".
+  // Si el rol no tiene whatsapp.write, la UI debe mostrarse read-only.
+  const canWrite = session.permissions.whatsapp?.write === true
+
   return (
     <DoctorDetailClient
+      canWrite={canWrite}
+      userRoleName={session.role.name}
       doctor={{
         id: doctor.id as string,
         name: doctor.name as string,

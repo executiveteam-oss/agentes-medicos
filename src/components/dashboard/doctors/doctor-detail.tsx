@@ -55,10 +55,14 @@ export function DoctorDetailClient({
   doctor: initialDoctor,
   consultationTypes: initialCTs,
   blockedDates: initialBlocks,
+  canWrite = true,
+  userRoleName,
 }: {
   doctor: DoctorData
   consultationTypes: ConsultationType[]
   blockedDates: BlockedDate[]
+  canWrite?: boolean
+  userRoleName?: string
 }) {
   const [doctor, setDoctor] = useState(initialDoctor)
   const [cts, setCts] = useState(initialCTs)
@@ -135,6 +139,18 @@ export function DoctorDetailClient({
         <span style={{ color: 'var(--v2-text-subtle)' }}>{doctor.name}</span>
       </div>
 
+      {/* Read-only banner para roles sin permiso de escritura */}
+      {!canWrite && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 18px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-amber-soft)', border: '1px solid rgba(255,184,69,0.3)' }}>
+          <Lock size={16} style={{ color: '#b07d00', flexShrink: 0 }} />
+          <div style={{ flex: 1, fontSize: '13px', color: '#7a5500' }}>
+            <strong style={{ fontWeight: 700 }}>Modo solo lectura.</strong>{' '}
+            Tu rol{userRoleName ? ` (${userRoleName})` : ''} no permite editar datos de médicos, horarios, servicios ni bloqueos.
+            Pedile al administrador del consultorio que actualice tus permisos si necesitás hacer cambios.
+          </div>
+        </div>
+      )}
+
       {/* Agenda closed banner */}
       {doctor.agenda_closed && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '14px 18px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-amber-soft)', border: '1px solid rgba(255,184,69,0.3)', flexWrap: 'wrap' }}>
@@ -145,9 +161,11 @@ export function DoctorDetailClient({
               {doctor.agenda_closed_until && ` · Hasta ${doctor.agenda_closed_until}`}
             </span>
           </div>
-          <button onClick={handleReopenAgenda} disabled={isPending} className="btn-v2-secondary" style={{ fontSize: '11px', padding: '5px 12px' }}>
-            Reabrir ahora
-          </button>
+          {canWrite && (
+            <button onClick={handleReopenAgenda} disabled={isPending} className="btn-v2-secondary" style={{ fontSize: '11px', padding: '5px 12px' }}>
+              Reabrir ahora
+            </button>
+          )}
         </div>
       )}
 
@@ -169,14 +187,16 @@ export function DoctorDetailClient({
               {doctor.email && <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--v2-text-muted)' }}><Mail size={11} />{doctor.email}</span>}
             </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
-            {!doctor.agenda_closed && (
-              <CloseAgendaBtn onClose={handleCloseAgenda} disabled={isPending} />
-            )}
-            <button onClick={handleToggleActive} disabled={isPending} className="btn-v2-ghost" style={{ fontSize: '11px', padding: '6px 12px', color: doctor.is_active ? 'var(--v2-red)' : 'var(--v2-green-deep)' }}>
-              {doctor.is_active ? 'Desactivar' : 'Activar'}
-            </button>
-          </div>
+          {canWrite && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flexShrink: 0 }}>
+              {!doctor.agenda_closed && (
+                <CloseAgendaBtn onClose={handleCloseAgenda} disabled={isPending} />
+              )}
+              <button onClick={handleToggleActive} disabled={isPending} className="btn-v2-ghost" style={{ fontSize: '11px', padding: '6px 12px', color: doctor.is_active ? 'var(--v2-red)' : 'var(--v2-green-deep)' }}>
+                {doctor.is_active ? 'Desactivar' : 'Activar'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -209,26 +229,28 @@ export function DoctorDetailClient({
         <Card>
           <SectionTitle title="Datos basicos" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Nombre *" value={name} onChange={setName} />
-            <Field label="Especialidad" value={specialty} onChange={setSpecialty} />
+            <Field label="Nombre *" value={name} onChange={setName} disabled={!canWrite} />
+            <Field label="Especialidad" value={specialty} onChange={setSpecialty} disabled={!canWrite} />
           </div>
           <div style={{ marginTop: '20px' }}>
             <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--v2-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>Tipo de horario</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <RadioCard selected={scheduleType === 'fixed'} onClick={() => setScheduleType('fixed')} title="Horario fijo" desc="Bloques definidos por dia" />
-              <RadioCard selected={scheduleType === 'manual'} onClick={() => setScheduleType('manual')} title="Sin horario fijo" desc="Agenda se coordina manualmente" />
+              <RadioCard selected={scheduleType === 'fixed'} onClick={() => canWrite && setScheduleType('fixed')} title="Horario fijo" desc="Bloques definidos por dia" disabled={!canWrite} />
+              <RadioCard selected={scheduleType === 'manual'} onClick={() => canWrite && setScheduleType('manual')} title="Sin horario fijo" desc="Agenda se coordina manualmente" disabled={!canWrite} />
             </div>
             {scheduleType === 'manual' && (
               <div style={{ marginTop: '12px' }}>
-                <Field label="Mensaje para pacientes" value={manualMsg} onChange={setManualMsg} placeholder="El doctor ajusta su agenda segun disponibilidad..." />
+                <Field label="Mensaje para pacientes" value={manualMsg} onChange={setManualMsg} placeholder="El doctor ajusta su agenda segun disponibilidad..." disabled={!canWrite} />
               </div>
             )}
           </div>
-          <div style={{ marginTop: '20px' }}>
-            <button onClick={handleSaveBasic} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '13px' }}>
-              {isPending ? 'Guardando...' : 'Guardar datos'}
-            </button>
-          </div>
+          {canWrite && (
+            <div style={{ marginTop: '20px' }}>
+              <button onClick={handleSaveBasic} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '13px' }}>
+                {isPending ? 'Guardando...' : 'Guardar datos'}
+              </button>
+            </div>
+          )}
         </Card>
       )}
 
@@ -242,7 +264,7 @@ export function DoctorDetailClient({
               <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>Cambia el tipo de horario en la tab Datos basicos</p>
             </div>
           ) : (
-            <ScheduleEditor doctorId={doctor.id} initialHours={doctor.working_hours} onSaved={() => showToast('Horario guardado')} onError={(e) => showToast(e)} />
+            <ScheduleEditor doctorId={doctor.id} initialHours={doctor.working_hours} onSaved={() => showToast('Horario guardado')} onError={(e) => showToast(e)} canWrite={canWrite} />
           )}
         </Card>
       )}
@@ -251,17 +273,19 @@ export function DoctorDetailClient({
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '8px', flexWrap: 'wrap' }}>
             <SectionTitle title="Tipos de consulta" />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => setImportPanelOpen(true)}
-                className="btn-v2-ghost"
-                style={{ fontSize: '12px' }}
-                title="Sugerencias derivadas de citas iSalud del médico + catálogo completo"
-              >
-                + Importar sugerencias de iSalud
-              </button>
-              <NewTypeBtn doctorId={doctor.id} onCreated={(ct) => { setCts((prev) => [...prev, ct]); showToast('Tipo creado') }} />
-            </div>
+            {canWrite && (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setImportPanelOpen(true)}
+                  className="btn-v2-ghost"
+                  style={{ fontSize: '12px' }}
+                  title="Sugerencias derivadas de citas iSalud del médico + catálogo completo"
+                >
+                  + Importar sugerencias de iSalud
+                </button>
+                <NewTypeBtn doctorId={doctor.id} onCreated={(ct) => { setCts((prev) => [...prev, ct]); showToast('Tipo creado') }} />
+              </div>
+            )}
           </div>
           {cts.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center' }}>
@@ -275,6 +299,7 @@ export function DoctorDetailClient({
                 <TypeRow
                   key={ct.id}
                   ct={ct}
+                  canWrite={canWrite}
                   onUpdated={(updated) => { setCts((prev) => prev.map((c) => c.id === updated.id ? { ...c, ...updated } : c)); showToast('Tipo actualizado') }}
                   onDeleted={() => { setCts((prev) => prev.filter((c) => c.id !== ct.id)); showToast('Tipo eliminado') }}
                   onError={(e) => showToast(e)}
@@ -289,7 +314,9 @@ export function DoctorDetailClient({
         <Card>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <SectionTitle title="Dias bloqueados" />
-            <NewBlockBtn doctorId={doctor.id} onCreated={(b) => { setBlocks((prev) => [b, ...prev]); showToast('Bloqueo creado') }} onError={(e) => showToast(e)} />
+            {canWrite && (
+              <NewBlockBtn doctorId={doctor.id} onCreated={(b) => { setBlocks((prev) => [b, ...prev]); showToast('Bloqueo creado') }} onError={(e) => showToast(e)} />
+            )}
           </div>
           {blocks.length === 0 ? (
             <div style={{ padding: '32px', textAlign: 'center' }}>
@@ -300,7 +327,7 @@ export function DoctorDetailClient({
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {blocks.map((b) => (
-                <BlockRow key={b.id} block={b} onDeleted={() => { setBlocks((prev) => prev.filter((x) => x.id !== b.id)); showToast('Bloqueo eliminado') }} onError={(e) => showToast(e)} />
+                <BlockRow key={b.id} block={b} canWrite={canWrite} onDeleted={() => { setBlocks((prev) => prev.filter((x) => x.id !== b.id)); showToast('Bloqueo eliminado') }} onError={(e) => showToast(e)} />
               ))}
             </div>
           )}
@@ -346,24 +373,34 @@ function SectionTitle({ title }: { title: string }) {
   return <p style={{ fontSize: '15px', fontWeight: 700, color: 'var(--v2-text)', marginBottom: '14px' }}>{title}</p>
 }
 
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+function Field({ label, value, onChange, placeholder, disabled }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean }) {
   return (
     <div>
       <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>{label}</label>
-      <input className="input-v2" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      <input
+        className="input-v2"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        readOnly={disabled}
+        style={disabled ? { opacity: 0.6, cursor: 'not-allowed' } : undefined}
+      />
     </div>
   )
 }
 
-function RadioCard({ selected, onClick, title, desc }: { selected: boolean; onClick: () => void; title: string; desc: string }) {
+function RadioCard({ selected, onClick, title, desc, disabled }: { selected: boolean; onClick: () => void; title: string; desc: string; disabled?: boolean }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
-        padding: '14px', borderRadius: 'var(--v2-radius)', textAlign: 'left', cursor: 'pointer',
+        padding: '14px', borderRadius: 'var(--v2-radius)', textAlign: 'left', cursor: disabled ? 'not-allowed' : 'pointer',
         border: selected ? '2px solid var(--v2-primary)' : '1px solid var(--v2-border-soft)',
         background: selected ? 'var(--v2-primary-soft)' : 'var(--v2-bg-card)',
         fontFamily: 'var(--font-manrope), sans-serif',
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>{title}</p>
@@ -437,7 +474,7 @@ function toWorkingHoursForSave(hours: Record<string, Array<{ start: string; end:
   return result
 }
 
-function ScheduleEditor({ doctorId, initialHours, onSaved, onError }: { doctorId: string; initialHours: Record<string, unknown> | null; onSaved: () => void; onError: (e: string) => void }) {
+function ScheduleEditor({ doctorId, initialHours, onSaved, onError, canWrite = true }: { doctorId: string; initialHours: Record<string, unknown> | null; onSaved: () => void; onError: (e: string) => void; canWrite?: boolean }) {
   const [hours, setHours] = useState(() => parseWorkingHours(initialHours))
   const [isPending, startTransition] = useTransition()
 
@@ -477,29 +514,35 @@ function ScheduleEditor({ doctorId, initialHours, onSaved, onError }: { doctorId
               <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
                 {blocks.length === 0 && <span style={{ fontSize: '12px', fontStyle: 'italic', color: 'var(--v2-text-subtle)' }}>No atiende</span>}
                 {blocks.map((b, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '8px', background: 'var(--v2-bg-soft)' }}>
-                    <input type="time" value={b.start} onChange={(e) => updateBlock(day, idx, 'start', e.target.value)} style={{ fontSize: '12px', border: 'none', background: 'transparent', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text)', width: '70px' }} />
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px', borderRadius: '8px', background: 'var(--v2-bg-soft)', opacity: canWrite ? 1 : 0.6 }}>
+                    <input type="time" value={b.start} onChange={(e) => updateBlock(day, idx, 'start', e.target.value)} disabled={!canWrite} style={{ fontSize: '12px', border: 'none', background: 'transparent', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text)', width: '70px' }} />
                     <span style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>—</span>
-                    <input type="time" value={b.end} onChange={(e) => updateBlock(day, idx, 'end', e.target.value)} style={{ fontSize: '12px', border: 'none', background: 'transparent', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text)', width: '70px' }} />
-                    <button onClick={() => removeBlock(day, idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '2px' }}><X size={12} /></button>
+                    <input type="time" value={b.end} onChange={(e) => updateBlock(day, idx, 'end', e.target.value)} disabled={!canWrite} style={{ fontSize: '12px', border: 'none', background: 'transparent', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text)', width: '70px' }} />
+                    {canWrite && (
+                      <button onClick={() => removeBlock(day, idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '2px' }}><X size={12} /></button>
+                    )}
                   </div>
                 ))}
-                <button onClick={() => addBlock(day)} style={{ fontSize: '10px', fontWeight: 600, color: 'var(--v2-primary)', background: 'none', border: '1px dashed var(--v2-border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>+ Bloque</button>
+                {canWrite && (
+                  <button onClick={() => addBlock(day)} style={{ fontSize: '10px', fontWeight: 600, color: 'var(--v2-primary)', background: 'none', border: '1px dashed var(--v2-border)', borderRadius: '6px', padding: '4px 10px', cursor: 'pointer' }}>+ Bloque</button>
+                )}
               </div>
             </div>
           )
         })}
       </div>
-      <button onClick={handleSave} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '13px', marginTop: '16px' }}>
-        {isPending ? 'Guardando...' : 'Guardar horario'}
-      </button>
+      {canWrite && (
+        <button onClick={handleSave} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '13px', marginTop: '16px' }}>
+          {isPending ? 'Guardando...' : 'Guardar horario'}
+        </button>
+      )}
     </div>
   )
 }
 
 // ---- Consultation Type Row ----
 
-function TypeRow({ ct, onUpdated, onDeleted, onError }: { ct: ConsultationType; onUpdated: (u: Partial<ConsultationType> & { id: string }) => void; onDeleted: () => void; onError: (e: string) => void }) {
+function TypeRow({ ct, onUpdated, onDeleted, onError, canWrite = true }: { ct: ConsultationType; onUpdated: (u: Partial<ConsultationType> & { id: string }) => void; onDeleted: () => void; onError: (e: string) => void; canWrite?: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const [isPending, startTransition] = useTransition()
 
@@ -548,25 +591,29 @@ function TypeRow({ ct, onUpdated, onDeleted, onError }: { ct: ConsultationType; 
           ) : (
             <span style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
               <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#fee2e2', color: '#991b1b' }}>Sin clasificar</span>
-              <span
-                role="button"
-                onClick={(e) => { e.stopPropagation(); handleClassify('EPS') }}
-                style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#dbeafe', color: '#1e40af', cursor: 'pointer' }}
-                title="Clasificar como EPS"
-              >EPS</span>
-              <span
-                role="button"
-                onClick={(e) => { e.stopPropagation(); handleClassify('Prepagada') }}
-                style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', cursor: 'pointer' }}
-                title="Clasificar como Prepagada"
-              >Prepagada</span>
+              {canWrite && (
+                <>
+                  <span
+                    role="button"
+                    onClick={(e) => { e.stopPropagation(); handleClassify('EPS') }}
+                    style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#dbeafe', color: '#1e40af', cursor: 'pointer' }}
+                    title="Clasificar como EPS"
+                  >EPS</span>
+                  <span
+                    role="button"
+                    onClick={(e) => { e.stopPropagation(); handleClassify('Prepagada') }}
+                    style={{ fontSize: '10px', fontWeight: 700, padding: '2px 6px', borderRadius: '4px', background: '#fef3c7', color: '#92400e', cursor: 'pointer' }}
+                    title="Clasificar como Prepagada"
+                  >Prepagada</span>
+                </>
+              )}
             </span>
           )
         )}
         <span style={{ flex: 1, fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>{ct.name}</span>
         <span style={{ fontSize: '11px', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-muted)' }}>{ct.duration_minutes}min</span>
         <span style={{ fontSize: '12px', fontWeight: 700, fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text)' }}>{priceFmt}</span>
-        <button onClick={(e) => { e.stopPropagation(); handleToggle() }} disabled={isPending} className="toggle-v2" data-active={ct.is_active ? 'true' : 'false'} style={{ flexShrink: 0 }} />
+        <button onClick={(e) => { e.stopPropagation(); if (canWrite) handleToggle() }} disabled={isPending || !canWrite} className="toggle-v2" data-active={ct.is_active ? 'true' : 'false'} style={{ flexShrink: 0, opacity: canWrite ? 1 : 0.5, cursor: canWrite ? 'pointer' : 'not-allowed' }} />
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--v2-text-subtle)', transition: 'transform 0.15s', transform: expanded ? 'rotate(180deg)' : 'none' }}><path d="M19 9l-7 7-7-7" /></svg>
       </button>
 
@@ -826,10 +873,11 @@ function NewTypeBtn({ doctorId, onCreated }: { doctorId: string; onCreated: (ct:
 
 // ---- Block Row ----
 
-function BlockRow({ block, onDeleted, onError }: { block: BlockedDate; onDeleted: () => void; onError: (e: string) => void }) {
+function BlockRow({ block, onDeleted, onError, canWrite = true }: { block: BlockedDate; onDeleted: () => void; onError: (e: string) => void; canWrite?: boolean }) {
   const [isPending, startTransition] = useTransition()
 
   function handleDelete() {
+    if (!canWrite) return
     if (!confirm('¿Eliminar este bloqueo?')) return
     startTransition(async () => {
       const r = await deleteBlockedDate(block.id)
@@ -845,7 +893,9 @@ function BlockRow({ block, onDeleted, onError }: { block: BlockedDate; onDeleted
         <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>{block.reason ?? 'Bloqueo'}</p>
         <p style={{ fontSize: '11px', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-muted)' }}>{block.start_date} → {block.end_date}</p>
       </div>
-      <button onClick={handleDelete} disabled={isPending} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '4px' }}><Trash2 size={14} /></button>
+      {canWrite && (
+        <button onClick={handleDelete} disabled={isPending} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '4px' }}><Trash2 size={14} /></button>
+      )}
     </div>
   )
 }

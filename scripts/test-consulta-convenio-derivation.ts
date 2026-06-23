@@ -247,7 +247,7 @@ test('S4.7: length PAR — promedio de los 2 centrales redondeado', () => {
   assertEq(r, { value: 45, source: 'derived', sampleSize: 6 }, 'even-length median averaged')
 })
 
-// --- Suite 5: matchProcedureToStaging (3 tests) ---
+// --- Suite 5: matchProcedureToStaging ---
 
 console.log('\n=== Suite 5: matchProcedureToStaging ===\n')
 
@@ -257,19 +257,67 @@ const TEST_STAGING: StagingProductForDerivation[] = [
   { id: 's3', producto_nombre: 'ECOGRAFIA PELVICA', convenio_nombre: 'COLSANITAS', tarifa: 80000, convenio_nit: null },
 ]
 
-test('S5.1: match exacto case-insensitive', () => {
-  const m = matchProcedureToStaging('Terapia de piso pelvico', TEST_STAGING)
+// Tests originales — comportamiento sin convenio especificado (null) o convenio que NO matchea
+test('S5.1: match exacto case-insensitive (sin convenio)', () => {
+  const m = matchProcedureToStaging('Terapia de piso pelvico', null, TEST_STAGING)
   assertEq(m?.productoId, 's1', 'exact match case-insensitive')
 })
 
 test('S5.2: match por prefijo (raw es prefijo del producto_nombre)', () => {
-  const m = matchProcedureToStaging('consulta de primera vez por especialista en ginecologia', TEST_STAGING)
+  const m = matchProcedureToStaging('consulta de primera vez por especialista en ginecologia', null, TEST_STAGING)
   assertEq(m?.productoId, 's2', 'prefix match')
 })
 
 test('S5.3: no match → null', () => {
-  const m = matchProcedureToStaging('Vm', TEST_STAGING)
+  const m = matchProcedureToStaging('Vm', null, TEST_STAGING)
   assertEq(m, null, 'no match')
+})
+
+// --- Fix bug #2 (ARG-2026-06-23): match prefiere convenio ---
+// Staging con MISMO procedimiento × DOS convenios distintos × tarifas distintas.
+// El bug viejo devolvía siempre el primero. El fix debe elegir el del convenio correcto.
+
+const TEST_STAGING_MULTI_CONVENIO: StagingProductForDerivation[] = [
+  { id: 'colp-coomeva',  producto_nombre: 'COLPOSCOPIA', convenio_nombre: 'COOMEVA MEDICINA PREPAGADA',    tarifa: 250000, convenio_nit: null },
+  { id: 'colp-allianz',  producto_nombre: 'COLPOSCOPIA', convenio_nombre: 'ALLIANZ SEGUROS DE VIDA S.A',   tarifa: 450000, convenio_nit: null },
+  { id: 'colp-sanitas',  producto_nombre: 'COLPOSCOPIA', convenio_nombre: 'EPS SANITAS',                   tarifa: 140000, convenio_nit: null },
+  { id: 'vulvo-coomeva', producto_nombre: 'VULVOSCOPIA', convenio_nombre: 'COOMEVA MEDICINA PREPAGADA',    tarifa: 200000, convenio_nit: null },
+]
+
+test('S5.4: match exacto procedimiento + convenio → devuelve el del CONVENIO correcto', () => {
+  const m = matchProcedureToStaging('COLPOSCOPIA', 'ALLIANZ SEGUROS DE VIDA S.A', TEST_STAGING_MULTI_CONVENIO)
+  assertEq(m?.productoId, 'colp-allianz', 'preferido por convenio (Allianz)')
+  assertEq(m?.tarifa, 450000, 'tarifa correcta del convenio Allianz')
+})
+
+test('S5.5: match con convenio distinto → cambia el resultado (NO devuelve el primero arbitrario)', () => {
+  const m = matchProcedureToStaging('COLPOSCOPIA', 'EPS SANITAS', TEST_STAGING_MULTI_CONVENIO)
+  assertEq(m?.productoId, 'colp-sanitas', 'preferido por convenio (Sanitas)')
+  assertEq(m?.tarifa, 140000, 'tarifa Sanitas')
+})
+
+test('S5.6: match procedimiento case-insensitive + convenio case-insensitive', () => {
+  const m = matchProcedureToStaging('colposcopia', 'coomeva medicina prepagada', TEST_STAGING_MULTI_CONVENIO)
+  assertEq(m?.productoId, 'colp-coomeva', 'case-insensitive en ambos')
+})
+
+test('S5.7: FALLBACK procedimiento existe pero convenio no matchea → devuelve cualquiera del procedimiento', () => {
+  // 'AXA COLPATRIA' no existe para COLPOSCOPIA → fallback al primer match por nombre
+  const m = matchProcedureToStaging('COLPOSCOPIA', 'AXA COLPATRIA', TEST_STAGING_MULTI_CONVENIO)
+  // Devuelve el primero por orden de staging (colp-coomeva)
+  assertEq(m?.productoId, 'colp-coomeva', 'fallback a primer match por nombre')
+})
+
+test('S5.8: FALLBACK convenio null (PARTICULAR) → devuelve primer match por nombre', () => {
+  const m = matchProcedureToStaging('COLPOSCOPIA', null, TEST_STAGING_MULTI_CONVENIO)
+  assertEq(m?.productoId, 'colp-coomeva', 'sin convenio → primer match (comportamiento histórico)')
+})
+
+test('S5.9: dos procedimientos × mismo convenio → elige el procedimiento correcto', () => {
+  const m1 = matchProcedureToStaging('VULVOSCOPIA', 'COOMEVA MEDICINA PREPAGADA', TEST_STAGING_MULTI_CONVENIO)
+  assertEq(m1?.productoId, 'vulvo-coomeva', 'VULVOSCOPIA + COOMEVA → vulvo-coomeva')
+  const m2 = matchProcedureToStaging('COLPOSCOPIA', 'COOMEVA MEDICINA PREPAGADA', TEST_STAGING_MULTI_CONVENIO)
+  assertEq(m2?.productoId, 'colp-coomeva', 'COLPOSCOPIA + COOMEVA → colp-coomeva')
 })
 
 // --- Suite 6: deriveSuggestions end-to-end (4 tests) ---

@@ -270,19 +270,70 @@ export function mapToEapbCode(
 }
 
 /**
- * Cruza el nombre crudo del procedimiento contra el staging.
- *   1) match exacto case-insensitive
- *   2) si no, match por prefijo (raw es prefijo del producto_nombre)
- *   3) null si nada cruza
+ * Cruza el nombre del procedimiento + convenio contra el staging.
+ *
+ * Orden de preferencia (de más estricto a más laxo):
+ *   1) Match exacto procedimiento + match exacto convenio
+ *   2) Match prefijo procedimiento + match exacto convenio
+ *   3) FALLBACK: match exacto procedimiento (cualquier convenio) — el caller debe
+ *      saber que la `tarifa` puede no corresponder al convenio buscado
+ *   4) FALLBACK: match prefijo procedimiento (cualquier convenio) — idem
+ *   5) null si nada cruza
+ *
+ * El parámetro `convenioCanonical` puede ser null (caso 'PARTICULAR' u otros donde
+ * la cita no tiene aseguradora identificable) — en ese caso saltamos directo a (3).
+ *
+ * Bug #2 (deuda histórica, ARG-2026-06-23): la versión vieja de esta función
+ * recibía solo `(raw, stagingProducts)` e ignoraba el convenio. Resultado: para
+ * un procedimiento existente con N entradas en staging (una por convenio), siempre
+ * devolvía el PRIMER match. Para Algia con COLPOSCOPIA en 37 entradas (×3.6 de
+ * dispersión de precio), Lady obtenía siempre el precio del primer staging,
+ * cruzando tarifas entre convenios. Fix arquitectural: incorporar convenioCanonical
+ * en el match.
  */
 export function matchProcedureToStaging(
   raw: string,
+  convenioCanonical: string | null,
   stagingProducts: StagingProductForDerivation[],
 ): StagingMatch | null {
   const upper = raw.toUpperCase().trim()
   if (upper === '') return null
 
-  // 1) Match exacto case-insensitive
+  const convenioUpper = convenioCanonical?.toUpperCase().trim() ?? null
+
+  // 1) Match procedimiento exacto + convenio exacto (caso ideal)
+  if (convenioUpper) {
+    for (const p of stagingProducts) {
+      if (
+        p.producto_nombre.toUpperCase().trim() === upper &&
+        p.convenio_nombre.toUpperCase().trim() === convenioUpper
+      ) {
+        return {
+          productoId: p.id,
+          productoNombre: p.producto_nombre,
+          tarifa: p.tarifa,
+          convenioNombre: p.convenio_nombre,
+        }
+      }
+    }
+
+    // 2) Match procedimiento prefijo + convenio exacto
+    for (const p of stagingProducts) {
+      if (
+        p.producto_nombre.toUpperCase().trim().startsWith(upper) &&
+        p.convenio_nombre.toUpperCase().trim() === convenioUpper
+      ) {
+        return {
+          productoId: p.id,
+          productoNombre: p.producto_nombre,
+          tarifa: p.tarifa,
+          convenioNombre: p.convenio_nombre,
+        }
+      }
+    }
+  }
+
+  // 3) FALLBACK: match exacto procedimiento solo (degradación)
   for (const p of stagingProducts) {
     if (p.producto_nombre.toUpperCase().trim() === upper) {
       return {
@@ -294,7 +345,7 @@ export function matchProcedureToStaging(
     }
   }
 
-  // 2) Match por prefijo: staging.producto_nombre empieza con raw
+  // 4) FALLBACK: match prefijo procedimiento solo
   for (const p of stagingProducts) {
     if (p.producto_nombre.toUpperCase().trim().startsWith(upper)) {
       return {
@@ -379,7 +430,9 @@ export function deriveSuggestions(
 
     const canonical = canonicalizeConvenio(parsed)
     const eapbMatch = mapToEapbCode(canonical, input.eapbCodes)
-    const stagingMatch = matchProcedureToStaging(cita.procedimiento_raw, input.stagingProducts)
+    // Bug #2 fix (2026-06-23): pasar canonical para que el match prefiera el
+    // staging del CONVENIO correcto, no el primer match por nombre.
+    const stagingMatch = matchProcedureToStaging(cita.procedimiento_raw, canonical, input.stagingProducts)
 
     if (!stagingMatch) {
       unparseableProcedimientos.add(cita.procedimiento_raw)

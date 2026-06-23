@@ -57,6 +57,13 @@ interface RowState {
   citasCount: number          // 0 para catalog
   durationSource: 'derived' | 'default'
   citasWithDuration: number
+  /**
+   * Origen del precio sugerido. La UI marca con badge ámbar solo el caso 'fallback'
+   * (el convenio no tenía tarifa propia en staging, se usó la de otro convenio).
+   * 'convenio_match' = precio real del convenio (sin badge).
+   * 'none' = sin tarifa (sin badge).
+   */
+  priceSource: 'convenio_match' | 'fallback' | 'none'
   // Conflict
   conflictsWithExisting: boolean
 }
@@ -165,6 +172,9 @@ export function TypesImportPanel({
       citasCount: 0,
       durationSource: 'default',
       citasWithDuration: 0,
+      // Lady eligió específicamente este par procedimiento+convenio del catálogo,
+      // por lo tanto el precio ES del convenio (no fallback). Tarifa 0 → 'none'.
+      priceSource: item.tarifa > 0 ? 'convenio_match' : 'none',
       conflictsWithExisting: conflict,
     }
     setRows((prev) => {
@@ -556,17 +566,38 @@ function PriceBlock({ row, updateRow }: {
   row: RowState
   updateRow: (rowKey: string, patch: Partial<RowState>) => void
 }): React.JSX.Element {
+  // Solo marcar visualmente el caso fallback. Los precios reales del convenio
+  // y los casos sin tarifa no requieren badge — minimalismo intencional para
+  // que el ojo se enfoque solo en lo que requiere revisión.
+  const showFallbackBadge = row.priceSource === 'fallback'
   return (
-    <input
-      type="number"
-      value={row.precio}
-      min={0}
-      onChange={(e) => updateRow(row.rowKey, { precio: parseInt(e.target.value, 10) || 0 })}
-      style={{
-        width: '90px', fontSize: '13px', padding: '4px 6px', textAlign: 'right',
-        fontFamily: 'var(--font-jetbrains), monospace',
-      }}
-    />
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: '90px' }}>
+      <input
+        type="number"
+        value={row.precio}
+        min={0}
+        onChange={(e) => updateRow(row.rowKey, { precio: parseInt(e.target.value, 10) || 0 })}
+        style={{
+          width: '90px', fontSize: '13px', padding: '4px 6px', textAlign: 'right',
+          fontFamily: 'var(--font-jetbrains), monospace',
+          // Borde sutil ámbar en el input cuando es fallback, refuerza el badge
+          ...(showFallbackBadge ? { border: '1px solid #f5b500' } : {}),
+        }}
+      />
+      {showFallbackBadge && (
+        <span
+          style={{
+            fontSize: '10px', marginTop: '2px',
+            color: '#b07d00',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+          }}
+          title="El convenio no tenía tarifa propia en el sistema. El precio mostrado viene de otro convenio. Confirmá la tarifa real con el contrato antes de crear el servicio."
+        >
+          ⚠ estimado — revisar
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -703,6 +734,7 @@ function buildInitialRows(
       citasCount: c.citas_count,
       durationSource: c.duration_source,
       citasWithDuration: c.citas_with_duration,
+      priceSource: c.price_source,
       conflictsWithExisting: conflict,
     })
   }

@@ -19,6 +19,7 @@ import {
   canonicalizeConvenio,
   mapToEapbCode,
   matchProcedureToStaging,
+  derivePriceSource,
   deriveDuration,
   deriveSuggestions,
   EAPB_CODE_PARTICULAR,
@@ -288,6 +289,7 @@ test('S5.4: match exacto procedimiento + convenio → devuelve el del CONVENIO c
   const m = matchProcedureToStaging('COLPOSCOPIA', 'ALLIANZ SEGUROS DE VIDA S.A', TEST_STAGING_MULTI_CONVENIO)
   assertEq(m?.productoId, 'colp-allianz', 'preferido por convenio (Allianz)')
   assertEq(m?.tarifa, 450000, 'tarifa correcta del convenio Allianz')
+  assertEq(m?.matchedBy, 'convenio_exact', 'matchedBy = convenio_exact')
 })
 
 test('S5.5: match con convenio distinto → cambia el resultado (NO devuelve el primero arbitrario)', () => {
@@ -306,11 +308,13 @@ test('S5.7: FALLBACK procedimiento existe pero convenio no matchea → devuelve 
   const m = matchProcedureToStaging('COLPOSCOPIA', 'AXA COLPATRIA', TEST_STAGING_MULTI_CONVENIO)
   // Devuelve el primero por orden de staging (colp-coomeva)
   assertEq(m?.productoId, 'colp-coomeva', 'fallback a primer match por nombre')
+  assertEq(m?.matchedBy, 'fallback_exact', 'matchedBy = fallback_exact')
 })
 
 test('S5.8: FALLBACK convenio null (PARTICULAR) → devuelve primer match por nombre', () => {
   const m = matchProcedureToStaging('COLPOSCOPIA', null, TEST_STAGING_MULTI_CONVENIO)
   assertEq(m?.productoId, 'colp-coomeva', 'sin convenio → primer match (comportamiento histórico)')
+  assertEq(m?.matchedBy, 'fallback_exact', 'sin convenio → fallback')
 })
 
 test('S5.9: dos procedimientos × mismo convenio → elige el procedimiento correcto', () => {
@@ -318,6 +322,24 @@ test('S5.9: dos procedimientos × mismo convenio → elige el procedimiento corr
   assertEq(m1?.productoId, 'vulvo-coomeva', 'VULVOSCOPIA + COOMEVA → vulvo-coomeva')
   const m2 = matchProcedureToStaging('COLPOSCOPIA', 'COOMEVA MEDICINA PREPAGADA', TEST_STAGING_MULTI_CONVENIO)
   assertEq(m2?.productoId, 'colp-coomeva', 'COLPOSCOPIA + COOMEVA → colp-coomeva')
+})
+
+// --- Deuda #3 (ARG-2026-06-23): derivePriceSource expone origen del precio a la UI ---
+
+test('S5.10: derivePriceSource — match por convenio → convenio_match', () => {
+  assertEq(derivePriceSource('convenio_exact', 100000), 'convenio_match', 'convenio_exact con tarifa > 0')
+  assertEq(derivePriceSource('convenio_prefix', 100000), 'convenio_match', 'convenio_prefix con tarifa > 0')
+})
+
+test('S5.11: derivePriceSource — fallback → fallback (precio estimado)', () => {
+  assertEq(derivePriceSource('fallback_exact', 100000), 'fallback', 'fallback_exact con tarifa > 0')
+  assertEq(derivePriceSource('fallback_prefix', 100000), 'fallback', 'fallback_prefix con tarifa > 0')
+})
+
+test('S5.12: derivePriceSource — tarifa 0 o negativa → none (sin tarifa, ignorar match)', () => {
+  assertEq(derivePriceSource('convenio_exact', 0), 'none', 'tarifa 0 → none aunque match real')
+  assertEq(derivePriceSource('fallback_exact', 0), 'none', 'tarifa 0 → none también para fallback')
+  assertEq(derivePriceSource('convenio_exact', -1), 'none', 'tarifa negativa → none')
 })
 
 // --- Suite 6: deriveSuggestions end-to-end (4 tests) ---

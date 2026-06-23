@@ -110,12 +110,34 @@ export interface EapbMatch {
   type: EapbType
 }
 
+/**
+ * Origen del match de staging — útil para que la UI sepa si la `tarifa`
+ * corresponde al convenio buscado o es un fallback de otro convenio.
+ *   'convenio_exact' / 'convenio_prefix': la tarifa es REAL del convenio buscado
+ *   'fallback_exact' / 'fallback_prefix': la tarifa viene de otro convenio
+ *     (cuando el buscado no tenía staging propio para ese procedimiento)
+ */
+export type StagingMatchSource =
+  | 'convenio_exact'
+  | 'convenio_prefix'
+  | 'fallback_exact'
+  | 'fallback_prefix'
+
 export interface StagingMatch {
   productoId: string
   productoNombre: string
   tarifa: number
   convenioNombre: string
+  matchedBy: StagingMatchSource
 }
+
+/**
+ * Origen del precio sugerido. Derivado del StagingMatchSource para uso en la UI.
+ *   'convenio_match' → precio del convenio correcto (no requiere revisión especial)
+ *   'fallback'       → precio estimado (no había tarifa propia del convenio buscado)
+ *   'none'           → no hay precio sugerido (tarifa staging = 0/null o sin match)
+ */
+export type PriceSource = 'convenio_match' | 'fallback' | 'none'
 
 export interface DurationResult {
   value: number
@@ -130,6 +152,8 @@ export interface SuggestionCombo {
   convenio_eapb_type: EapbType | null
   staging_product_id: string | null
   suggested_price: number | null
+  /** Si el precio sugerido es del convenio correcto o un fallback de otro. */
+  price_source: PriceSource
   duration_minutes: number
   duration_source: 'derived' | 'default'
   citas_count: number
@@ -313,6 +337,7 @@ export function matchProcedureToStaging(
           productoNombre: p.producto_nombre,
           tarifa: p.tarifa,
           convenioNombre: p.convenio_nombre,
+          matchedBy: 'convenio_exact',
         }
       }
     }
@@ -328,6 +353,7 @@ export function matchProcedureToStaging(
           productoNombre: p.producto_nombre,
           tarifa: p.tarifa,
           convenioNombre: p.convenio_nombre,
+          matchedBy: 'convenio_prefix',
         }
       }
     }
@@ -341,6 +367,7 @@ export function matchProcedureToStaging(
         productoNombre: p.producto_nombre,
         tarifa: p.tarifa,
         convenioNombre: p.convenio_nombre,
+        matchedBy: 'fallback_exact',
       }
     }
   }
@@ -353,11 +380,27 @@ export function matchProcedureToStaging(
         productoNombre: p.producto_nombre,
         tarifa: p.tarifa,
         convenioNombre: p.convenio_nombre,
+        matchedBy: 'fallback_prefix',
       }
     }
   }
 
   return null
+}
+
+/**
+ * Deriva el price_source para la UI a partir del matchedBy de staging.
+ * Si la tarifa es 0 (sin precio en staging) → 'none', sin importar el match.
+ */
+export function derivePriceSource(
+  matchedBy: StagingMatchSource,
+  tarifa: number,
+): PriceSource {
+  if (tarifa <= 0) return 'none'
+  if (matchedBy === 'convenio_exact' || matchedBy === 'convenio_prefix') {
+    return 'convenio_match'
+  }
+  return 'fallback'
 }
 
 /**
@@ -406,6 +449,7 @@ export function deriveSuggestions(
     convenio_eapb_match: EapbMatch | null
     staging_product_id: string
     suggested_price: number | null
+    staging_matched_by: StagingMatchSource
     durations: number[]
     citasCount: number
   }
@@ -462,6 +506,7 @@ export function deriveSuggestions(
         convenio_eapb_match: eapbMatch,
         staging_product_id: stagingMatch.productoId,
         suggested_price: stagingMatch.tarifa,
+        staging_matched_by: stagingMatch.matchedBy,
         durations: !isNaN(cita.duration_minutes) ? [cita.duration_minutes] : [],
         citasCount: 1,
       })
@@ -484,6 +529,7 @@ export function deriveSuggestions(
       convenio_eapb_type: acc.convenio_eapb_match?.type ?? null,
       staging_product_id: acc.staging_product_id,
       suggested_price: acc.suggested_price,
+      price_source: derivePriceSource(acc.staging_matched_by, acc.suggested_price ?? 0),
       duration_minutes: durationResult.value,
       duration_source: durationResult.source,
       citas_count: acc.citasCount,

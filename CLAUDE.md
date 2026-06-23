@@ -745,6 +745,63 @@ Tests a actualizar (`test-consulta-convenio-derivation.ts`): los 38 tests actual
 
 ---
 
+## 💰 Reglas de revelado de precios por el agente WhatsApp — PENDIENTES
+
+**Contexto (2026-06-23)**: el agente sigue una regla escrita en `system-prompt.ts` para decidir cuándo revela precios al paciente. La regla actual cubre particular vs convenio, y el Cambio 2 agregado el 2026-06-23 cubre el caso "paciente pregunta precio antes de identificar modalidad".
+
+**Por qué importa el control de qué precios se revelan**: NO es porque la ley lo prohíba (la confidencialidad legal colombiana protege datos clínicos, no tarifas). La razón es comercial: las tarifas bajo convenio son acuerdos confidenciales entre la clínica y cada EPS/aseguradora, y además NO son el precio que paga el paciente con convenio — él paga copago/cuota según su plan + autorización. Revelar la tarifa del convenio confunde al paciente y rompe el contrato con la aseguradora.
+
+### Pendientes (en orden de prioridad)
+
+**🔴 PRIORITARIO (sesión dedicada): Filtrado de precios de convenio del contexto del agente**
+
+Hoy el system prompt INYECTA todos los precios al contexto del LLM, incluyendo los de convenio:
+```
+* Colposcopia (30 min — $452.320 COP) [Allianz] | tipo_id: ...
+* Colposcopia (30 min — $250.000 COP) [Coomeva]  | tipo_id: ...
+```
+
+La integridad de "no revelar precio de convenio" depende 100% de que el LLM siga la regla escrita. Si la regla falla por alguna razón (prompt injection, edge case, drift), los precios pueden filtrarse. Riesgo arquitectural real.
+
+Fix propuesto: cuando se construye el contexto del agente, filtrar el `price` de los `consultation_types` que tengan `eps_name IS NOT NULL` (precio de convenio) — solo poblar el precio en el contexto cuando es Particular. Los de convenio van con `price=null` o etiqueta `[tarifa interna]`.
+
+Ubicación: `src/agents/prompts/system-prompt.ts:91` (`const priceStr = ct.price ? ...`).
+
+No urgente operativamente (la regla escrita está cubriendo bien) pero es la única forma de garantizar que el precio de convenio NUNCA salga del backend al LLM. Cuando se haga, debería incluir tests automáticos verificando que el contexto generado NO contiene los precios de convenio.
+
+**🟡 Cambio 1 — Justificación comercial completa**
+
+El prompt actual dice "es información interna" como razón. Falta agregar:
+- Las tarifas bajo convenio son acuerdos confidenciales entre Algia y cada aseguradora
+- El paciente con convenio NO paga la tarifa — paga copago según su plan + autorización
+- Revelar la tarifa rompe el contrato con la aseguradora
+
+Esto le da al LLM una razón sólida que sostiene la regla cuando el paciente insiste. Cambio menor de texto en el prompt, no cambia comportamiento si la regla actual se sigue.
+
+**🟡 Cambio 3 — Mensaje EPS-con-convenio alineado**
+
+El mensaje actual: *"Con [aseguradora] tu consulta está cubierta. El copago te lo confirma la secretaria el día de la cita, porque varía según tu plan."*
+
+Versión mejorada propuesta: *"Con [aseguradora] tu consulta está cubierta. El valor que pagas depende de tu plan y de la autorización correspondiente — el equipo del consultorio te lo confirma. ¿Querés que agende la cita?"*
+
+Cambio menor de wording. Más explícito sobre por qué depende ("plan + autorización") y reengancha al flujo con la pregunta final.
+
+### Validación pendiente del Cambio 2 (cuando WhatsApp esté en vivo)
+
+El Cambio 2 introduce la regla "no dar precio sin modalidad confirmada". NO se pudo probar en vivo porque el agente aún no atiende WhatsApp productivo de Algia. Cuando esté activo, probar al menos:
+
+1. **Caso base**: escribir "¿cuánto cuesta una consulta?" sin haber dado modalidad → el agente DEBE preguntar la modalidad (particular/EPS/prepagada), NO dar precio.
+
+2. **Caso tramposo**: escribir "tengo Sura, ¿cuánto vale?" → el agente DEBE preguntar si va a usar Sura o ir como particular antes de mencionar precio, NO asumir y dar precio particular.
+
+3. **Caso confirmación explícita**: escribir "voy como particular, ¿cuánto vale colposcopia?" → el agente PUEDE dar el precio particular.
+
+4. **Caso convenio confirmado**: escribir "soy Sura prepagada, ¿cuánto vale?" → el agente NO debe dar precio del convenio, debe seguir flujo normal (check_eps_convenio + mensaje de copago).
+
+Si alguna de estas 4 pruebas falla, revisar el wording del prompt — probable que necesite reforzar la regla con más ejemplos o cambiar el orden de la sección de precios para darle más peso.
+
+---
+
 ## 🧪 Tests Críticos
 
 | Escenario | Esperado |

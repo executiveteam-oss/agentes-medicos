@@ -630,6 +630,52 @@ Archivos involucrados:
 
 ---
 
+## 🪣 Deuda conocida: variantes de nombre de convenio en `isalud_import_staging`
+
+**Anotado 2026-06-23 durante análisis del bug "no se agrega prepagada"** (que resultó ser el mismo bug de permisos arriba, pero el análisis del catálogo descubrió este otro problema separado).
+
+El staging de Algia tiene 39 convenios distintos en 1.357 productos, con **muchas variantes del mismo convenio** que NO matchean con `eapb_codes`:
+
+```
+ALLIANZ SEGUROS DE VIDA S.A.     (37 productos)
+ALLIANZ SEGUROS DE VIDA S.A      (37 productos)   ← sin punto final
+ALLIANZ  SEGUROS DE VIDA S.A     (37 productos)   ← doble espacio
+COLMEDICA MEDICINA PREPAGADA SA  (48 productos)
+COLMEDICA MEDICINA PREPAGADA S.A.    (22 productos)
+COLMEDICA MEDICINA PREPAGADA S.A     (21 productos)
+COLMEDICA MEDICINA PREPAGADA SA.     (variantes)
+COLMEDICA MEDICINA PREPAGADA .SA     (con punto al inicio del SA)
+COOMEVA MEDICINA PREPAGADA SA    (83 productos)
+COOMEVA MEDICINA PREPAGADA S.A   (65 productos)
+AXA COLPATRIA MEDICINA PREPAGADA S.A.   + 3 variantes más
+```
+
+**Total: 1.224 de 1.357 (90%) NO matchean con `eapb_codes`** — porque los aliases de la tabla `eapb_codes` no cubren estas variaciones de formato (espacios, puntos, abreviaturas `SA` vs `S.A.` vs `S.A`).
+
+**Impacto NO BLOQUEANTE**:
+- El catálogo del importer DOCTOR-FIRST igual los muestra (no filtra por eapb match)
+- Lady puede seleccionarlos manualmente y clasificar como EPS/Prepagada
+- El servicio se crea con `eps_name='COOMEVA MEDICINA PREPAGADA SA'` literal
+- **UX feo**: dropdown muestra 5 "COLMEDICA" cuando es la misma empresa
+- **Riesgo Res-256**: si 2 médicos eligen variantes distintas para el mismo convenio, el reporte tiene 2 entradas para 1 EPS real (mancha el dato regulatorio)
+
+**Fix futuro (post-piloto, NO urgente)**:
+1. Mejorar la lógica `mapToEapbCode` (`src/lib/isalud/consulta-convenio-derivation.ts`) para normalizar el nombre antes del match: collapse de espacios, `.replace(/\./g, '')`, `'S.A.' → 'SA'`, etc.
+2. Agregar aliases canónicos en `eapb_codes` con las variantes comunes
+3. O migrar definitivamente: una columna `convenio_canonical_eapb_code` en `consultation_types` que apunte a un solo `eapb_codes.code`, mostrar el alias canónico en UI
+
+**NO ahora**: requiere validación con Lady sobre nombre canónico de cada convenio, y la prioridad es el piloto Algia operativo. Anotado para después.
+
+Hallazgo verificado con SQL en `mcp__claude_ai_Supabase__execute_sql` el 2026-06-23. Resultado completo:
+```sql
+SELECT convenio_nombre, COUNT(*), <match contra eapb_codes>
+FROM isalud_import_staging WHERE clinic_id = 'dac775fe-...'
+GROUP BY convenio_nombre ORDER BY classified_as NULLS LAST;
+-- → 1224 / 1357 sin clasificar por variantes de nombre
+```
+
+---
+
 ## 🧪 Tests Críticos
 
 | Escenario | Esperado |

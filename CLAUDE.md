@@ -676,6 +676,75 @@ GROUP BY convenio_nombre ORDER BY classified_as NULLS LAST;
 
 ---
 
+## 🪣 Deuda conocida: `matchProcedureToStaging` ignora el convenio
+
+**Anotado 2026-06-23 durante el fix del bug "no pertenecen a esta clínica"** (caso Adriana Estévez Durán).
+
+`matchProcedureToStaging` en `src/lib/isalud/consulta-convenio-derivation.ts:278-310` busca un staging_product solo por `producto_nombre` — **ignora el convenio**. Devuelve el PRIMER match que encuentra.
+
+Problema concreto:
+
+El staging de Algia tiene **37 entradas con `producto_nombre = COLPOSCOPIA`**, una por cada convenio (COLPOSCOPIA-Sanitas, COLPOSCOPIA-Allianz, COLPOSCOPIA-Coomeva, etc.). Cuando una doctora (Adriana) atiende COLPOSCOPIA con 7 aseguradoras distintas, `deriveSuggestions` genera 7 combos correctos por (`procedimiento × convenio`), pero **todos los 7 combos comparten el mismo `staging_product_id`** — el del primer COLPOSCOPIA que devolvió la búsqueda.
+
+Esto **NO bloquea** después del fix del check aritmético (commit que arregló comparar `validIds.size !== items.length` por `validIds.size !== new Set(stagingIds).size`), pero **degrada la calidad del dato**:
+- Los 7 consultation_types creados apuntan al mismo staging_product (de un solo convenio)
+- La `tarifa` sugerida de los 7 es la del primer staging match → puede no corresponder con el convenio real del combo
+- Lady tiene que corregir el precio manualmente al revisar la propuesta antes de confirmar
+
+**Fix correcto (post-piloto, NO urgente porque el flujo funciona)**:
+
+Modificar la firma de `matchProcedureToStaging` para que reciba también el `convenio_canonical` y seleccione el staging_product que matchea POR AMBOS:
+
+```typescript
+// Actual (devuelve el primer match por nombre, ignorando convenio):
+matchProcedureToStaging(rawProcedimiento, stagingProducts) → StagingMatch | null
+
+// Propuesto (selecciona el staging para el convenio específico):
+matchProcedureToStaging(rawProcedimiento, convenioCanonical, stagingProducts) → StagingMatch | null
+```
+
+La lógica de `deriveSuggestions` ya tiene el `canonical` calculado antes del match, solo hay que pasarlo. Actualizar tests de `test-consulta-convenio-derivation.ts` (38 tests) que pueden cubrir nuevos casos: mismo procedimiento × distintos convenios → distinto staging_product, distinta tarifa.
+
+**Impacto regulatorio / operativo — VERIFICADO 2026-06-23, es SEVERO**:
+
+Verifiqué con SQL contra prod el rango real de tarifas por procedimiento en Algia:
+
+```
+COLPOSCOPIA:       37 entradas, 18 PRECIOS DISTINTOS, rango $140.247 – $502.000  (×3.6)
+COLPOSCOPIA SOD:   25 entradas, 14 PRECIOS DISTINTOS, rango $120.000 – $456.000  (×3.8)
+VULVOSCOPIA:       16 entradas,  6 PRECIOS DISTINTOS, rango $154.272 – $458.000  (×3.0)
+```
+
+Esto NO es un caso de tarifas levemente distintas — la dispersión es 3-4× entre el min y el max. Y `matchProcedureToStaging` siempre devuelve el PRIMER match, así que `suggested_price` queda fijado por el orden arbitrario del staging.
+
+Consecuencia operativa concreta:
+- Si Lady confirma N filas del mismo procedimiento sin editar precios uno por uno → los N servicios quedan con el MISMO precio (el del primer convenio en staging, que puede ser $140k mientras el convenio real cobre $400k).
+- El agente WhatsApp luego cotiza usando esos precios → da el precio del convenio EQUIVOCADO al paciente.
+- Si el convenio que estaba primero era Particular ($alto), un paciente con EPS recibe ese precio Particular. Si era de una EPS con tarifa baja, todos reciben esa tarifa baja.
+
+Mitigación parcial actual: el input de precio en la UI ES editable. Lady puede revisar y corregir uno por uno. Pero confiar en eso pone toda la carga en la operadora humana cuando el sistema podría hacerlo bien.
+
+**Prioridad SEVERA — arreglar antes de operación masiva** (post-piloto inmediato, no semanas):
+
+Modificar la firma:
+
+```typescript
+// Actual:
+matchProcedureToStaging(rawProcedimiento, stagingProducts) → StagingMatch | null
+
+// Propuesto:
+matchProcedureToStaging(rawProcedimiento, convenioCanonical, stagingProducts) → StagingMatch | null
+```
+
+Y actualizar `deriveSuggestions` para pasar el `canonical` ya calculado (línea 380 — ya está disponible en el scope).
+
+Tests a actualizar (`test-consulta-convenio-derivation.ts`): los 38 tests actuales deben seguir verdes con la nueva firma. Agregar casos:
+- Procedimiento existe en staging con 1 sola entrada → match único (caso simple actual)
+- Procedimiento existe con N entradas (varios convenios) → match selecciona la del convenio correcto, devuelve la tarifa del convenio correcto
+- Procedimiento existe en staging pero NO con el convenio buscado → fallback al primer match por nombre (degradación graciosa)
+
+---
+
 ## 🧪 Tests Críticos
 
 | Escenario | Esperado |

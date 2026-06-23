@@ -231,16 +231,32 @@ export async function confirmSuggestionsForDoctor(
     }
   }
 
-  // Validar staging IDs pertenecen a la clínica
+  // Validar staging IDs pertenecen a la clínica.
+  //
+  // El check compara CARDINALIDADES DE DISTINCT vs DISTINCT — no items.length —
+  // porque un mismo staging_product puede ser referenciado por VARIOS items
+  // legítimos del cliente (un procedimiento "COLPOSCOPIA" que está en staging
+  // 1 sola vez, pero el médico lo atiende con N convenios distintos → N items
+  // que comparten el mismo staging_product_id). Bug histórico ARG-2026-06-23
+  // bloqueaba la creación cuando ocurría esto (caso Adriana Estévez: 7 combos
+  // de COLPOSCOPIA con 7 aseguradoras → todos con mismo staging_id → falla).
+  //
+  // Post-fix, este check solo da false en 2 escenarios reales de error:
+  //   (a) fuga multi-tenant — alguien mandó un staging_id de otra clínica
+  //   (b) race condition — staging fue borrado entre el load del UI y el confirm
   const stagingIds = items.map((it) => it.productoId)
+  const requestedDistinctIds = new Set(stagingIds)
   const { data: validStaging } = await supabaseAdmin
     .from('isalud_import_staging')
     .select('id')
     .eq('clinic_id', clinicId)
     .in('id', stagingIds)
   const validIds = new Set((validStaging ?? []).map((r) => r.id))
-  if (validIds.size !== items.length) {
-    return { ok: false, error: 'Algunos productos no pertenecen a esta clínica' }
+  if (validIds.size !== requestedDistinctIds.size) {
+    return {
+      ok: false,
+      error: 'Error de validación: algún producto no corresponde a esta clínica. Recargá la página e intentá de nuevo.',
+    }
   }
 
   let created = 0

@@ -190,16 +190,21 @@ export async function confirmImport(items: ConfirmItem[]): Promise<ConfirmResult
     }
   }
 
-  // Verificar que todos los staging IDs pertenecen a la clínica
+  // Verificar que todos los staging IDs pertenecen a la clínica.
+  // Comparamos DISTINCT contra DISTINCT (ver explicación en isalud-consulta-convenio.ts:234).
   const stagingIds = items.map((it) => it.productoId)
+  const requestedDistinctIds = new Set(stagingIds)
   const { data: validStaging } = await supabaseAdmin
     .from('isalud_import_staging')
     .select('id')
     .eq('clinic_id', clinicId)
     .in('id', stagingIds)
   const validIds = new Set((validStaging ?? []).map((r) => r.id))
-  if (validIds.size !== items.length) {
-    return { ok: false, error: 'Algunos productos no pertenecen a esta clínica' }
+  if (validIds.size !== requestedDistinctIds.size) {
+    return {
+      ok: false,
+      error: 'Error de validación: algún producto no corresponde a esta clínica. Recargá la página e intentá de nuevo.',
+    }
   }
 
   // Verificar que doctorId pertenece a la clínica
@@ -375,16 +380,21 @@ export async function confirmImportForDoctor(
     }
   }
 
-  // Verificar que todos los staging IDs pertenecen a la clínica
+  // Verificar que todos los staging IDs pertenecen a la clínica.
+  // Comparamos DISTINCT contra DISTINCT (ver explicación en isalud-consulta-convenio.ts:234).
   const stagingIds = items.map((it) => it.productoId)
+  const requestedDistinctIds = new Set(stagingIds)
   const { data: validStaging } = await supabaseAdmin
     .from('isalud_import_staging')
     .select('id')
     .eq('clinic_id', clinicId)
     .in('id', stagingIds)
   const validIds = new Set((validStaging ?? []).map((r) => r.id))
-  if (validIds.size !== items.length) {
-    return { ok: false, error: 'Algunos productos no pertenecen a esta clínica' }
+  if (validIds.size !== requestedDistinctIds.size) {
+    return {
+      ok: false,
+      error: 'Error de validación: algún producto no corresponde a esta clínica. Recargá la página e intentá de nuevo.',
+    }
   }
 
   let created = 0

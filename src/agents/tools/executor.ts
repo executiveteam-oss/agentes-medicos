@@ -490,6 +490,60 @@ async function createAppointment(
     }
   }
 
+  // Bloque 1 (escalate_human) — CHECK DURO en defense in depth.
+  //
+  // El system prompt YA le dice al agente "no agendes tipos marcados 🚨"
+  // (capa A). Este chequeo es la segunda capa: si el LLM ignora la regla
+  // del prompt (drift, edge case, prompt injection, etc.) Y aún así llama
+  // create_appointment, acá lo bloqueamos físicamente y registramos el
+  // intento en audit_log para detectar drift en producción.
+  //
+  // El error que devolvemos al LLM en el turno siguiente lo obliga a
+  // escalar (escalate_to_human).
+  if (consultationTypeId) {
+    const { data: escalateRule } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .select('id, message')
+      .eq('consultation_type_id', consultationTypeId)
+      .eq('rule_type', 'escalate_human')
+      .eq('active', true)
+      .maybeSingle()
+
+    if (escalateRule) {
+      // Registrar: el LLM intentó agendar a pesar del marcador 🚨 en el prompt.
+      // Esto vale oro para detectar drift del LLM en producción.
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'create_appointment_blocked_by_rule',
+        actor_type: 'agent',
+        target_type: 'consultation_type',
+        target_id: consultationTypeId,
+        details: {
+          rule_type: 'escalate_human',
+          rule_id: escalateRule.id,
+          llm_attempted_anyway: true,
+          patient_phone: patientPhone,
+        },
+      })
+
+      const defaultMessage =
+        'Tu solicitud requiere validación con un asesor del consultorio antes de agendar. Te paso con el equipo y te contactan.'
+
+      return {
+        success: false,
+        error: 'BLOCKED_BY_RULE_ESCALATE_HUMAN',
+        data: {
+          rule_type: 'escalate_human',
+          must_escalate: true,
+          message_for_patient: escalateRule.message ?? defaultMessage,
+          // El LLM debe ahora llamar escalate_to_human con esta razón
+          escalate_reason: 'Servicio configurado por la clínica como "escalar siempre a humano" — requiere validación del staff antes de agendar.',
+          escalate_urgency: 'medium',
+        },
+      }
+    }
+  }
+
   // Calcular hora de fin: tipo de consulta > per-doctor config > default
   const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
   const docConfig = waConfig?.doctors[doctorId]

@@ -15,6 +15,7 @@ import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { Clinic, ConsultationType, Doctor, Message, WhatsAppConfig } from '@/types/database'
 import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 
@@ -78,7 +79,14 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
 
   // 1. Generar el system prompt con datos reales de la clínica y del paciente actual
   const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient })
+
+  // Bloque 1 — cargar reglas escalate_human activas de los tipos del agente
+  // El Set se pasa al prompt para marcar tipos con 🚨 ESCALAR SIEMPRE.
+  // Defense in depth: además del prompt, executor.create_appointment también
+  // chequea la regla y rechaza el insert si está activa (capa B).
+  const escalateHumanByCt = await loadActiveEscalateHumanRules(consultationTypes)
+
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt })
 
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens
@@ -94,6 +102,16 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   const toolsUsed: string[] = []
   let totalInputTokens = 0
   let totalOutputTokens = 0
+
+  // Acumular el texto que Claude emite en TODAS las iteraciones, no solo
+  // el último turno. Sin esto, si el LLM emite texto junto con un tool_use
+  // (ej. "Para [servicio], un asesor confirma los detalles... [escalate_to_human]")
+  // y luego en el turno post-tool emite solo una confirmación corta
+  // ("Listo, ya quedó"), descartamos el primer mensaje y solo enviamos el
+  // segundo — el paciente nunca recibe el motivo. Recolectar todos los texts
+  // permite que la regla "el agente debe mencionar el motivo de la escalación"
+  // (system-prompt.ts, Bloque 1) funcione end-to-end.
+  const collectedTexts: string[] = []
 
   let appointmentData: AppointmentData | undefined
 
@@ -112,13 +130,21 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     totalInputTokens += response.usage?.input_tokens ?? 0
     totalOutputTokens += response.usage?.output_tokens ?? 0
 
+    // Capturar TODO texto que el LLM emitió en este turno (acumulamos
+    // entre iteraciones para preservar mensajes pre-tool con motivos).
+    for (const block of response.content) {
+      if (block.type === 'text' && block.text.trim()) {
+        collectedTexts.push(block.text.trim())
+      }
+    }
+
     // Si Claude terminó de hablar (no quiere más tools) → devolver texto
     if (response.stop_reason === 'end_turn') {
-      const textContent = response.content.find(
-        (block): block is ContentBlock & { type: 'text'; text: string } => block.type === 'text'
-      )
+      const finalText = collectedTexts.length > 0
+        ? collectedTexts.join('\n\n')
+        : 'Lo siento, tuve un problema. Escribe "hablar con humano" para asistencia.'
       return {
-        text: textContent?.text ?? 'Lo siento, tuve un problema. Escribe "hablar con humano" para asistencia.',
+        text: finalText,
         toolsUsed,
         tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
         appointmentData,
@@ -179,12 +205,12 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       continue
     }
 
-    // Si llegamos aquí es un stop_reason inesperado — devolver lo que haya
-    const fallbackText = response.content.find(
-      (block): block is ContentBlock & { type: 'text'; text: string } => block.type === 'text'
-    )
+    // Si llegamos aquí es un stop_reason inesperado — devolver lo recolectado
+    const fallbackJoined = collectedTexts.length > 0
+      ? collectedTexts.join('\n\n')
+      : 'Disculpa, tuve un problema técnico. Intenta de nuevo o escribe "hablar con humano".'
     return {
-      text: fallbackText?.text ?? 'Disculpa, tuve un problema técnico. Intenta de nuevo o escribe "hablar con humano".',
+      text: fallbackJoined,
       toolsUsed,
       tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
       appointmentData,
@@ -239,4 +265,38 @@ function buildMessageHistory(messages: Message[]): MessageParam[] {
   }
 
   return history
+}
+
+/**
+ * Carga las reglas escalate_human activas para los tipos de consulta
+ * que están en el contexto del agente. Devuelve un Set de consultation_type_id
+ * para que el system prompt y el ejecutor sepan cuáles tienen escalación forzada.
+ *
+ * Bloque 1 del sistema de reglas configurables (CLAUDE.md).
+ * Devuelve Set vacío si no hay tipos o falla la query — la regla degrada
+ * graciosamente a "no hay escalación forzada" (comportamiento original).
+ */
+async function loadActiveEscalateHumanRules(
+  consultationTypes?: ConsultationType[],
+): Promise<Set<string>> {
+  const result = new Set<string>()
+  if (!consultationTypes || consultationTypes.length === 0) return result
+
+  const ctIds = consultationTypes.map((ct) => ct.id)
+  try {
+    const { data } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .select('consultation_type_id')
+      .eq('rule_type', 'escalate_human')
+      .eq('active', true)
+      .in('consultation_type_id', ctIds)
+
+    for (const row of data ?? []) {
+      result.add((row as { consultation_type_id: string }).consultation_type_id)
+    }
+  } catch (err) {
+    console.error('[appointment-agent] Error cargando escalate_human rules:', err)
+    // Devolver Set vacío — el agente operará sin reglas (degrade graceful)
+  }
+  return result
 }

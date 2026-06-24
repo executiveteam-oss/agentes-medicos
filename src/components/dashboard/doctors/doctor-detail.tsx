@@ -25,6 +25,11 @@ import {
   classifyInsurerType,
 } from '@/app/actions/consultation-types'
 import { getSchedulesForType, saveSchedulesForType, type CtSchedule } from '@/app/actions/consultation-type-schedules'
+import {
+  enableEscalateHumanRule,
+  disableEscalateHumanRule,
+  getRulesForConsultationType,
+} from '@/app/actions/consultation-type-rules'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
 import { classifyRes256Category } from '@/app/actions/res256'
 import { getConsultationTypes } from '@/app/actions/consultation-types'
@@ -684,6 +689,9 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
         <span style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Agendable por WhatsApp</span>
       </div>
 
+      {/* Reglas especiales — Bloque 1: escalar siempre a humano */}
+      <EscalateHumanRuleToggle ctId={ct.id} ctName={ct.name} onError={onError} />
+
       {/* Schedules section */}
       <CtSchedulesEditor ctId={ct.id} />
 
@@ -936,6 +944,105 @@ function NewBlockBtn({ doctorId, onCreated, onError }: { doctorId: string; onCre
           {isPending ? 'Creando...' : 'Crear bloqueo'}
         </button>
         <button onClick={() => setShow(false)} className="btn-v2-ghost" style={{ fontSize: '11px', padding: '6px 8px' }}>Cancelar</button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// EscalateHumanRuleToggle — Bloque 1 de "Reglas especiales"
+//
+// Lady activa/desactiva "Escalar siempre a humano" para un tipo
+// de consulta. Cuando está activa, el agente NO agenda — deriva
+// al staff. Defense in depth: el agente del WhatsApp respeta la
+// regla (prompt) Y create_appointment la rechaza físicamente
+// (check duro en executor).
+// ============================================================
+
+function EscalateHumanRuleToggle({
+  ctId,
+  ctName,
+  onError,
+}: {
+  ctId: string
+  ctName: string
+  onError: (e: string) => void
+}): React.JSX.Element {
+  const [active, setActive] = useState<boolean | null>(null) // null = cargando
+  const [isPending, startTransition] = useTransition()
+
+  useEffect(() => {
+    let mounted = true
+    getRulesForConsultationType(ctId).then((rules) => {
+      if (!mounted) return
+      const escalateRule = rules.find((r) => r.rule_type === 'escalate_human')
+      setActive(!!escalateRule?.active)
+    }).catch(() => {
+      if (mounted) setActive(false)
+    })
+    return () => { mounted = false }
+  }, [ctId])
+
+  function handleToggle(): void {
+    if (active === null) return
+    const newValue = !active
+    setActive(newValue) // optimistic
+    startTransition(async () => {
+      const r = newValue
+        ? await enableEscalateHumanRule(ctId)
+        : await disableEscalateHumanRule(ctId)
+      if (!r.ok) {
+        setActive(!newValue) // rollback
+        onError(r.error ?? 'Error al actualizar la regla')
+      }
+    })
+  }
+
+  const loading = active === null
+  const isActive = active === true
+
+  return (
+    <div style={{
+      marginBottom: '12px',
+      padding: '12px 14px',
+      background: isActive ? '#fef3c7' : 'var(--v2-bg-soft)',
+      border: `1px solid ${isActive ? '#f5b500' : 'var(--v2-border-soft)'}`,
+      borderRadius: 'var(--v2-radius)',
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: '12px',
+    }}>
+      <button
+        onClick={handleToggle}
+        disabled={loading || isPending}
+        className="toggle-v2"
+        data-active={isActive ? 'true' : 'false'}
+        style={{
+          flexShrink: 0,
+          marginTop: '2px',
+          opacity: loading ? 0.5 : 1,
+          cursor: loading ? 'wait' : 'pointer',
+        }}
+        title="Escalar siempre a humano"
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: '12px',
+          fontWeight: 700,
+          color: isActive ? '#7a5500' : 'var(--v2-text)',
+          marginBottom: '2px',
+        }}>
+          {isActive ? '🚨 Escalar siempre a humano (activa)' : 'Escalar siempre a humano'}
+        </div>
+        <div style={{
+          fontSize: '11px',
+          color: isActive ? '#7a5500' : 'var(--v2-text-muted)',
+          lineHeight: 1.4,
+        }}>
+          Cuando un paciente pide <strong>{ctName}</strong>, el agente NO agenda.
+          Lo deriva al staff para validar. Usado para servicios complejos
+          (procedimientos con sedación, biopsias, histeroscopias).
+        </div>
       </div>
     </div>
   )

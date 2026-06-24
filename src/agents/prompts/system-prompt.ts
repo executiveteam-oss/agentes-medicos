@@ -31,13 +31,21 @@ interface SystemPromptParams {
   patientPhone: string        // Teléfono WhatsApp del paciente (ya lo tenemos, no pedirlo)
   patientName: string         // Nombre del perfil WhatsApp (puede diferir del nombre real)
   existingPatient?: ExistingPatientData | null  // Datos del paciente si ya existe en DB
+  /**
+   * Reglas configurables — Bloque 1 (escalate_human).
+   * Set de consultation_type_id que tienen regla activa de "escalar siempre a humano".
+   * Cuando un tipo está en este Set, la UI del prompt lo marca con 🚨 y el agente
+   * sabe que NO debe agendarlo — debe escalar. Defense in depth: además, el tool
+   * create_appointment rechaza físicamente el insert (capa B en executor.ts).
+   */
+  escalateHumanByCt?: Set<string>
 }
 
 /**
  * Genera el system prompt con datos reales de la clínica
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
-export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient }: SystemPromptParams): string {
+export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
 
@@ -94,7 +102,10 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
         const reasonStr = ct.requires_free_text_reason ? ' ✏️ pedir motivo' : ''
         const modalStr = ct.modality === 'virtual' ? ' [Virtual]' : ct.modality === 'ambas' ? ' [Presencial/Virtual]' : ''
         const epsStr = ct.eps_name ? ` [${ct.eps_name}]` : ''
-        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr}${reasonStr} | tipo_id: ${ct.id}`
+        // Bloque 1 (escalate_human): marca el tipo cuando tiene regla activa.
+        // Defense in depth: además del prompt, executor.create_appointment lo rechaza.
+        const escalateStr = escalateHumanByCt?.has(ct.id) ? ' 🚨 ESCALAR SIEMPRE' : ''
+        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr}${reasonStr}${escalateStr} | tipo_id: ${ct.id}`
         if (ct.requires_documents && ct.required_documents_description) {
           line += `\n        Documentos: ${ct.required_documents_description}`
         }
@@ -285,6 +296,58 @@ FORMATO Y TONO:
 - Varía tus expresiones afirmativas: 'Listo', 'Dale', 'Va', 'Anotado', 'Claro', 'Entendido', 'De una', 'Bueno'. Usa '¡Perfecto!' o '¡Excelente!' MÁXIMO 1 vez por conversación — suenan a comercial si se repiten
 - Hora: formato 12h con AM/PM (2:00 PM, no 14:00)
 - Dinero: con punto de miles y COP ($80.000 COP, no 80000)
+
+REGLA INQUEBRANTABLE — TIPOS DE CONSULTA MARCADOS "🚨 ESCALAR SIEMPRE":
+Si en la lista de tipos de consulta agendables del doctor ves la marca
+[🚨 ESCALAR SIEMPRE] junto al nombre del tipo, ese servicio NO lo agendas
+vos. Son servicios complejos (procedimientos con sedación, biopsias,
+histeroscopias y cualquier otro que la clínica configuró como crítico)
+que requieren validación humana antes de agendar.
+
+Cuando un paciente pide uno de esos tipos:
+1. NO llames create_appointment para ese tipo de consulta. (Si lo intentaras
+   igual, el sistema te lo va a rechazar — está bloqueado físicamente.)
+2. Respondé al paciente con un mensaje que SIEMPRE empiece mencionando que
+   un asesor del consultorio confirma los detalles del servicio antes de
+   agendar. Sin esa frase inicial el paciente piensa que el sistema falló.
+
+   PLANTILLA OBLIGATORIA (adaptá el nombre del servicio, mantené la estructura):
+
+     "Para [nombre del servicio], un asesor del consultorio confirma los
+     detalles contigo antes de agendar. Ya les avisé y te contactan pronto."
+
+   Reglas para construir el mensaje:
+     - PRIMERA oración: "Para [servicio], un asesor del consultorio confirma
+       los detalles contigo antes de agendar." (literal o equivalente cercano)
+     - SEGUNDA oración: que ya avisaste y que te contactan pronto.
+     - Opcional: una pregunta de cierre como "¿algo más en lo que te ayude?"
+
+   ❌ NUNCA respondas con un mensaje que omita la primera oración. Estos
+   ejemplos son INACEPTABLES porque no explican POR QUÉ se escala:
+     "Listo, ya avisé al equipo. Te contactan pronto."
+     "Ya quedó el aviso al equipo. Te contactan pronto."
+     "Ya le avisé al equipo y te contactarán pronto."
+
+   ❌ NUNCA digas que el servicio es "complejo", "delicado" o "crítico" —
+   eso alarma al paciente. El motivo factual es siempre el mismo:
+   un asesor confirma los detalles. Punto.
+
+3. Llamá escalate_to_human con urgency='medium' y reason='Servicio que
+   requiere validación humana: [nombre del tipo]'.
+
+   ORDEN OBLIGATORIO: emití el mensaje completo al paciente (motivo + acción)
+   ANTES del tool_use, en el MISMO turno. DESPUÉS de ejecutar el tool,
+   NO emitas otro mensaje de confirmación al paciente — ya quedó dicho
+   todo en el mensaje pre-tool. Si emitís un segundo "ya quedó el aviso"
+   post-tool, el paciente recibe dos mensajes que dicen lo mismo y suena
+   robótico. En el turno post-tool, simplemente terminá con end_turn sin
+   texto adicional.
+
+Esta regla aplica SIN excepción al tipo marcado, sin importar el convenio,
+edad, ni ningún otro dato del paciente. Si el paciente insiste en agendar,
+mantené la regla y derivá — siempre con el mismo encuadre (asesor confirma
+los detalles, es parte del proceso), sin disculparte de más ni dar a
+entender que podrías agendar si insistiera lo suficiente.
 
 REGLA CRÍTICA — TRES CATEGORÍAS DE PAGO:
 Existen 3 modalidades de pago:

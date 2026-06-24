@@ -656,9 +656,10 @@ async function createAppointment(
           }
 
           // action === 'rechazar': no escalar, comunicar al paciente que no se realiza.
+          // Tono cálido — especialmente "below_min" suele ser un menor de edad.
           const messageRechazar = evalResult.edge === 'below_min'
-            ? `Este servicio se realiza desde los ${config.min} años. Lo siento, no podemos agendarlo en este momento. ¿Hay algo más en lo que te pueda ayudar?`
-            : `Este servicio se realiza hasta los ${config.max} años. Lo siento, no podemos agendarlo en este caso. ¿Hay algo más en lo que te pueda ayudar?`
+            ? `Lo siento mucho, esta consulta se realiza desde los ${config.min} años, así que en este momento no podemos agendarte. Si tu mamá, papá o un familiar adulto quiere agendar para ti, lo coordinamos con ellos. ¿Te puedo ayudar con algo más?`
+            : `Lo siento mucho, esta consulta se atiende hasta los ${config.max} años, así que en este caso no podemos agendarte por este canal. Te recomiendo contactar directamente al consultorio para que te orienten al especialista adecuado. ¿Te puedo ayudar con algo más?`
           return {
             success: false,
             error: 'BLOCKED_BY_AGE_RECHAZAR',

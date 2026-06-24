@@ -114,6 +114,16 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   // (system-prompt.ts, Bloque 1) funcione end-to-end.
   const collectedTexts: string[] = []
 
+  // Después de que escalate_to_human se ejecutó, el LLM YA emitió al paciente
+  // el mensaje completo PRE-tool (regla del prompt). Cualquier texto que emita
+  // en iteraciones posteriores es duplicación ("Un asesor te contactará pronto..."
+  // repetido), que en WhatsApp suena robótico. Marcamos el flag para descartar
+  // texts post-escalación.
+  // Esto es ortogonal a los bloques de reglas — afecta a CUALQUIER flujo donde
+  // se llame escalate_to_human (bloque 1 escalate_human, bloque 2 age_limit
+  // derivación/sin DOB, escalaciones por urgencia médica, etc.)
+  let escalateToHumanCalled = false
+
   let appointmentData: AppointmentData | undefined
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
@@ -131,11 +141,16 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     totalInputTokens += response.usage?.input_tokens ?? 0
     totalOutputTokens += response.usage?.output_tokens ?? 0
 
-    // Capturar TODO texto que el LLM emitió en este turno (acumulamos
-    // entre iteraciones para preservar mensajes pre-tool con motivos).
-    for (const block of response.content) {
-      if (block.type === 'text' && block.text.trim()) {
-        collectedTexts.push(block.text.trim())
+    // Capturar texto que el LLM emitió en este turno. Acumulamos entre
+    // iteraciones para preservar mensajes pre-tool con motivos. Excepción:
+    // si en una iteración previa se llamó escalate_to_human, descartamos
+    // cualquier texto subsecuente (sería duplicación del mensaje pre-tool
+    // que el paciente ya recibió).
+    if (!escalateToHumanCalled) {
+      for (const block of response.content) {
+        if (block.type === 'text' && block.text.trim()) {
+          collectedTexts.push(block.text.trim())
+        }
       }
     }
 
@@ -170,6 +185,13 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
 
       for (const toolUse of toolUseBlocks) {
         toolsUsed.push(toolUse.name)
+
+        // Marcar si se llamó escalate_to_human para descartar texto subsecuente.
+        // El mensaje al paciente ya se emitió pre-tool (regla del prompt) —
+        // cualquier texto post-tool sería duplicación.
+        if (toolUse.name === 'escalate_to_human') {
+          escalateToHumanCalled = true
+        }
 
         // Ejecutar la tool con los parámetros que Claude envió
         const result = await executeTool(

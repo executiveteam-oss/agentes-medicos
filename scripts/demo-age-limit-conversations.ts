@@ -204,14 +204,41 @@ async function main(): Promise<void> {
       await runCase(label + ' [Turno 2]', historialTurno2, patientMessage2)
     }
 
+    // Buscar un slot REAL disponible para Juan Diego en los próximos días.
+    // Crítico para que la conversación llegue a create_appointment sin trabarse
+    // en SLOT_JUST_TAKEN por un slot inventado.
+    async function findRealSlot(ctId: string): Promise<{ date: string; time: string; readable: string; dayName: string }> {
+      const { executeTool } = await import('../src/agents/tools/executor')
+      for (let i = 1; i <= 7; i++) {
+        const d = new Date(); d.setDate(d.getDate() + i)
+        const dateStr = d.toISOString().slice(0, 10)
+        const res = await executeTool(
+          'check_availability',
+          { doctor_id: DOCTOR_JUAN_DIEGO_ID, consultation_type_id: ctId, preferred_date: dateStr },
+          ALGIA_CLINIC_ID, clinicRow as Clinic, doctor as Doctor,
+        )
+        if (res.success && res.data) {
+          const data = res.data as Record<string, unknown>
+          const slots = (data.slots as Array<{ time: string; starts_at: string }> | undefined) ?? []
+          if (slots.length > 0) {
+            const dayName = (data.dayOfWeek as string) ?? ''
+            const readable = `${dayName} ${d.getDate()} de ${d.toLocaleDateString('es-CO', { month: 'long', timeZone: 'America/Bogota' })}`
+            return { date: dateStr, time: slots[0].time, readable, dayName }
+          }
+        }
+      }
+      throw new Error('No real slot found for Juan Diego in next 7 days')
+    }
+
     // Helper para construir un historial estándar de "ya estamos por agendar".
-    // Pone al agente en estado donde el próximo mensaje del paciente debería
-    // gatillar create_appointment SIN re-consultar disponibilidad.
-    function buildConfirmationHistory(
+    async function buildConfirmationHistory(
       paciente: { nombre: string; doc: string; docType: 'CC' | 'TI'; dob: string },
       tipoNombre: string,
-    ): Message[] {
+      ctId: string,
+    ): Promise<Message[]> {
       const dobReadable = ddmmyyyy(paciente.dob)
+      const slot = await findRealSlot(ctId)
+      console.log(`  → Slot real encontrado: ${slot.readable} a las ${slot.time}`)
       return [
         {
           id: 'h1', conversation_id: 'demo', role: 'patient',
@@ -231,22 +258,21 @@ async function main(): Promise<void> {
           whatsapp_message_id: null, message_type: 'text', metadata: {},
           created_at: new Date(Date.now() - 180000).toISOString(),
         } as unknown as Message,
-        // El agente ya hizo check_availability y propuso una hora específica
         {
           id: 'h4', conversation_id: 'demo', role: 'agent',
-          content: `Anotado ${paciente.nombre}. Te ofrezco estos horarios con el Dr. Juan Diego para el martes 30 de junio: 7:24 AM, 7:48 AM, 8:12 AM. ¿Cuál te queda mejor?`,
+          content: `Anotado ${paciente.nombre}. Tengo disponibilidad con el Dr. Juan Diego el ${slot.readable} a las ${slot.time}. ¿Te queda bien ese horario?`,
           whatsapp_message_id: null, message_type: 'text', metadata: {},
           created_at: new Date(Date.now() - 120000).toISOString(),
         } as unknown as Message,
         {
           id: 'h5', conversation_id: 'demo', role: 'patient',
-          content: 'A las 7:48 AM está bien.',
+          content: `Sí, a las ${slot.time} está perfecto.`,
           whatsapp_message_id: null, message_type: 'text', metadata: {},
           created_at: new Date(Date.now() - 60000).toISOString(),
         } as unknown as Message,
         {
           id: 'h6', conversation_id: 'demo', role: 'agent',
-          content: `Anotado: ${tipoNombre} con el Dr. Juan Diego Villegas el martes 30 de junio a las 7:48 AM. ¿Confirmas que te agende?`,
+          content: `Te confirmo: ${tipoNombre} con el Dr. Juan Diego Villegas el ${slot.readable} a las ${slot.time}. ¿Confirmas que te agende?`,
           whatsapp_message_id: null, message_type: 'text', metadata: {},
           created_at: new Date(Date.now() - 30000).toISOString(),
         } as unknown as Message,
@@ -261,14 +287,16 @@ async function main(): Promise<void> {
     // ============================================================
     if (casesToRun.includes('1')) {
       const dob = isoDateForAge(30)
+      const hist = await buildConfirmationHistory(
+        { nombre: 'Laura Martínez', doc: '1234567890', docType: 'CC', dob },
+        'consulta de primera vez por ginecología',
+        PRIMERA_VEZ_CT_ID,
+      )
       await runCaseTwoTurns(
         'CASO 1 — Edad DENTRO de rango (30 años, regla 18-50 activa)',
-        buildConfirmationHistory(
-          { nombre: 'Laura Martínez', doc: '1234567890', docType: 'CC', dob },
-          'consulta de primera vez por ginecología',
-        ),
+        hist,
         'Sí, confirmo, agéndamela.',
-        'Sí, agéndame en la primera hora que tengas disponible.',
+        'Sí, agéndame en esa hora.',
       )
       await supa.from('appointments').delete()
         .eq('clinic_id', ALGIA_CLINIC_ID)
@@ -282,12 +310,14 @@ async function main(): Promise<void> {
     // ============================================================
     if (casesToRun.includes('2')) {
       const dob = isoDateForAge(16)
+      const hist = await buildConfirmationHistory(
+        { nombre: 'Sofía Pérez', doc: '1099887766', docType: 'TI', dob },
+        'consulta de primera vez por ginecología',
+        PRIMERA_VEZ_CT_ID,
+      )
       await runCaseTwoTurns(
         'CASO 2 — Edad BAJO mínimo (16 años, action=rechazar)',
-        buildConfirmationHistory(
-          { nombre: 'Sofía Pérez', doc: '1099887766', docType: 'TI', dob },
-          'consulta de primera vez por ginecología',
-        ),
+        hist,
         'Sí, confírmamela.',
         'Sí, esa hora me sirve, agéndame.',
       )
@@ -299,14 +329,16 @@ async function main(): Promise<void> {
     // ============================================================
     if (casesToRun.includes('3')) {
       const dob = isoDateForAge(62)
+      const hist = await buildConfirmationHistory(
+        { nombre: 'Carmen Restrepo', doc: '22334455', docType: 'CC', dob },
+        'consulta de primera vez por ginecología',
+        PRIMERA_VEZ_CT_ID,
+      )
       await runCaseTwoTurns(
         'CASO 3 — Edad SOBRE máximo (62 años, action=derivar_humano)',
-        buildConfirmationHistory(
-          { nombre: 'Carmen Restrepo', doc: '22334455', docType: 'CC', dob },
-          'consulta de primera vez por ginecología',
-        ),
+        hist,
         'Sí, confirma por favor.',
-        'A las 8:00 AM, agéndame por favor.',
+        'Sí esa hora, agéndame por favor.',
       )
       await supa.from('patients').delete().eq('clinic_id', ALGIA_CLINIC_ID).eq('phone', DEMO_PHONE)
     }
@@ -316,12 +348,14 @@ async function main(): Promise<void> {
     // ============================================================
     if (casesToRun.includes('4')) {
       const dob = isoDateForAge(16)
+      const hist = await buildConfirmationHistory(
+        { nombre: 'Sofía Pérez', doc: '1099887766', docType: 'TI', dob },
+        'consulta de control de seguimiento por ginecología',
+        CONTROL_CT_ID,
+      )
       await runCaseTwoTurns(
         'CASO 4 — Edad 16 años pero CONSULTA DE CONTROL (sin regla age_limit)',
-        buildConfirmationHistory(
-          { nombre: 'Sofía Pérez', doc: '1099887766', docType: 'TI', dob },
-          'consulta de control de seguimiento por ginecología',
-        ),
+        hist,
         'Sí, confirma.',
         'Sí, esa hora está bien, agéndame.',
       )

@@ -476,6 +476,7 @@ async function createAppointment(
   const consultationTypeId = (input.consultation_type_id as string) ?? null
   const modality = (input.modality as string) ?? 'presencial'
   const freeTextReason = (input.free_text_reason as string) ?? null
+  const patientConditionAnswers = (input.patient_condition_answers as Record<string, 'yes' | 'no' | 'ambiguous'> | undefined) ?? {}
 
   // Validar motivo libre si el tipo lo requiere
   if (consultationTypeId) {
@@ -674,6 +675,152 @@ async function createAppointment(
         }
         // Edad dentro de rango → seguir flujo normal.
       }
+    }
+  }
+
+  // Bloque 3 (patient_condition) — CHECK DURO híbrido.
+  //
+  // Defense in depth con un giro: el código NO puede verificar respuestas
+  // como "¿estás embarazada?" (viven en la conversación). Pero SÍ puede
+  // forzar que el agente haya OBTENIDO una respuesta antes de agendar.
+  //
+  // El LLM debe pasar patient_condition_answers con una entry por cada
+  // regla activa. Si falta alguna → BLOCKED_CONDITION_NOT_ASKED (forza
+  // al LLM a preguntar). Si está pero coincide con trigger_answer →
+  // BLOCKED_BY_CONDITION_*. Si es 'ambiguous' → safe default = derivar.
+  if (consultationTypeId) {
+    const { data: conditionRules } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .select('id, condition_config')
+      .eq('consultation_type_id', consultationTypeId)
+      .eq('rule_type', 'patient_condition')
+      .eq('active', true)
+
+    if (conditionRules && conditionRules.length > 0) {
+      const { PatientConditionConfigSchema, evaluatePatientCondition } = await import('@/lib/rules/patient-condition-config')
+
+      // Check 1: ¿Faltan respuestas?
+      const missing: Array<{ ruleId: string; question: string }> = []
+      for (const row of conditionRules) {
+        const r = row as { id: string; condition_config: unknown }
+        const parsed = PatientConditionConfigSchema.safeParse(r.condition_config)
+        if (!parsed.success) continue // config corrupto, skip (no debería pasar — Zod en write)
+        if (!(r.id in patientConditionAnswers)) {
+          missing.push({ ruleId: r.id, question: parsed.data.question })
+        }
+      }
+
+      if (missing.length > 0) {
+        await supabaseAdmin.from('audit_log').insert({
+          clinic_id: clinicId,
+          action: 'create_appointment_blocked_by_rule',
+          actor_type: 'agent',
+          target_type: 'consultation_type',
+          target_id: consultationTypeId,
+          details: {
+            rule_type: 'patient_condition',
+            outcome: 'not_asked',
+            missing_rule_ids: missing.map((m) => m.ruleId),
+            llm_attempted_anyway: true,
+            patient_phone: patientPhone,
+          },
+        })
+        return {
+          success: false,
+          error: 'BLOCKED_CONDITION_NOT_ASKED',
+          data: {
+            rule_type: 'patient_condition',
+            outcome: 'not_asked',
+            missing_questions: missing,
+            instruction_for_llm:
+              'Tenés que hacerle al paciente las preguntas faltantes antes de agendar. ' +
+              'En tu próxima respuesta hacele esas preguntas en un solo mensaje, esperá la respuesta, ' +
+              'y volvé a llamar create_appointment con patient_condition_answers incluyendo TODAS las reglas.',
+          },
+        }
+      }
+
+      // Check 2: evaluar cada respuesta. Si alguna dispara o es ambigua → bloquear.
+      for (const row of conditionRules) {
+        const r = row as { id: string; condition_config: unknown }
+        const parsed = PatientConditionConfigSchema.safeParse(r.condition_config)
+        if (!parsed.success) continue
+        const config = parsed.data
+        const answer = patientConditionAnswers[r.id]
+        const evalRes = evaluatePatientCondition(answer, config)
+
+        if (evalRes.outcome === 'apt') continue
+
+        // Logging detallado para auditoría
+        await supabaseAdmin.from('audit_log').insert({
+          clinic_id: clinicId,
+          action: 'create_appointment_blocked_by_rule',
+          actor_type: 'agent',
+          target_type: 'consultation_type',
+          target_id: consultationTypeId,
+          details: {
+            rule_type: 'patient_condition',
+            rule_id: r.id,
+            question: config.question,
+            answer_reported_by_llm: answer,
+            trigger_answer: config.trigger_answer,
+            outcome: evalRes.outcome,
+            action_taken: evalRes.action,
+            llm_attempted_anyway: true,
+            patient_phone: patientPhone,
+          },
+        })
+
+        if (evalRes.outcome === 'ambiguous') {
+          return {
+            success: false,
+            error: 'BLOCKED_BY_CONDITION_AMBIGUOUS',
+            data: {
+              rule_type: 'patient_condition',
+              outcome: 'ambiguous',
+              question: config.question,
+              must_escalate: true,
+              message_for_patient:
+                'Para asegurar que el servicio aplica en tu caso, prefiero que un asesor del consultorio lo confirme contigo. Ya les avisé y te contactan pronto.',
+              escalate_reason: `Respuesta ambigua a pregunta obligatoria: "${config.question}". Requiere revisión del staff.`,
+              escalate_urgency: 'medium',
+            },
+          }
+        }
+
+        // outcome === 'triggered' — aplicar action_on_trigger
+        if (evalRes.action === 'derivar_humano') {
+          return {
+            success: false,
+            error: 'BLOCKED_BY_CONDITION_DERIVAR',
+            data: {
+              rule_type: 'patient_condition',
+              outcome: 'triggered',
+              question: config.question,
+              must_escalate: true,
+              message_for_patient:
+                'Para este servicio en tu caso necesito que un asesor del consultorio lo confirme contigo. Ya les avisé y te contactan pronto.',
+              escalate_reason: `Paciente respondió "${answer}" a pregunta obligatoria "${config.question}" (dispara derivación según configuración de la clínica).`,
+              escalate_urgency: 'medium',
+            },
+          }
+        }
+
+        // action === 'rechazar'
+        return {
+          success: false,
+          error: 'BLOCKED_BY_CONDITION_RECHAZAR',
+          data: {
+            rule_type: 'patient_condition',
+            outcome: 'triggered',
+            question: config.question,
+            must_escalate: false,
+            message_for_patient:
+              'Lo siento, por la respuesta que me diste no podemos agendarte este servicio en este momento. Te recomiendo contactar directamente al consultorio para que te orienten. ¿Te puedo ayudar con algo más?',
+          },
+        }
+      }
+      // Todas las respuestas son apt → continuar flujo normal.
     }
   }
 

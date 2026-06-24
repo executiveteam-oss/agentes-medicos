@@ -118,6 +118,19 @@ export const agentTools: Tool[] = [
           type: 'string',
           description: 'Motivo o diagnóstico escrito por el paciente. Obligatorio si el tipo de consulta tiene requires_free_text_reason=true.',
         },
+        patient_condition_answers: {
+          type: 'object',
+          description:
+            'Respuestas a preguntas obligatorias del tipo de consulta (bloque 3 reglas). ' +
+            'Objeto con rule_id como key y "yes"/"no"/"ambiguous" como value. ' +
+            'OBLIGATORIO incluir TODAS las reglas patient_condition activas del tipo. ' +
+            'Si el sistema rechaza por BLOCKED_CONDITION_NOT_ASKED, indica qué rule_id falta — preguntá esa pregunta al paciente y volvé a llamar con la respuesta. ' +
+            'Categorías: "yes" si paciente respondió afirmativamente claro, "no" si negativamente claro, "ambiguous" si no se entendió bien o el paciente dijo "no sé".',
+          additionalProperties: {
+            type: 'string',
+            enum: ['yes', 'no', 'ambiguous'],
+          },
+        },
       },
       required: ['doctor_id', 'patient_name', 'patient_phone', 'starts_at', 'date_of_birth', 'document_type', 'document_number'],
     },

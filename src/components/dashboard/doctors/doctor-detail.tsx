@@ -31,8 +31,15 @@ import {
   getRulesForConsultationType,
   upsertAgeLimitRule,
   disableAgeLimitRule,
+  createPatientConditionRule,
+  updatePatientConditionRule,
+  togglePatientConditionRule,
+  deletePatientConditionRule,
+  getPatientConditionRulesForCt,
+  type PatientConditionRule,
 } from '@/app/actions/consultation-type-rules'
 import type { AgeLimitConfig, EdgeAction } from '@/lib/rules/age-limit-config'
+import type { PatientConditionConfig, TriggerAnswer, ActionOnTrigger } from '@/lib/rules/patient-condition-config'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
 import { classifyRes256Category } from '@/app/actions/res256'
 import { getConsultationTypes } from '@/app/actions/consultation-types'
@@ -698,6 +705,9 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
       {/* Reglas especiales — Bloque 2: límite de edad */}
       <AgeLimitRuleEditor ctId={ct.id} ctName={ct.name} onError={onError} />
 
+      {/* Reglas especiales — Bloque 3: preguntas obligatorias */}
+      <PatientConditionRuleEditor ctId={ct.id} ctName={ct.name} onError={onError} />
+
       {/* Schedules section */}
       <CtSchedulesEditor ctId={ct.id} />
 
@@ -1312,6 +1322,329 @@ function AgeLimitRuleEditor({
         {saved && (
           <span style={{ fontSize: '11px', color: 'var(--v2-green)' }}>✓ Guardado</span>
         )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// PatientConditionRuleEditor — Bloque 3 de "Reglas especiales"
+//
+// Permite agregar preguntas sí/no que el agente HACE antes de agendar.
+// Múltiples preguntas = múltiples filas (rules) en la DB.
+//
+// Si Lady configura 3+ preguntas activas, mostramos un warning suave
+// porque demasiadas preguntas alargan la conversación y pueden hacer
+// que el paciente abandone. No bloquea — solo advierte.
+//
+// Defense in depth: el agente respeta la regla (prompt) Y
+// create_appointment exige que las respuestas vengan en el payload
+// (BLOCKED_CONDITION_NOT_ASKED si faltan).
+// ============================================================
+
+function PatientConditionRuleEditor({
+  ctId,
+  ctName,
+  onError,
+}: {
+  ctId: string
+  ctName: string
+  onError: (e: string) => void
+}): React.JSX.Element {
+  const [rules, setRules] = useState<PatientConditionRule[] | null>(null)
+  const [editingId, setEditingId] = useState<string | 'new' | null>(null)
+  const [draftConfig, setDraftConfig] = useState<PatientConditionConfig>({
+    question: '',
+    trigger_answer: 'yes',
+    action_on_trigger: 'derivar_humano',
+    verification_mode: 'trust',
+  })
+  const [isPending, startTransition] = useTransition()
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    getPatientConditionRulesForCt(ctId).then((r) => {
+      if (mounted) setRules(r)
+    }).catch(() => { if (mounted) setRules([]) })
+    return () => { mounted = false }
+  }, [ctId])
+
+  function reload(): void {
+    getPatientConditionRulesForCt(ctId).then((r) => setRules(r)).catch(() => {})
+  }
+
+  function startNew(): void {
+    setDraftConfig({
+      question: '',
+      trigger_answer: 'yes',
+      action_on_trigger: 'derivar_humano',
+      verification_mode: 'trust',
+    })
+    setLocalError(null)
+    setEditingId('new')
+  }
+
+  function startEdit(rule: PatientConditionRule): void {
+    setDraftConfig({
+      question: rule.condition_config.question as string,
+      trigger_answer: rule.condition_config.trigger_answer as TriggerAnswer,
+      action_on_trigger: rule.condition_config.action_on_trigger as ActionOnTrigger,
+      verification_mode: 'trust',
+    })
+    setLocalError(null)
+    setEditingId(rule.id)
+  }
+
+  function validate(): string | null {
+    const q = draftConfig.question.trim()
+    if (q.length < 5) return 'La pregunta debe tener al menos 5 caracteres'
+    if (q.length > 200) return 'La pregunta no puede exceder 200 caracteres'
+    return null
+  }
+
+  function handleSave(): void {
+    const err = validate()
+    if (err) { setLocalError(err); return }
+    setLocalError(null)
+    const cfg: PatientConditionConfig = { ...draftConfig, question: draftConfig.question.trim() }
+
+    startTransition(async () => {
+      const r = editingId === 'new'
+        ? await createPatientConditionRule(ctId, cfg)
+        : await updatePatientConditionRule(editingId!, cfg)
+      if (!r.ok) { onError(r.error ?? 'Error guardando'); return }
+      setEditingId(null)
+      reload()
+    })
+  }
+
+  function handleToggle(rule: PatientConditionRule): void {
+    startTransition(async () => {
+      const r = await togglePatientConditionRule(rule.id, !rule.active)
+      if (!r.ok) { onError(r.error ?? 'Error'); return }
+      reload()
+    })
+  }
+
+  function handleDelete(rule: PatientConditionRule): void {
+    if (!confirm(`¿Eliminar la pregunta "${rule.condition_config.question}"?`)) return
+    startTransition(async () => {
+      const r = await deletePatientConditionRule(rule.id)
+      if (!r.ok) { onError(r.error ?? 'Error'); return }
+      reload()
+    })
+  }
+
+  if (rules === null) return <div style={{ marginBottom: '12px', height: '20px' }} />
+
+  const activeRules = rules.filter((r) => r.active)
+  const anyActive = activeRules.length > 0
+  const tooManyActive = activeRules.length >= 3
+
+  return (
+    <div style={{
+      marginBottom: '12px',
+      padding: '12px 14px',
+      background: anyActive ? '#fef3c7' : 'var(--v2-bg-soft)',
+      border: `1px solid ${anyActive ? '#f5b500' : 'var(--v2-border-soft)'}`,
+      borderRadius: 'var(--v2-radius)',
+    }}>
+      <div style={{
+        fontSize: '12px',
+        fontWeight: 700,
+        color: anyActive ? '#7a5500' : 'var(--v2-text)',
+        marginBottom: '4px',
+      }}>
+        {anyActive ? `🩺 Preguntas obligatorias (${activeRules.length} activas)` : '🩺 Preguntas obligatorias'}
+      </div>
+      <div style={{
+        fontSize: '11px',
+        color: anyActive ? '#7a5500' : 'var(--v2-text-muted)',
+        marginBottom: '10px',
+      }}>
+        El agente le pregunta esto al paciente <strong>antes de agendar {ctName}</strong>.
+        Según la respuesta, agenda o deriva al staff. Ejemplo: "¿Estás embarazada
+        actualmente?" → si responde sí, deriva al médico.
+      </div>
+
+      {tooManyActive && (
+        <div style={{
+          fontSize: '11px',
+          padding: '8px 10px',
+          background: '#fef9c3',
+          border: '1px solid #fde047',
+          borderRadius: '6px',
+          marginBottom: '10px',
+          color: '#854d0e',
+        }}>
+          ⚠ Tenés {activeRules.length} preguntas activas. Muchas preguntas alargan la
+          conversación y pueden hacer que el paciente abandone. Considerá si todas
+          son necesarias antes de agendar.
+        </div>
+      )}
+
+      {/* Lista de preguntas existentes */}
+      {rules.map((rule) => (
+        <div key={rule.id} style={{
+          marginBottom: '8px',
+          padding: '8px',
+          background: 'var(--v2-bg)',
+          borderRadius: '6px',
+          opacity: rule.active ? 1 : 0.55,
+        }}>
+          {editingId === rule.id ? (
+            <PatientConditionForm
+              config={draftConfig}
+              setConfig={setDraftConfig}
+              localError={localError}
+              onSave={handleSave}
+              onCancel={() => setEditingId(null)}
+              isPending={isPending}
+            />
+          ) : (
+            <>
+              <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+                {String(rule.condition_config.question)}
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '6px' }}>
+                Si responde <strong>{rule.condition_config.trigger_answer === 'yes' ? 'sí' : 'no'}</strong>:{' '}
+                {rule.condition_config.action_on_trigger === 'rechazar' ? 'rechazar' : 'derivar a humano'}
+                {!rule.active && <span style={{ color: 'var(--v2-text-muted)', marginLeft: '6px' }}>(inactiva)</span>}
+              </div>
+              <div style={{ display: 'flex', gap: '10px', fontSize: '11px' }}>
+                <button onClick={() => startEdit(rule)} disabled={isPending}
+                  style={{ background: 'none', border: 'none', color: 'var(--v2-blue)', cursor: 'pointer', padding: 0 }}>
+                  Editar
+                </button>
+                <button onClick={() => handleToggle(rule)} disabled={isPending}
+                  style={{ background: 'none', border: 'none', color: 'var(--v2-text-muted)', cursor: 'pointer', padding: 0 }}>
+                  {rule.active ? 'Desactivar' : 'Activar'}
+                </button>
+                <button onClick={() => handleDelete(rule)} disabled={isPending}
+                  style={{ background: 'none', border: 'none', color: 'var(--v2-red)', cursor: 'pointer', padding: 0 }}>
+                  Eliminar
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      ))}
+
+      {/* Form para pregunta nueva */}
+      {editingId === 'new' && (
+        <div style={{ padding: '8px', background: 'var(--v2-bg)', borderRadius: '6px', marginBottom: '8px' }}>
+          <PatientConditionForm
+            config={draftConfig}
+            setConfig={setDraftConfig}
+            localError={localError}
+            onSave={handleSave}
+            onCancel={() => setEditingId(null)}
+            isPending={isPending}
+          />
+        </div>
+      )}
+
+      {editingId === null && (
+        <button onClick={startNew} disabled={isPending}
+          style={{ fontSize: '11px', padding: '5px 12px', background: 'none', border: '1px dashed var(--v2-border-soft)', borderRadius: '6px', cursor: 'pointer', color: 'var(--v2-text)' }}>
+          + Agregar pregunta
+        </button>
+      )}
+    </div>
+  )
+}
+
+function PatientConditionForm({
+  config,
+  setConfig,
+  localError,
+  onSave,
+  onCancel,
+  isPending,
+}: {
+  config: PatientConditionConfig
+  setConfig: (c: PatientConditionConfig) => void
+  localError: string | null
+  onSave: () => void
+  onCancel: () => void
+  isPending: boolean
+}): React.JSX.Element {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div>
+        <label style={{ fontSize: '11px', color: 'var(--v2-text-muted)', display: 'block', marginBottom: '4px' }}>
+          Pregunta (tutea al paciente, sí/no clara):
+        </label>
+        <input
+          type="text"
+          value={config.question}
+          onChange={(e) => setConfig({ ...config, question: e.target.value })}
+          placeholder="¿Estás embarazada actualmente?"
+          style={{
+            width: '100%',
+            padding: '6px 8px',
+            border: '1px solid var(--v2-border-soft)',
+            borderRadius: '4px',
+            fontSize: '12px',
+          }}
+        />
+      </div>
+
+      <div>
+        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
+          Respuesta del paciente que dispara la acción:
+        </div>
+        <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input type="radio" name="trigger" checked={config.trigger_answer === 'yes'}
+              onChange={() => setConfig({ ...config, trigger_answer: 'yes' })} /> Sí
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input type="radio" name="trigger" checked={config.trigger_answer === 'no'}
+              onChange={() => setConfig({ ...config, trigger_answer: 'no' })} /> No
+          </label>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
+          Si se dispara, hacer:
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input type="radio" name="action"
+              checked={config.action_on_trigger === 'rechazar'}
+              onChange={() => setConfig({ ...config, action_on_trigger: 'rechazar' })} />
+            Rechazar — &quot;no podemos agendarte&quot;
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input type="radio" name="action"
+              checked={config.action_on_trigger === 'derivar_humano'}
+              onChange={() => setConfig({ ...config, action_on_trigger: 'derivar_humano' })} />
+            Derivar a humano
+          </label>
+        </div>
+      </div>
+
+      <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', padding: '6px 8px', background: 'var(--v2-bg-soft)', borderRadius: '4px' }}>
+        Verificación: Confiar en la respuesta del paciente (el agente clasifica
+        respuestas ambiguas como derivar al staff).
+      </div>
+
+      {localError && (
+        <div style={{ fontSize: '11px', color: 'var(--v2-red)' }}>{localError}</div>
+      )}
+
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <button onClick={onSave} disabled={isPending} className="btn-v2-primary"
+          style={{ fontSize: '11px', padding: '5px 12px' }}>
+          {isPending ? 'Guardando...' : 'Guardar'}
+        </button>
+        <button onClick={onCancel} disabled={isPending}
+          style={{ fontSize: '11px', padding: '5px 12px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', cursor: 'pointer' }}>
+          Cancelar
+        </button>
       </div>
     </div>
   )

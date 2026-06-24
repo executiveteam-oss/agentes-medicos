@@ -86,8 +86,9 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   // chequea la regla y rechaza el insert si está activa (capa B).
   const escalateHumanByCt = await loadActiveEscalateHumanRules(consultationTypes)
   const ageLimitsByCt = await loadActiveAgeLimitRules(consultationTypes)
+  const patientConditionsByCt = await loadActivePatientConditions(consultationTypes)
 
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt })
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt })
 
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens
@@ -320,6 +321,38 @@ async function loadActiveEscalateHumanRules(
   } catch (err) {
     console.error('[appointment-agent] Error cargando escalate_human rules:', err)
     // Devolver Set vacío — el agente operará sin reglas (degrade graceful)
+  }
+  return result
+}
+
+/**
+ * Carga las reglas patient_condition activas. Devuelve Map ctId → array de
+ * preguntas activas (cada una con su rule_id, question y trigger). El LLM
+ * usa esto para saber qué preguntar al paciente antes de agendar.
+ * Bloque 3 del sistema de reglas (CLAUDE.md).
+ */
+async function loadActivePatientConditions(
+  consultationTypes?: ConsultationType[],
+): Promise<Map<string, Array<{ rule_id: string; question: string; trigger_answer: 'yes' | 'no'; action_on_trigger: 'rechazar' | 'derivar_humano' }>>> {
+  const result = new Map<string, Array<{ rule_id: string; question: string; trigger_answer: 'yes' | 'no'; action_on_trigger: 'rechazar' | 'derivar_humano' }>>()
+  if (!consultationTypes || consultationTypes.length === 0) return result
+
+  const ctIds = consultationTypes.map((ct) => ct.id)
+  try {
+    const { getActivePatientConditionRulesForCts } = await import('@/app/actions/consultation-type-rules')
+    const rules = await getActivePatientConditionRulesForCts(ctIds)
+    for (const r of rules) {
+      const existing = result.get(r.consultation_type_id) ?? []
+      existing.push({
+        rule_id: r.id,
+        question: r.config.question,
+        trigger_answer: r.config.trigger_answer,
+        action_on_trigger: r.config.action_on_trigger,
+      })
+      result.set(r.consultation_type_id, existing)
+    }
+  } catch (err) {
+    console.error('[appointment-agent] Error cargando patient_condition rules:', err)
   }
   return result
 }

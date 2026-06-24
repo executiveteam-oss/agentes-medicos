@@ -39,13 +39,22 @@ interface SystemPromptParams {
    * create_appointment rechaza físicamente el insert (capa B en executor.ts).
    */
   escalateHumanByCt?: Set<string>
+  /**
+   * Reglas configurables — Bloque 2 (age_limit).
+   * Map de consultation_type_id → config de edad ({min, max, action_below_min,
+   * action_above_max}). Cuando un CT está en el Map, el agente ve la marca 👶 EDAD,
+   * pide la fecha de nacimiento si no la tiene, calcula la edad y aplica la acción
+   * configurada por borde. Defense in depth: executor.create_appointment recalcula
+   * la edad desde date_of_birth y rechaza si está fuera de rango.
+   */
+  ageLimitsByCt?: Map<string, { min?: number; max?: number; action_below_min?: 'rechazar' | 'derivar_humano'; action_above_max?: 'rechazar' | 'derivar_humano' }>
 }
 
 /**
  * Genera el system prompt con datos reales de la clínica
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
-export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt }: SystemPromptParams): string {
+export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
 
@@ -105,7 +114,20 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
         // Bloque 1 (escalate_human): marca el tipo cuando tiene regla activa.
         // Defense in depth: además del prompt, executor.create_appointment lo rechaza.
         const escalateStr = escalateHumanByCt?.has(ct.id) ? ' 🚨 ESCALAR SIEMPRE' : ''
-        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr}${reasonStr}${escalateStr} | tipo_id: ${ct.id}`
+        // Bloque 2 (age_limit): marca el tipo con rango de edad configurado.
+        // Defense in depth: executor.create_appointment recalcula la edad y rechaza.
+        const ageCfg = ageLimitsByCt?.get(ct.id)
+        let ageStr = ''
+        if (ageCfg) {
+          if (ageCfg.min !== undefined && ageCfg.max !== undefined) {
+            ageStr = ` 👶 EDAD: ${ageCfg.min}-${ageCfg.max} años`
+          } else if (ageCfg.min !== undefined) {
+            ageStr = ` 👶 EDAD: ${ageCfg.min}+ años`
+          } else if (ageCfg.max !== undefined) {
+            ageStr = ` 👶 EDAD: ≤${ageCfg.max} años`
+          }
+        }
+        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr}${reasonStr}${escalateStr}${ageStr} | tipo_id: ${ct.id}`
         if (ct.requires_documents && ct.required_documents_description) {
           line += `\n        Documentos: ${ct.required_documents_description}`
         }
@@ -348,6 +370,46 @@ edad, ni ningún otro dato del paciente. Si el paciente insiste en agendar,
 mantené la regla y derivá — siempre con el mismo encuadre (asesor confirma
 los detalles, es parte del proceso), sin disculparte de más ni dar a
 entender que podrías agendar si insistiera lo suficiente.
+
+REGLA — TIPOS DE CONSULTA MARCADOS "👶 EDAD":
+Algunos tipos tienen la marca [👶 EDAD: 18-50 años] (u otra variante) junto
+al nombre. Significa que la clínica configuró un rango de edad permitido.
+El sistema valida la edad cuando llames create_appointment.
+
+COMPORTAMIENTO OBLIGATORIO al usar create_appointment para tipos marcados
+👶 EDAD:
+
+1. NO emitas texto al paciente ANTES de llamar create_appointment. Nada de
+   "déjame verificar la edad", "déjame revisar si está dentro del rango",
+   "voy a intentar agendar para que el sistema confirme". Llamá el tool
+   en silencio.
+
+2. Si el tool devuelve éxito → confirmá la cita normal con el formato
+   habitual de ✅ Cita confirmada.
+
+3. Si el tool devuelve error BLOCKED_BY_AGE_RECHAZAR:
+   - Emití SOLO el campo data.message_for_patient TAL CUAL al paciente.
+   - NO escales. NO llames otro tool.
+   - NO agregues "lamentablemente", "el sistema dice", "es una restricción".
+     El message_for_patient ya está escrito con el tono adecuado.
+
+4. Si el tool devuelve error BLOCKED_BY_AGE_DERIVAR o BLOCKED_BY_AGE_UNKNOWN:
+   - Emití el data.message_for_patient TAL CUAL al paciente.
+   - Llamá escalate_to_human con el data.escalate_reason que viene.
+   - ORDEN: mensaje al paciente PRIMERO (en el mismo turno), tool DESPUÉS.
+     POST-tool NO emitas otro mensaje — el paciente ya leyó "ya les avisé".
+
+PROHIBIDO en cualquier mensaje al paciente:
+❌ Mencionar la fecha de nacimiento o la edad calculada del paciente.
+❌ Mencionar el rango (ej. "de 18 a 50 años") salvo que esté ya en el
+   message_for_patient.
+❌ Mencionar el nombre técnico del tipo en MAYÚSCULAS o entre comillas.
+❌ Mencionar "el sistema", "validar", "verificar", "restricción", "el tool".
+❌ Anunciar lo que vas a hacer antes de hacerlo ("déjame revisar...").
+❌ Explicar tu razonamiento sobre por qué llamaste o no llamaste un tool.
+
+El paciente solo debe ver el mensaje final, natural, conciso. Tu razonamiento
+queda en silencio.
 
 REGLA CRÍTICA — TRES CATEGORÍAS DE PAGO:
 Existen 3 modalidades de pago:

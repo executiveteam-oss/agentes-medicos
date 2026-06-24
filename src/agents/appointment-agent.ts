@@ -85,8 +85,9 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   // Defense in depth: además del prompt, executor.create_appointment también
   // chequea la regla y rechaza el insert si está activa (capa B).
   const escalateHumanByCt = await loadActiveEscalateHumanRules(consultationTypes)
+  const ageLimitsByCt = await loadActiveAgeLimitRules(consultationTypes)
 
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt })
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt })
 
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens
@@ -297,6 +298,37 @@ async function loadActiveEscalateHumanRules(
   } catch (err) {
     console.error('[appointment-agent] Error cargando escalate_human rules:', err)
     // Devolver Set vacío — el agente operará sin reglas (degrade graceful)
+  }
+  return result
+}
+
+/**
+ * Carga las reglas age_limit activas. Devuelve Map ctId → config validada
+ * por el schema Zod. Bloque 2 del sistema de reglas (CLAUDE.md).
+ */
+async function loadActiveAgeLimitRules(
+  consultationTypes?: ConsultationType[],
+): Promise<Map<string, { min?: number; max?: number; action_below_min?: 'rechazar' | 'derivar_humano'; action_above_max?: 'rechazar' | 'derivar_humano' }>> {
+  const result = new Map<string, { min?: number; max?: number; action_below_min?: 'rechazar' | 'derivar_humano'; action_above_max?: 'rechazar' | 'derivar_humano' }>()
+  if (!consultationTypes || consultationTypes.length === 0) return result
+
+  const ctIds = consultationTypes.map((ct) => ct.id)
+  try {
+    const { AgeLimitConfigSchema } = await import('@/lib/rules/age-limit-config')
+    const { data } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .select('consultation_type_id, condition_config')
+      .eq('rule_type', 'age_limit')
+      .eq('active', true)
+      .in('consultation_type_id', ctIds)
+
+    for (const row of data ?? []) {
+      const r = row as { consultation_type_id: string; condition_config: unknown }
+      const parsed = AgeLimitConfigSchema.safeParse(r.condition_config)
+      if (parsed.success) result.set(r.consultation_type_id, parsed.data)
+    }
+  } catch (err) {
+    console.error('[appointment-agent] Error cargando age_limit rules:', err)
   }
   return result
 }

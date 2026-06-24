@@ -29,7 +29,10 @@ import {
   enableEscalateHumanRule,
   disableEscalateHumanRule,
   getRulesForConsultationType,
+  upsertAgeLimitRule,
+  disableAgeLimitRule,
 } from '@/app/actions/consultation-type-rules'
+import type { AgeLimitConfig, EdgeAction } from '@/lib/rules/age-limit-config'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
 import { classifyRes256Category } from '@/app/actions/res256'
 import { getConsultationTypes } from '@/app/actions/consultation-types'
@@ -692,6 +695,9 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
       {/* Reglas especiales — Bloque 1: escalar siempre a humano */}
       <EscalateHumanRuleToggle ctId={ct.id} ctName={ct.name} onError={onError} />
 
+      {/* Reglas especiales — Bloque 2: límite de edad */}
+      <AgeLimitRuleEditor ctId={ct.id} ctName={ct.name} onError={onError} />
+
       {/* Schedules section */}
       <CtSchedulesEditor ctId={ct.id} />
 
@@ -1043,6 +1049,269 @@ function EscalateHumanRuleToggle({
           Lo deriva al staff para validar. Usado para servicios complejos
           (procedimientos con sedación, biopsias, histeroscopias).
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// AgeLimitRuleEditor — Bloque 2 de "Reglas especiales"
+//
+// Lady configura un rango de edad permitido para el tipo de consulta.
+// Cada extremo (mínimo/máximo) tiene su propia acción: rechazar
+// ("no se realiza") o derivar a humano. Defense in depth: el agente
+// respeta la regla (prompt) Y create_appointment calcula la edad
+// desde date_of_birth y la valida (executor).
+// ============================================================
+
+function AgeLimitRuleEditor({
+  ctId,
+  ctName,
+  onError,
+}: {
+  ctId: string
+  ctName: string
+  onError: (e: string) => void
+}): React.JSX.Element {
+  const [loaded, setLoaded] = useState(false)
+  const [active, setActive] = useState(false)
+  const [hasMin, setHasMin] = useState(false)
+  const [hasMax, setHasMax] = useState(false)
+  const [minVal, setMinVal] = useState<string>('')
+  const [maxVal, setMaxVal] = useState<string>('')
+  const [actionMin, setActionMin] = useState<EdgeAction>('rechazar')
+  const [actionMax, setActionMax] = useState<EdgeAction>('derivar_humano')
+  const [isPending, startTransition] = useTransition()
+  const [saved, setSaved] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    getRulesForConsultationType(ctId).then((rules) => {
+      if (!mounted) return
+      const ageRule = rules.find((r) => r.rule_type === 'age_limit')
+      if (ageRule) {
+        setActive(ageRule.active)
+        const cfg = ageRule.condition_config as AgeLimitConfig
+        if (cfg.min !== undefined) { setHasMin(true); setMinVal(String(cfg.min)) }
+        if (cfg.max !== undefined) { setHasMax(true); setMaxVal(String(cfg.max)) }
+        if (cfg.action_below_min) setActionMin(cfg.action_below_min)
+        if (cfg.action_above_max) setActionMax(cfg.action_above_max)
+      }
+      setLoaded(true)
+    }).catch(() => { if (mounted) setLoaded(true) })
+    return () => { mounted = false }
+  }, [ctId])
+
+  function validate(): string | null {
+    if (!hasMin && !hasMax) return 'Activá al menos edad mínima o máxima'
+    if (hasMin) {
+      const n = parseInt(minVal, 10)
+      if (isNaN(n) || n < 0 || n > 120) return 'Edad mínima debe estar entre 0 y 120'
+    }
+    if (hasMax) {
+      const n = parseInt(maxVal, 10)
+      if (isNaN(n) || n < 0 || n > 120) return 'Edad máxima debe estar entre 0 y 120'
+    }
+    if (hasMin && hasMax) {
+      const lo = parseInt(minVal, 10)
+      const hi = parseInt(maxVal, 10)
+      if (lo >= hi) return 'La edad mínima debe ser menor que la máxima'
+    }
+    return null
+  }
+
+  function handleSave(): void {
+    const err = validate()
+    if (err) { setLocalError(err); return }
+    setLocalError(null)
+
+    const config: AgeLimitConfig = {}
+    if (hasMin) { config.min = parseInt(minVal, 10); config.action_below_min = actionMin }
+    if (hasMax) { config.max = parseInt(maxVal, 10); config.action_above_max = actionMax }
+
+    startTransition(async () => {
+      const r = await upsertAgeLimitRule(ctId, config)
+      if (!r.ok) { onError(r.error ?? 'Error guardando regla'); return }
+      setActive(true)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    })
+  }
+
+  function handleDisable(): void {
+    startTransition(async () => {
+      const r = await disableAgeLimitRule(ctId)
+      if (!r.ok) { onError(r.error ?? 'Error desactivando regla'); return }
+      setActive(false)
+    })
+  }
+
+  if (!loaded) return <div style={{ marginBottom: '12px', height: '20px' }} />
+
+  return (
+    <div style={{
+      marginBottom: '12px',
+      padding: '12px 14px',
+      background: active ? '#fef3c7' : 'var(--v2-bg-soft)',
+      border: `1px solid ${active ? '#f5b500' : 'var(--v2-border-soft)'}`,
+      borderRadius: 'var(--v2-radius)',
+    }}>
+      <div style={{
+        fontSize: '12px',
+        fontWeight: 700,
+        color: active ? '#7a5500' : 'var(--v2-text)',
+        marginBottom: '4px',
+      }}>
+        {active ? '👶 Límite de edad (activo)' : '👶 Límite de edad'}
+      </div>
+      <div style={{
+        fontSize: '11px',
+        color: active ? '#7a5500' : 'var(--v2-text-muted)',
+        marginBottom: '10px',
+      }}>
+        Restringe <strong>{ctName}</strong> a un rango de edad. El agente pide la fecha de
+        nacimiento, calcula la edad y aplica la acción configurada para cada borde.
+      </div>
+
+      {/* Edad mínima */}
+      <div style={{ marginBottom: '10px', padding: '8px', background: 'var(--v2-bg)', borderRadius: '6px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={hasMin}
+            onChange={(e) => { setHasMin(e.target.checked); setLocalError(null) }}
+          />
+          Aplicar edad mínima
+        </label>
+        {hasMin && (
+          <div style={{ marginLeft: '24px', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+              <span>Edad:</span>
+              <input
+                type="number"
+                min={0}
+                max={120}
+                value={minVal}
+                onChange={(e) => { setMinVal(e.target.value); setLocalError(null) }}
+                style={{
+                  width: '60px',
+                  padding: '4px 6px',
+                  border: '1px solid var(--v2-border-soft)',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                }}
+              />
+              <span style={{ color: 'var(--v2-text-muted)' }}>años</span>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)' }}>Si el paciente es menor:</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+              <input
+                type="radio"
+                name={`min-action-${ctId}`}
+                checked={actionMin === 'rechazar'}
+                onChange={() => setActionMin('rechazar')}
+              />
+              Rechazar — "este servicio no se realiza..."
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+              <input
+                type="radio"
+                name={`min-action-${ctId}`}
+                checked={actionMin === 'derivar_humano'}
+                onChange={() => setActionMin('derivar_humano')}
+              />
+              Derivar a humano
+            </label>
+          </div>
+        )}
+      </div>
+
+      {/* Edad máxima */}
+      <div style={{ marginBottom: '10px', padding: '8px', background: 'var(--v2-bg)', borderRadius: '6px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600 }}>
+          <input
+            type="checkbox"
+            checked={hasMax}
+            onChange={(e) => { setHasMax(e.target.checked); setLocalError(null) }}
+          />
+          Aplicar edad máxima
+        </label>
+        {hasMax && (
+          <div style={{ marginLeft: '24px', marginTop: '6px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+              <span>Edad:</span>
+              <input
+                type="number"
+                min={0}
+                max={120}
+                value={maxVal}
+                onChange={(e) => { setMaxVal(e.target.value); setLocalError(null) }}
+                style={{
+                  width: '60px',
+                  padding: '4px 6px',
+                  border: '1px solid var(--v2-border-soft)',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                }}
+              />
+              <span style={{ color: 'var(--v2-text-muted)' }}>años</span>
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)' }}>Si el paciente es mayor:</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+              <input
+                type="radio"
+                name={`max-action-${ctId}`}
+                checked={actionMax === 'rechazar'}
+                onChange={() => setActionMax('rechazar')}
+              />
+              Rechazar
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+              <input
+                type="radio"
+                name={`max-action-${ctId}`}
+                checked={actionMax === 'derivar_humano'}
+                onChange={() => setActionMax('derivar_humano')}
+              />
+              Derivar a humano
+            </label>
+          </div>
+        )}
+      </div>
+
+      {localError && (
+        <div style={{ fontSize: '11px', color: 'var(--v2-red)', marginBottom: '8px' }}>{localError}</div>
+      )}
+
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <button
+          onClick={handleSave}
+          disabled={isPending || (!hasMin && !hasMax)}
+          className="btn-v2-primary"
+          style={{ fontSize: '11px', padding: '5px 12px' }}
+        >
+          {isPending ? 'Guardando...' : active ? 'Actualizar' : 'Activar'}
+        </button>
+        {active && (
+          <button
+            onClick={handleDisable}
+            disabled={isPending}
+            style={{
+              fontSize: '11px',
+              color: 'var(--v2-text-muted)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '5px 8px',
+            }}
+          >
+            Desactivar
+          </button>
+        )}
+        {saved && (
+          <span style={{ fontSize: '11px', color: 'var(--v2-green)' }}>✓ Guardado</span>
+        )}
       </div>
     </div>
   )

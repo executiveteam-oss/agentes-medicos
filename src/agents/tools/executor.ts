@@ -544,6 +544,138 @@ async function createAppointment(
     }
   }
 
+  // Bloque 2 (age_limit) — CHECK DURO en defense in depth.
+  //
+  // El system prompt YA le dice al agente "tipos marcados 👶 EDAD requieren
+  // verificar edad antes de agendar" (capa A). Este chequeo recalcula la
+  // edad desde date_of_birth y rechaza si está fuera de rango — sin importar
+  // qué decida el LLM. Para edad desconocida (DOB null/inválido), se fuerza
+  // derivación a humano (safe default: la clínica revisa antes de agendar).
+  if (consultationTypeId) {
+    const { data: ageRule } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .select('id, condition_config')
+      .eq('consultation_type_id', consultationTypeId)
+      .eq('rule_type', 'age_limit')
+      .eq('active', true)
+      .maybeSingle()
+
+    if (ageRule) {
+      const { AgeLimitConfigSchema, evaluateAgeLimit } = await import('@/lib/rules/age-limit-config')
+      const { calculateAgeFromBirthDate } = await import('@/lib/utils/age')
+      const parsed = AgeLimitConfigSchema.safeParse(ageRule.condition_config)
+
+      if (parsed.success) {
+        // Si no llegó fecha en el input, intentar leerla del paciente existente
+        let dobToUse: string | null = dateOfBirth
+        if (!dobToUse) {
+          const { data: existingPatient } = await supabaseAdmin
+            .from('patients')
+            .select('date_of_birth')
+            .eq('clinic_id', clinicId)
+            .eq('phone', patientPhone)
+            .maybeSingle()
+          dobToUse = (existingPatient?.date_of_birth as string | undefined) ?? null
+        }
+
+        const age = calculateAgeFromBirthDate(dobToUse)
+        const config = parsed.data
+
+        if (age === null) {
+          // DOB ausente o inválido: forzar derivación al staff (safe default).
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinicId,
+            action: 'create_appointment_blocked_by_rule',
+            actor_type: 'agent',
+            target_type: 'consultation_type',
+            target_id: consultationTypeId,
+            details: {
+              rule_type: 'age_limit',
+              rule_id: ageRule.id,
+              outcome: 'age_unknown',
+              dob_provided: dobToUse,
+              llm_attempted_anyway: true,
+              patient_phone: patientPhone,
+            },
+          })
+          return {
+            success: false,
+            error: 'BLOCKED_BY_AGE_UNKNOWN',
+            data: {
+              rule_type: 'age_limit',
+              outcome: 'age_unknown',
+              must_escalate: true,
+              message_for_patient:
+                'Necesito tu fecha de nacimiento para confirmar el agendamiento de este servicio. Le aviso a un asesor del consultorio para que te contacte y complete el dato.',
+              escalate_reason: 'Edad no validable — paciente no proporcionó fecha de nacimiento para servicio con regla de edad.',
+              escalate_urgency: 'medium',
+            },
+          }
+        }
+
+        const evalResult = evaluateAgeLimit(age, config)
+        if (evalResult) {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinicId,
+            action: 'create_appointment_blocked_by_rule',
+            actor_type: 'agent',
+            target_type: 'consultation_type',
+            target_id: consultationTypeId,
+            details: {
+              rule_type: 'age_limit',
+              rule_id: ageRule.id,
+              outcome: evalResult.edge,
+              action_taken: evalResult.action,
+              age_calculated: age,
+              dob_used: dobToUse,
+              config_min: config.min ?? null,
+              config_max: config.max ?? null,
+              llm_attempted_anyway: true,
+              patient_phone: patientPhone,
+            },
+          })
+
+          if (evalResult.action === 'derivar_humano') {
+            const edgeText = evalResult.edge === 'below_min'
+              ? `menor a ${config.min} años`
+              : `mayor a ${config.max} años`
+            return {
+              success: false,
+              error: 'BLOCKED_BY_AGE_DERIVAR',
+              data: {
+                rule_type: 'age_limit',
+                outcome: evalResult.edge,
+                age_calculated: age,
+                must_escalate: true,
+                message_for_patient:
+                  'Para este servicio en tu caso necesito que un asesor del consultorio lo confirme contigo. Ya les avisé y te contactan pronto.',
+                escalate_reason: `Edad fuera de rango configurado (paciente ${age} años, ${edgeText}). Requiere revisión del staff.`,
+                escalate_urgency: 'medium',
+              },
+            }
+          }
+
+          // action === 'rechazar': no escalar, comunicar al paciente que no se realiza.
+          const messageRechazar = evalResult.edge === 'below_min'
+            ? `Este servicio se realiza desde los ${config.min} años. Lo siento, no podemos agendarlo en este momento. ¿Hay algo más en lo que te pueda ayudar?`
+            : `Este servicio se realiza hasta los ${config.max} años. Lo siento, no podemos agendarlo en este caso. ¿Hay algo más en lo que te pueda ayudar?`
+          return {
+            success: false,
+            error: 'BLOCKED_BY_AGE_RECHAZAR',
+            data: {
+              rule_type: 'age_limit',
+              outcome: evalResult.edge,
+              age_calculated: age,
+              must_escalate: false,
+              message_for_patient: messageRechazar,
+            },
+          }
+        }
+        // Edad dentro de rango → seguir flujo normal.
+      }
+    }
+  }
+
   // Calcular hora de fin: tipo de consulta > per-doctor config > default
   const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
   const docConfig = waConfig?.doctors[doctorId]

@@ -589,6 +589,45 @@ Importador doctor-first de tipos de consulta desde citas iSalud:
 
 ---
 
+## 📊 PENDIENTE — Vista consultable de rechazos por edad (post-piloto)
+
+**Anotado 2026-06-24 al cerrar bloque 2 (age_limit)**: hoy los rechazos
+por edad quedan registrados en `audit_log` con `action =
+'create_appointment_blocked_by_rule'` y `details.rule_type = 'age_limit'`.
+
+**Por qué es info de negocio útil**:
+- "¿Cuántos pacientes rechazamos por edad esta semana/mes?"
+- "¿Cuáles tipos están rechazando más?" — puede revelar que falta un servicio
+  para ese rango etario, o que un rango está mal configurado por la clínica.
+- "¿Cuántos rechazos por edad desconocida (paciente no dio DOB)?" — puede
+  indicar que el agente está pidiendo mal la fecha o que pacientes desconfían.
+
+**Lo que NO queremos hacer**: notificar al staff por cada rechazo. Es ruido.
+
+**Lo que SÍ queremos**: un mini-dashboard o reporte consultable que muestre,
+para un rango de fechas, los rechazos agrupados por (tipo_consulta, motivo:
+below_min/above_max/age_unknown). Idealmente accesible desde la sección de
+Reportes que ya existe para Res-256.
+
+Query base que probablemente sirva como punto de partida:
+```sql
+SELECT
+  details->>'consultation_type_name' as servicio,
+  details->>'outcome' as motivo,
+  COUNT(*) as n
+FROM audit_log
+WHERE clinic_id = '...'
+  AND action = 'create_appointment_blocked_by_rule'
+  AND details->>'rule_type' = 'age_limit'
+  AND created_at >= '2026-06-01'
+GROUP BY 1, 2 ORDER BY n DESC;
+```
+
+**No bloqueante para el piloto** — el audit_log ya existe, los datos están
+ahí. Cuando Lady (o quien sea) pida la info, se puede armar la vista.
+
+---
+
 ## ⚠️ Permission gates en doctors + consultation-types — DEUDA TÉCNICA, NO RENOMBRAR
 
 **Hallazgo 2026-06-23, post bug Algia (Milena+Yuliana con rol Secretaria intentaron modificar horarios/servicios sin guardar)**:

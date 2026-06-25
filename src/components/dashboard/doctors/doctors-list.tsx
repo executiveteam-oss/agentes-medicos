@@ -40,13 +40,13 @@ export function DoctorsListClient({ doctors, activeCount, canWrite = true }: { d
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
         <div>
           <h2 className="text-xl" style={{ fontWeight: 800, color: 'var(--v2-text)', letterSpacing: '-0.02em' }}>
-            Tus{' '}
+            Médicos, servicios y{' '}
             <span style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontStyle: 'italic', fontWeight: 400, background: 'linear-gradient(135deg, var(--v2-primary), var(--v2-pink))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-              doctores
+              convenios
             </span>
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--v2-text-muted)', marginTop: '4px' }}>
-            {activeCount} activos · {withFuture} con citas proximas
+            {activeCount} activos · {withFuture} con citas próximas · Horarios, tipos de consulta y reglas
           </p>
         </div>
         {canWrite && (
@@ -79,7 +79,7 @@ export function DoctorsListClient({ doctors, activeCount, canWrite = true }: { d
             return (
               <Link
                 key={doc.id}
-                href={`/dashboard/settings/doctors/${doc.id}`}
+                href={`/dashboard/doctors/${doc.id}`}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '14px',
                   padding: '16px 20px', textDecoration: 'none',
@@ -132,7 +132,7 @@ export function DoctorsListClient({ doctors, activeCount, canWrite = true }: { d
           onCreated={(id) => {
             setShowModal(false)
             showToast('Doctor creado')
-            window.location.href = `/dashboard/settings/doctors/${id}`
+            window.location.href = `/dashboard/doctors/${id}`
           }}
         />
       )}

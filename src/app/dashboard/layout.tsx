@@ -39,6 +39,11 @@ const ALL_NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', iconName: 'LayoutDashboard', module: 'agenda', section: 'operation' },
   { href: '/dashboard/agenda', label: 'Agenda', iconName: 'CalendarDays', module: 'agenda', section: 'operation' },
   { href: '/dashboard/conversations', label: 'Conversaciones', iconName: 'MessageSquare', module: 'conversations', section: 'operation' },
+  // Médicos, servicios y convenios — movido desde /dashboard/settings/doctors a top-level (2026-06-25).
+  // El gate preserva el perfil del sidebar viejo (user_management.read = Admin/Coordinadora).
+  // Si se quiere ampliar a Secretaria, ajustar permisos del rol en /dashboard/settings/roles
+  // (no requiere cambio de código).
+  { href: '/dashboard/doctors', label: 'Médicos y servicios', iconName: 'Stethoscope', module: 'user_management', section: 'operation' },
   { href: '/dashboard/patients', label: 'Pacientes', iconName: 'Users', module: 'patients', section: 'operation' },
   { href: '/dashboard/noshow', label: 'No-Shows', iconName: 'TrendingDown', module: 'noshow', section: 'operation' },
   { href: '/dashboard/espera', label: 'Lista de espera', iconName: 'Clock', module: 'espera', section: 'operation', featureKey: 'waitlist' },

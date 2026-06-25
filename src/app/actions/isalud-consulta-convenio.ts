@@ -332,7 +332,7 @@ export async function confirmSuggestionsForDoctor(
   // NOTA: NO borramos el staging (distinto a confirmImportForDoctor del flujo viejo).
   // Lady puede iterar por varios médicos sin re-scrapear.
 
-  revalidatePath(`/dashboard/settings/doctors/${doctorId}`)
+  revalidatePath(`/dashboard/doctors/${doctorId}`)
 
   return { ok: true, created, skipped }
 }

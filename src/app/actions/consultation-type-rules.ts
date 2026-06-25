@@ -131,7 +131,7 @@ export async function enableEscalateHumanRule(
     },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
 
   const { data: finalRule } = await supabaseAdmin
     .from('consultation_type_rules')
@@ -184,7 +184,7 @@ export async function disableEscalateHumanRule(
     },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   return { ok: true }
 }
 
@@ -320,7 +320,7 @@ export async function upsertAgeLimitRule(
     },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
 
   const { data: finalRule } = await supabaseAdmin
     .from('consultation_type_rules')
@@ -369,7 +369,7 @@ export async function disableAgeLimitRule(
     details: { consultation_type_id: consultationTypeId, rule_type: 'age_limit' },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   return { ok: true }
 }
 
@@ -459,7 +459,7 @@ export async function createPatientConditionRule(
     },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   return { ok: true, rule: created as ConsultationTypeRule }
 }
 
@@ -502,7 +502,7 @@ export async function updatePatientConditionRule(
     details: { rule_type: 'patient_condition', question: parsed.data.question },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   return { ok: true }
 }
 
@@ -535,7 +535,7 @@ export async function togglePatientConditionRule(
     details: { rule_type: 'patient_condition' },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   return { ok: true }
 }
 
@@ -567,7 +567,7 @@ export async function deletePatientConditionRule(
     details: { rule_type: 'patient_condition' },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   return { ok: true }
 }
 
@@ -707,7 +707,7 @@ export async function upsertAuthConvenioRule(
     },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   const { data: finalRule } = await supabaseAdmin
     .from('consultation_type_rules')
     .select('*')
@@ -748,7 +748,7 @@ export async function disableAuthConvenioRule(
     details: { consultation_type_id: consultationTypeId, rule_type: 'requires_authorization' },
   })
 
-  revalidatePath('/dashboard/settings/doctors')
+  revalidatePath('/dashboard/doctors')
   return { ok: true }
 }
 

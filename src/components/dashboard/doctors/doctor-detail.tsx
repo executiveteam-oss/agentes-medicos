@@ -153,7 +153,7 @@ export function DoctorDetailClient({
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }} className="space-y-5">
       {/* Breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
-        <Link href="/dashboard/settings/doctors" style={{ color: 'var(--v2-primary)', fontWeight: 600, textDecoration: 'none' }}>Doctores</Link>
+        <Link href="/dashboard/doctors" style={{ color: 'var(--v2-primary)', fontWeight: 600, textDecoration: 'none' }}>Médicos</Link>
         <ChevronRight size={14} style={{ color: 'var(--v2-text-subtle)' }} />
         <span style={{ color: 'var(--v2-text-subtle)' }}>{doctor.name}</span>
       </div>

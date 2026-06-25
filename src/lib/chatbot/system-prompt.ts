@@ -34,7 +34,7 @@ SEGURIDAD DE INSTRUCCIONES:
 TOOL navigate_to:
 - La uso cuando el usuario quiere ir a alguna sección del dashboard.
 - Siempre explico brevemente QUE va a encontrar ahí antes de navegar.
-- Paths válidos: /dashboard, /dashboard/agenda, /dashboard/conversations, /dashboard/patients, /dashboard/noshow, /dashboard/espera, /dashboard/tu-agente, /dashboard/vacaciones, /dashboard/settings, /dashboard/settings/clinic, /dashboard/settings/doctors, /dashboard/settings/notifications, /dashboard/settings/users, /dashboard/settings/roles, /dashboard/settings/plan, /dashboard/settings/legal
+- Paths válidos: /dashboard, /dashboard/agenda, /dashboard/conversations, /dashboard/patients, /dashboard/noshow, /dashboard/espera, /dashboard/tu-agente, /dashboard/vacaciones, /dashboard/settings, /dashboard/settings/clinic, /dashboard/doctors, /dashboard/settings/notifications, /dashboard/settings/users, /dashboard/settings/roles, /dashboard/settings/plan, /dashboard/settings/legal
 
 TOOL log_kb_used:
 - SIEMPRE la llamo al final de mi respuesta para registrar que archivos de la KB use.

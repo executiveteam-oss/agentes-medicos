@@ -8,7 +8,7 @@ import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ConversationsPanel } from '@/components/dashboard/conversations-panel'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
@@ -98,8 +98,73 @@ export default async function ConversationsPage() {
     .maybeSingle()
   const hasEscalationPhone = !!((clinicEsc as Record<string, unknown> | null)?.escalation_contact_phone as string | null)?.trim()
 
+  // Bloque 4 — count de autorizaciones pendientes para el acceso visible.
+  // Solo carga si el usuario tiene authorizations.review (para no exponer
+  // info sensible a quien no debe verla).
+  let pendingAuthsCount = 0
+  if (session.authorizationsReview) {
+    const { count } = await supabaseAdmin
+      .from('conversation_media')
+      .select('id', { count: 'exact', head: true })
+      .eq('clinic_id', session.clinicId)
+      .eq('context', 'authorization')
+      .is('reviewed_at', null)
+    pendingAuthsCount = count ?? 0
+  }
+
   return (
     <div className="space-y-6">
+      {/* Bloque 4 — acceso visible a la vista de autorizaciones pendientes.
+          Solo visible para usuarios con authorizations.review (Admin,
+          Coordinadora, Secretaria por default). */}
+      {session.authorizationsReview && (
+        <Link
+          href="/dashboard/conversations/autorizaciones"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            padding: '14px 18px',
+            borderRadius: 'var(--v2-radius)',
+            background: pendingAuthsCount > 0 ? 'var(--v2-amber-soft)' : 'var(--v2-bg-card)',
+            border: `1px solid ${pendingAuthsCount > 0 ? 'rgba(255, 184, 69, 0.4)' : 'var(--v2-border-soft)'}`,
+            fontFamily: 'var(--font-manrope), sans-serif',
+            textDecoration: 'none',
+            color: 'inherit',
+            transition: 'all 0.15s',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <ShieldCheck size={20} style={{ color: pendingAuthsCount > 0 ? '#b07d00' : 'var(--v2-text-muted)' }} />
+            <div>
+              <p style={{ fontSize: '13.5px', fontWeight: 700, color: pendingAuthsCount > 0 ? '#b07d00' : 'var(--v2-text)' }}>
+                🛡 Autorizaciones direccionadas
+              </p>
+              <p style={{ fontSize: '12px', color: pendingAuthsCount > 0 ? '#b07d00' : 'var(--v2-text-muted)', opacity: 0.85, marginTop: '2px' }}>
+                {pendingAuthsCount > 0
+                  ? `${pendingAuthsCount} pendiente${pendingAuthsCount === 1 ? '' : 's'} de revisión`
+                  : 'Sin autorizaciones pendientes'}
+              </p>
+            </div>
+          </div>
+          {pendingAuthsCount > 0 && (
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '3px 10px',
+                borderRadius: '999px',
+                background: '#b07d00',
+                color: '#fff',
+              }}
+            >
+              {pendingAuthsCount}
+            </span>
+          )}
+        </Link>
+      )}
+
       {/* Escalation warning */}
       {!hasEscalationPhone && (
         <div

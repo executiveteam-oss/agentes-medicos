@@ -280,7 +280,7 @@ async function processWebhook(body: unknown): Promise<void> {
             .update({
               status: 'escalated',
               escalated_at: new Date().toISOString(),
-              escalation_reason: 'Paciente envió archivo — recepción de media deshabilitada (feature flag off)',
+              context: { escalation_reason: 'Paciente envió archivo — recepción de media deshabilitada (feature flag off)' },
             })
             .eq('id', conversation.id)
           return
@@ -387,7 +387,7 @@ async function processWebhook(body: unknown): Promise<void> {
               .update({
                 status: 'escalated',
                 escalated_at: new Date().toISOString(),
-                escalation_reason: 'Autorización recibida — pendiente de revisión humana',
+                context: { escalation_reason: 'Autorización recibida — pendiente de revisión humana' },
                 last_message_at: new Date().toISOString(),
               })
               .eq('id', conversation.id)

@@ -57,7 +57,7 @@ export async function listPendingAuthorizations(): Promise<{
       created_at,
       conversations:conversation_id (
         whatsapp_phone,
-        escalation_reason,
+        context,
         patients:patient_id ( name )
       )
     `)
@@ -68,7 +68,7 @@ export async function listPendingAuthorizations(): Promise<{
 
   if (error) return { ok: false, error: 'Error consultando autorizaciones pendientes' }
 
-  type ConvRow = { whatsapp_phone: string; escalation_reason: string | null; patients?: { name: string } | { name: string }[] | null }
+  type ConvRow = { whatsapp_phone: string; context: Record<string, unknown> | null; patients?: { name: string } | { name: string }[] | null }
   const items: PendingAuthorization[] = (data ?? []).map((row) => {
     const r = row as unknown as {
       id: string
@@ -94,7 +94,7 @@ export async function listPendingAuthorizations(): Promise<{
       filename: r.filename,
       size_bytes: r.size_bytes,
       created_at: r.created_at,
-      conversation_escalation_reason: conv?.escalation_reason ?? null,
+      conversation_escalation_reason: (conv?.context as Record<string, unknown> | null)?.escalation_reason as string | null ?? null,
     }
   })
 
@@ -283,7 +283,7 @@ export async function rejectAuthorization(params: {
   await supabaseAdmin
     .from('conversations')
     .update({
-      escalation_reason: `Autorización rechazada: ${params.reviewNotes.trim()}`,
+      context: { escalation_reason: `Autorización rechazada: ${params.reviewNotes.trim()}` },
       last_message_at: new Date().toISOString(),
     })
     .eq('id', m.conversation_id)

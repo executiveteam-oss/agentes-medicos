@@ -917,21 +917,67 @@ Tests a actualizar (`test-consulta-convenio-derivation.ts`): los 38 tests actual
 
 ### Pendientes (en orden de prioridad)
 
-**🔴 PRIORITARIO (sesión dedicada): Filtrado de precios de convenio del contexto del agente**
+**🔴 PRIORITARIO (sesión dedicada): Filtrado de precios + NOMBRES de convenio del contexto del agente**
 
-Hoy el system prompt INYECTA todos los precios al contexto del LLM, incluyendo los de convenio:
+Hoy el system prompt INYECTA todos los precios Y todos los nombres de convenio
+al contexto del LLM:
 ```
 * Colposcopia (30 min — $452.320 COP) [Allianz] | tipo_id: ...
 * Colposcopia (30 min — $250.000 COP) [Coomeva]  | tipo_id: ...
 ```
 
-La integridad de "no revelar precio de convenio" depende 100% de que el LLM siga la regla escrita. Si la regla falla por alguna razón (prompt injection, edge case, drift), los precios pueden filtrarse. Riesgo arquitectural real.
+La integridad de "no revelar precio/convenio" depende 100% de que el LLM siga
+la regla escrita. Si la regla falla por alguna razón (prompt injection, edge
+case, drift), los precios o nombres se filtran. Riesgo arquitectural real.
 
-Fix propuesto: cuando se construye el contexto del agente, filtrar el `price` de los `consultation_types` que tengan `eps_name IS NOT NULL` (precio de convenio) — solo poblar el precio en el contexto cuando es Particular. Los de convenio van con `price=null` o etiqueta `[tarifa interna]`.
+**🚨 EVIDENCIA CONCRETA del 2026-06-25 (caso 4 del demo bloque 4)**:
 
-Ubicación: `src/agents/prompts/system-prompt.ts:91` (`const priceStr = ct.price ? ...`).
+En el demo del bloque 4, caso 4 (paciente con SOS pide CONSULTA DE CONTROL —
+un CT sin regla de autorización), el agente respondió:
 
-No urgente operativamente (la regla escrita está cubriendo bien) pero es la única forma de garantizar que el precio de convenio NUNCA salga del backend al LLM. Cuando se haga, debería incluir tests automáticos verificando que el contexto generado NO contiene los precios de convenio.
+> "El tipo de consulta que pediste — Consulta Control Posquirúrgico con el
+>  Dr. Juan Diego — es con la aseguradora Allianz Seguros de Vida.
+>  Con SOS EPS necesito verificar si tenemos convenio..."
+
+El paciente NUNCA preguntó por Allianz. El LLM lo MENCIONÓ porque ese
+nombre estaba en el listing del prompt como `eps_name` del CT.
+
+**Hoy soltó un NOMBRE. Mañana puede soltar un PRECIO.** Que no haya sido un
+precio fue suerte del prompt y la coincidencia del flujo — NO fue diseño.
+Esto materializa el riesgo que ya estaba anotado en esta sección como
+"hipótesis" — ya no es hipótesis, es comportamiento real observado.
+
+Esto refuerza con un caso concreto que el filtrado del contexto NO es
+opcional: el agente debe recibir SOLO los datos que necesita para el flujo
+del paciente actual. Si el paciente trae SOS, no debería ver "[Allianz]"
+en el listing. Si el paciente va particular, no debería ver tarifas de
+convenio. Etc.
+
+**Fix propuesto** (ampliado tras el caso 4):
+- Filtrar el `price` de los CTs con `eps_name IS NOT NULL` (precio de convenio)
+  — solo poblar el precio cuando es Particular.
+- ADICIONALMENTE: filtrar el `eps_name` del listing — el LLM no necesita ver
+  el nombre del convenio que tiene tarifa configurada. Si el paciente trae
+  un convenio, el matcheo lo hace el código (check_eps_convenio), no el LLM
+  leyendo el listing.
+- Para reglas (bloque 1-4): la marca 🛡/👶/🩺/🚨 puede quedarse, pero la
+  LISTA de convenios entre corchetes [SOS, MEDPLUS, ...] debe ser un Set en
+  memoria del LLM o pasada de manera que no se "lea" como texto plano.
+
+Ubicación: `src/agents/prompts/system-prompt.ts:91` (`const priceStr = ct.price ? ...`)
+y línea ~108 donde se concatena `${epsStr}` al listing.
+
+**Cuándo arreglar**: prioridad ALTA después del piloto Algia. Cualquier
+incidente donde el LLM mencione un convenio/precio que no debería = exposición
+de información que pacientes podrían usar para reclamos comerciales o
+abogarse precios. El caso 4 fue benigno (Allianz es público) pero el patrón
+NO es benigno.
+
+Tests a agregar cuando se haga el fix:
+- Snapshot del prompt verificando que NO contiene precios cuando paciente
+  es de convenio
+- Snapshot del prompt verificando que NO contiene `eps_name` strings literal
+  en el listing (solo identificadores opacos)
 
 **🟡 Cambio 1 — Justificación comercial completa**
 

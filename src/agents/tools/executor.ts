@@ -751,33 +751,53 @@ async function createAppointment(
 
         if (evalRes.outcome === 'apt') continue
 
-        // Logging detallado para auditoría
+        // Logging detallado para auditoría. Distinguir yes_no vs multiple_choice
+        // para que el audit registre lo más relevante de cada tipo.
+        const auditDetails: Record<string, unknown> = {
+          rule_type: 'patient_condition',
+          rule_id: r.id,
+          question_type: config.question_type,
+          question: config.question,
+          answer_reported_by_llm: answer,
+          outcome: evalRes.outcome,
+          action_taken: evalRes.action,
+          llm_attempted_anyway: true,
+          patient_phone: patientPhone,
+        }
+        if (config.question_type === 'yes_no') {
+          auditDetails.trigger_answer = config.trigger_answer
+        } else {
+          auditDetails.options_offered = config.options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            action_if_chosen: o.action_if_chosen,
+          }))
+          if (evalRes.outcome === 'triggered') {
+            auditDetails.option_id_chosen = evalRes.option_id
+            auditDetails.option_label_chosen = evalRes.option_label
+          }
+          if (evalRes.outcome === 'invalid_option') {
+            auditDetails.option_id_reported = evalRes.option_id_reported
+          }
+        }
         await supabaseAdmin.from('audit_log').insert({
           clinic_id: clinicId,
           action: 'create_appointment_blocked_by_rule',
           actor_type: 'agent',
           target_type: 'consultation_type',
           target_id: consultationTypeId,
-          details: {
-            rule_type: 'patient_condition',
-            rule_id: r.id,
-            question: config.question,
-            answer_reported_by_llm: answer,
-            trigger_answer: config.trigger_answer,
-            outcome: evalRes.outcome,
-            action_taken: evalRes.action,
-            llm_attempted_anyway: true,
-            patient_phone: patientPhone,
-          },
+          details: auditDetails,
         })
 
-        if (evalRes.outcome === 'ambiguous') {
+        // 'ambiguous' y 'invalid_option' comparten el mismo mensaje al paciente:
+        // safe default es derivar al humano sin alarmar.
+        if (evalRes.outcome === 'ambiguous' || evalRes.outcome === 'invalid_option') {
           return {
             success: false,
             error: 'BLOCKED_BY_CONDITION_AMBIGUOUS',
             data: {
               rule_type: 'patient_condition',
-              outcome: 'ambiguous',
+              outcome: evalRes.outcome,
               question: config.question,
               must_escalate: true,
               message_for_patient:

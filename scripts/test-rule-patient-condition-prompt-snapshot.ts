@@ -104,15 +104,28 @@ function main(): void {
   conditionsMap.set(ctConPregunta.id, [
     {
       rule_id: 'rule-gestantes-id',
+      question_type: 'yes_no',
       question: '¿Estás embarazada actualmente?',
       trigger_answer: 'yes',
       action_on_trigger: 'derivar_humano',
     },
     {
       rule_id: 'rule-ayuno-id',
+      question_type: 'yes_no',
       question: '¿Has cumplido 8 horas de ayuno?',
       trigger_answer: 'no',
       action_on_trigger: 'rechazar',
+    },
+    // Extensión: una multi-choice también para verificar rendering
+    {
+      rule_id: 'rule-mapeo-id',
+      question_type: 'multiple_choice',
+      question: '¿El mapeo es por cuál causa?',
+      options: [
+        { id: 'opt_1', label: 'Endometriosis', action_if_chosen: 'continuar' },
+        { id: 'opt_2', label: 'Miomas',        action_if_chosen: 'continuar' },
+        { id: 'opt_3', label: 'Otras',         action_if_chosen: 'derivar_humano' },
+      ],
     },
   ])
 
@@ -130,8 +143,8 @@ function main(): void {
     `línea: ${lineCtNoRule}`)
 
   const lineMapeo = promptConReglas.split('\n').find(l => l.includes('Mapeo cardiológico'))
-  assert('CT con preguntas tiene "🩺 PREGUNTAR (2)"',
-    lineMapeo !== undefined && lineMapeo.includes('🩺 PREGUNTAR (2)'),
+  assert('CT con preguntas tiene "🩺 PREGUNTAR (3)"',
+    lineMapeo !== undefined && lineMapeo.includes('🩺 PREGUNTAR (3)'),
     `línea: ${lineMapeo}`)
 
   assert('Prompt contiene "rule_id: rule-gestantes-id"',

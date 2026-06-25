@@ -10,6 +10,25 @@ import { normalizeWorkingHours } from '@/lib/utils/working-hours'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
+/**
+ * Una pregunta patient_condition activa para un CT, discriminada por question_type.
+ * El system prompt ramifica el rendering según el tipo.
+ */
+export type PatientConditionRuleInfo =
+  | {
+      rule_id: string
+      question_type: 'yes_no'
+      question: string
+      trigger_answer: 'yes' | 'no'
+      action_on_trigger: 'rechazar' | 'derivar_humano'
+    }
+  | {
+      rule_id: string
+      question_type: 'multiple_choice'
+      question: string
+      options: Array<{ id: string; label: string; action_if_chosen: 'continuar' | 'derivar_humano' | 'rechazar' }>
+    }
+
 interface ExistingPatientData {
   name: string
   phone: string
@@ -51,12 +70,13 @@ interface SystemPromptParams {
   /**
    * Reglas configurables — Bloque 3 (patient_condition).
    * Map de consultation_type_id → array de preguntas obligatorias activas.
+   * Cada pregunta puede ser yes_no o multiple_choice (extensión 2026-06-25).
    * El agente DEBE hacer estas preguntas al paciente antes de agendar.
    * Defense in depth híbrida: el código fuerza que se hayan obtenido las
    * respuestas (BLOCKED_CONDITION_NOT_ASKED si faltan en patient_condition_answers),
    * confía en la interpretación que el LLM hace de cada respuesta.
    */
-  patientConditionsByCt?: Map<string, Array<{ rule_id: string; question: string; trigger_answer: 'yes' | 'no'; action_on_trigger: 'rechazar' | 'derivar_humano' }>>
+  patientConditionsByCt?: Map<string, PatientConditionRuleInfo[]>
   /**
    * Reglas configurables — Bloque 4 (requires_authorization).
    * Map de consultation_type_id → config { convenios_que_requieren, message }.
@@ -161,7 +181,14 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
         if (conditions.length > 0) {
           line += `\n        Preguntas obligatorias antes de agendar:`
           for (const c of conditions) {
-            line += `\n          - rule_id: ${c.rule_id} | "${c.question}" (dispara si responde "${c.trigger_answer}" → ${c.action_on_trigger})`
+            if (c.question_type === 'yes_no') {
+              line += `\n          - rule_id: ${c.rule_id} | yes/no | "${c.question}" (dispara si responde "${c.trigger_answer}" → ${c.action_on_trigger})`
+            } else {
+              line += `\n          - rule_id: ${c.rule_id} | multiple_choice | "${c.question}"`
+              for (const opt of c.options) {
+                line += `\n              · id="${opt.id}" label="${opt.label}" → ${opt.action_if_chosen}`
+              }
+            }
           }
         }
         if (ct.requires_documents && ct.required_documents_description) {
@@ -508,8 +535,44 @@ CÓMO PREGUNTAR — natural, como secretaria humana, NO como formulario clínico
 
 Si hay múltiples preguntas, hacelas TODAS en un solo mensaje (no una por una).
 
-CÓMO INTERPRETAR LA RESPUESTA — clasificá cada respuesta del paciente como
-"yes", "no", o "ambiguous":
+PREGUNTAS MULTIPLE_CHOICE (extensión bloque 3 — desde 2026-06-25):
+Algunas preguntas obligatorias tienen tipo "multiple_choice" en el listado.
+Vas a ver varias OPCIONES debajo del rule_id, cada una con un "id" opaco
+(opt_1, opt_2...), un "label" (la frase que el paciente reconoce), y una
+acción ("continuar", "derivar_humano", o "rechazar").
+
+CÓMO PREGUNTAR (multiple_choice — natural, NO con letras A/B/C):
+
+  ✓ BIEN: "¿El mapeo es por endometriosis, miomas, adenomiosis, u otra causa?"
+  ✓ BIEN (con 2 opciones): "¿El control es para revisión de implante o de DIU?"
+
+  ❌ MAL: "Opción A) Endometriosis, Opción B) Miomas, Opción C) Adenomiosis,
+     Opción D) Otras"
+  ❌ MAL: "Por favor selecciona una opción del siguiente listado"
+  ❌ MAL: leer los rule_id o los "opt_1, opt_2" al paciente — son
+     identificadores internos.
+
+Listá las opciones con conjunción natural ("X, Y, o Z"). NO menciones la
+palabra "opción". Tono de secretaria, no de formulario clínico.
+
+CÓMO INTERPRETAR LA RESPUESTA (multiple_choice):
+El paciente puede responder con palabras del label, posición ("la primera",
+"la última"), o lenguaje natural ("es por miomas", "por endometriosis").
+Mapeá la respuesta al "id" de la opción que mejor coincide.
+
+Si la respuesta menciona claramente UNA opción → usá ese id en
+patient_condition_answers (ej. "opt_1").
+
+Si la respuesta es "otras", "otra causa", "ninguna de esas", "diferente" →
+mapeá al id de la opción que SEA "Otras" o equivalente. Si no hay una
+opción de ese estilo configurada, marcá como "ambiguous".
+
+Si la respuesta no encaja claramente con ninguna opción (paciente dice
+"es por unos quistes" pero ninguna opción es "quistes"), marcá como
+"ambiguous" → el sistema deriva. NO fuerces una opción que no encaja.
+
+CÓMO INTERPRETAR LA RESPUESTA (yes_no — pregunta clásica del bloque 3 v1):
+Clasificá cada respuesta como "yes", "no", o "ambiguous":
 
   YES (clara afirmación): "sí", "si", "claro", "así es", "estoy embarazada",
   "tengo X semanas", "afirmativo".
@@ -543,12 +606,16 @@ CÓMO INTERPRETAR LA RESPUESTA — clasificá cada respuesta del paciente como
   años que no tengo el periodo regular sin estar embarazada".
 
 CÓMO USAR LAS RESPUESTAS al llamar create_appointment — el tool acepta
-un parámetro patient_condition_answers, que es un objeto:
+un parámetro patient_condition_answers, que es un objeto. Para cada regla:
+  - yes_no:           "yes" | "no" | "ambiguous"
+  - multiple_choice:  el id de la opción elegida (opt_X) o "ambiguous"
+
+Ejemplo combinado (una clínica con ambos tipos):
 
   {
-    "rule_id_1": "yes"|"no"|"ambiguous",
-    "rule_id_2": "yes"|"no"|"ambiguous",
-    ...
+    "rule_id_embarazo": "no",
+    "rule_id_motivo_mapeo": "opt_1",
+    "rule_id_otro": "ambiguous"
   }
 
 DEBES incluir UNA entry por cada rule_id que aparece en la lista de

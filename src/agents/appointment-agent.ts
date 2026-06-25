@@ -365,14 +365,16 @@ async function loadActiveAuthConvenios(
 
 /**
  * Carga las reglas patient_condition activas. Devuelve Map ctId → array de
- * preguntas activas (cada una con su rule_id, question y trigger). El LLM
- * usa esto para saber qué preguntar al paciente antes de agendar.
+ * preguntas activas. Cada entry es discriminada por question_type — yes_no
+ * o multiple_choice. El system prompt ramifica al renderizar.
  * Bloque 3 del sistema de reglas (CLAUDE.md).
  */
+import type { PatientConditionRuleInfo } from '@/agents/prompts/system-prompt'
+
 async function loadActivePatientConditions(
   consultationTypes?: ConsultationType[],
-): Promise<Map<string, Array<{ rule_id: string; question: string; trigger_answer: 'yes' | 'no'; action_on_trigger: 'rechazar' | 'derivar_humano' }>>> {
-  const result = new Map<string, Array<{ rule_id: string; question: string; trigger_answer: 'yes' | 'no'; action_on_trigger: 'rechazar' | 'derivar_humano' }>>()
+): Promise<Map<string, PatientConditionRuleInfo[]>> {
+  const result = new Map<string, PatientConditionRuleInfo[]>()
   if (!consultationTypes || consultationTypes.length === 0) return result
 
   const ctIds = consultationTypes.map((ct) => ct.id)
@@ -381,12 +383,26 @@ async function loadActivePatientConditions(
     const rules = await getActivePatientConditionRulesForCts(ctIds)
     for (const r of rules) {
       const existing = result.get(r.consultation_type_id) ?? []
-      existing.push({
-        rule_id: r.id,
-        question: r.config.question,
-        trigger_answer: r.config.trigger_answer,
-        action_on_trigger: r.config.action_on_trigger,
-      })
+      if (r.config.question_type === 'yes_no') {
+        existing.push({
+          rule_id: r.id,
+          question_type: 'yes_no',
+          question: r.config.question,
+          trigger_answer: r.config.trigger_answer,
+          action_on_trigger: r.config.action_on_trigger,
+        })
+      } else {
+        existing.push({
+          rule_id: r.id,
+          question_type: 'multiple_choice',
+          question: r.config.question,
+          options: r.config.options.map((o) => ({
+            id: o.id,
+            label: o.label,
+            action_if_chosen: o.action_if_chosen,
+          })),
+        })
+      }
       result.set(r.consultation_type_id, existing)
     }
   } catch (err) {

@@ -21,6 +21,7 @@ import {
 } from '@/lib/rules/age-limit-config'
 import {
   PatientConditionConfigSchema,
+  deriveRowActionFromPatientConditionConfig,
   type PatientConditionConfig,
 } from '@/lib/rules/patient-condition-config'
 import {
@@ -430,6 +431,13 @@ export async function createPatientConditionRule(
   if (ctErr) return { ok: false, error: 'Error consultando tipo de consulta' }
   if (!ct) return { ok: false, error: 'Tipo de consulta no encontrado en esta clínica' }
 
+  // El column 'action' de la fila es informativo (no es la fuente de verdad —
+  // esa vive en condition_config). Para yes_no usamos action_on_trigger; para
+  // multiple_choice usamos la acción "más bloqueante" entre las opciones
+  // (rechazar > derivar_humano > continuar). El executor lee condition_config,
+  // no este campo.
+  const rowAction = deriveRowActionFromPatientConditionConfig(validConfig)
+
   const { data: created, error: insErr } = await supabaseAdmin
     .from('consultation_type_rules')
     .insert({
@@ -437,7 +445,7 @@ export async function createPatientConditionRule(
       clinic_id: clinicId,
       rule_type: 'patient_condition',
       condition_config: validConfig,
-      action: validConfig.action_on_trigger,
+      action: rowAction,
       message: null,
       active: true,
     })
@@ -484,7 +492,7 @@ export async function updatePatientConditionRule(
     .from('consultation_type_rules')
     .update({
       condition_config: parsed.data,
-      action: parsed.data.action_on_trigger,
+      action: deriveRowActionFromPatientConditionConfig(parsed.data),
       updated_at: new Date().toISOString(),
     })
     .eq('id', ruleId)

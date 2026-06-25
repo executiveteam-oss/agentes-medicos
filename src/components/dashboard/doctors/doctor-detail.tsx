@@ -1360,12 +1360,16 @@ function PatientConditionRuleEditor({
 }): React.JSX.Element {
   const [rules, setRules] = useState<PatientConditionRule[] | null>(null)
   const [editingId, setEditingId] = useState<string | 'new' | null>(null)
-  const [draftConfig, setDraftConfig] = useState<PatientConditionConfig>({
-    question: '',
-    trigger_answer: 'yes',
-    action_on_trigger: 'derivar_humano',
-    verification_mode: 'trust',
-  })
+  // Draft separado para los campos de cada tipo, así al toggle de tipo
+  // no se pierden los valores ya tipeados.
+  const [draftQuestion, setDraftQuestion] = useState('')
+  const [draftQuestionType, setDraftQuestionType] = useState<'yes_no' | 'multiple_choice'>('yes_no')
+  const [draftTriggerAnswer, setDraftTriggerAnswer] = useState<TriggerAnswer>('yes')
+  const [draftActionOnTrigger, setDraftActionOnTrigger] = useState<ActionOnTrigger>('derivar_humano')
+  const [draftOptions, setDraftOptions] = useState<Array<{ id: string; label: string; action_if_chosen: 'continuar' | 'derivar_humano' | 'rechazar' }>>([
+    { id: 'opt_1', label: '', action_if_chosen: 'continuar' },
+    { id: 'opt_2', label: '', action_if_chosen: 'derivar_humano' },
+  ])
   const [isPending, startTransition] = useTransition()
   const [localError, setLocalError] = useState<string | null>(null)
 
@@ -1381,40 +1385,96 @@ function PatientConditionRuleEditor({
     getPatientConditionRulesForCt(ctId).then((r) => setRules(r)).catch(() => {})
   }
 
+  function resetDraftDefaults(): void {
+    setDraftQuestion('')
+    setDraftQuestionType('yes_no')
+    setDraftTriggerAnswer('yes')
+    setDraftActionOnTrigger('derivar_humano')
+    setDraftOptions([
+      { id: 'opt_1', label: '', action_if_chosen: 'continuar' },
+      { id: 'opt_2', label: '', action_if_chosen: 'derivar_humano' },
+    ])
+  }
+
   function startNew(): void {
-    setDraftConfig({
-      question: '',
-      trigger_answer: 'yes',
-      action_on_trigger: 'derivar_humano',
-      verification_mode: 'trust',
-    })
+    resetDraftDefaults()
     setLocalError(null)
     setEditingId('new')
   }
 
   function startEdit(rule: PatientConditionRule): void {
-    setDraftConfig({
-      question: rule.condition_config.question as string,
-      trigger_answer: rule.condition_config.trigger_answer as TriggerAnswer,
-      action_on_trigger: rule.condition_config.action_on_trigger as ActionOnTrigger,
-      verification_mode: 'trust',
-    })
+    const cfg = rule.condition_config as Record<string, unknown>
+    const qt = (cfg.question_type as string | undefined) ?? 'yes_no'
+    setDraftQuestion(cfg.question as string)
+    if (qt === 'multiple_choice') {
+      setDraftQuestionType('multiple_choice')
+      const opts = (cfg.options as Array<{ id: string; label: string; action_if_chosen: 'continuar' | 'derivar_humano' | 'rechazar' }> | undefined) ?? []
+      setDraftOptions(opts.length >= 2 ? opts : [
+        { id: 'opt_1', label: '', action_if_chosen: 'continuar' },
+        { id: 'opt_2', label: '', action_if_chosen: 'derivar_humano' },
+      ])
+    } else {
+      setDraftQuestionType('yes_no')
+      setDraftTriggerAnswer((cfg.trigger_answer as TriggerAnswer | undefined) ?? 'yes')
+      setDraftActionOnTrigger((cfg.action_on_trigger as ActionOnTrigger | undefined) ?? 'derivar_humano')
+    }
     setLocalError(null)
     setEditingId(rule.id)
   }
 
+  function handleChangeType(newType: 'yes_no' | 'multiple_choice'): void {
+    if (newType === draftQuestionType) return
+    // Si estamos editando una existente, confirmar el cambio destructivo
+    if (editingId && editingId !== 'new') {
+      if (!confirm(
+        'Cambiar el tipo de pregunta reemplaza la lógica actual. ' +
+        'La configuración del tipo anterior se va a perder. ¿Continuar?'
+      )) return
+    }
+    setDraftQuestionType(newType)
+    setLocalError(null)
+  }
+
   function validate(): string | null {
-    const q = draftConfig.question.trim()
+    const q = draftQuestion.trim()
     if (q.length < 5) return 'La pregunta debe tener al menos 5 caracteres'
     if (q.length > 200) return 'La pregunta no puede exceder 200 caracteres'
+    if (draftQuestionType === 'multiple_choice') {
+      if (draftOptions.length < 2) return 'Debes configurar al menos 2 opciones'
+      if (draftOptions.length > 6) return 'Máximo 6 opciones'
+      const labels = draftOptions.map((o) => o.label.trim().toLowerCase())
+      if (labels.some((l) => l.length < 2)) return 'Cada opción debe tener una etiqueta de al menos 2 caracteres'
+      if (new Set(labels).size !== labels.length) return 'Las etiquetas de las opciones no pueden repetirse'
+      if (!draftOptions.some((o) => o.action_if_chosen === 'continuar')) {
+        return 'Al menos una opción debe tener acción "Continuar"'
+      }
+    }
     return null
+  }
+
+  function buildConfig(): PatientConditionConfig {
+    if (draftQuestionType === 'multiple_choice') {
+      return {
+        question_type: 'multiple_choice',
+        question: draftQuestion.trim(),
+        options: draftOptions.map((o) => ({ id: o.id, label: o.label.trim(), action_if_chosen: o.action_if_chosen })),
+        verification_mode: 'trust',
+      }
+    }
+    return {
+      question_type: 'yes_no',
+      question: draftQuestion.trim(),
+      trigger_answer: draftTriggerAnswer,
+      action_on_trigger: draftActionOnTrigger,
+      verification_mode: 'trust',
+    }
   }
 
   function handleSave(): void {
     const err = validate()
     if (err) { setLocalError(err); return }
     setLocalError(null)
-    const cfg: PatientConditionConfig = { ...draftConfig, question: draftConfig.question.trim() }
+    const cfg = buildConfig()
 
     startTransition(async () => {
       const r = editingId === 'new'
@@ -1424,6 +1484,22 @@ function PatientConditionRuleEditor({
       setEditingId(null)
       reload()
     })
+  }
+
+  function updateOptionField(idx: number, field: 'label' | 'action_if_chosen', value: string): void {
+    setDraftOptions((prev) => prev.map((o, i) => i === idx ? { ...o, [field]: value } : o))
+    setLocalError(null)
+  }
+
+  function addOption(): void {
+    if (draftOptions.length >= 6) return
+    const nextId = `opt_${draftOptions.length + 1}`
+    setDraftOptions((prev) => [...prev, { id: nextId, label: '', action_if_chosen: 'continuar' }])
+  }
+
+  function removeOption(idx: number): void {
+    if (draftOptions.length <= 2) return
+    setDraftOptions((prev) => prev.filter((_, i) => i !== idx))
   }
 
   function handleToggle(rule: PatientConditionRule): void {
@@ -1502,8 +1578,18 @@ function PatientConditionRuleEditor({
         }}>
           {editingId === rule.id ? (
             <PatientConditionForm
-              config={draftConfig}
-              setConfig={setDraftConfig}
+              draftQuestion={draftQuestion}
+              setDraftQuestion={setDraftQuestion}
+              draftQuestionType={draftQuestionType}
+              onChangeType={handleChangeType}
+              draftTriggerAnswer={draftTriggerAnswer}
+              setDraftTriggerAnswer={setDraftTriggerAnswer}
+              draftActionOnTrigger={draftActionOnTrigger}
+              setDraftActionOnTrigger={setDraftActionOnTrigger}
+              draftOptions={draftOptions}
+              updateOptionField={updateOptionField}
+              addOption={addOption}
+              removeOption={removeOption}
               localError={localError}
               onSave={handleSave}
               onCancel={() => setEditingId(null)}
@@ -1513,10 +1599,19 @@ function PatientConditionRuleEditor({
             <>
               <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
                 {String(rule.condition_config.question)}
+                {rule.condition_config.question_type === 'multiple_choice' && (
+                  <span style={{ fontSize: '10px', fontWeight: 500, color: 'var(--v2-text-muted)', marginLeft: '6px', padding: '1px 6px', background: 'var(--v2-bg-soft)', borderRadius: '999px' }}>
+                    opción múltiple
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '6px' }}>
-                Si responde <strong>{rule.condition_config.trigger_answer === 'yes' ? 'sí' : 'no'}</strong>:{' '}
-                {rule.condition_config.action_on_trigger === 'rechazar' ? 'rechazar' : 'derivar a humano'}
+                {rule.condition_config.question_type === 'multiple_choice' ? (
+                  <span>{(rule.condition_config.options as Array<{ label: string }> | undefined)?.length ?? 0} opciones configuradas</span>
+                ) : (
+                  <>Si responde <strong>{rule.condition_config.trigger_answer === 'yes' ? 'sí' : 'no'}</strong>:{' '}
+                  {rule.condition_config.action_on_trigger === 'rechazar' ? 'rechazar' : 'derivar a humano'}</>
+                )}
                 {!rule.active && <span style={{ color: 'var(--v2-text-muted)', marginLeft: '6px' }}>(inactiva)</span>}
               </div>
               <div style={{ display: 'flex', gap: '10px', fontSize: '11px' }}>
@@ -1542,8 +1637,18 @@ function PatientConditionRuleEditor({
       {editingId === 'new' && (
         <div style={{ padding: '8px', background: 'var(--v2-bg)', borderRadius: '6px', marginBottom: '8px' }}>
           <PatientConditionForm
-            config={draftConfig}
-            setConfig={setDraftConfig}
+            draftQuestion={draftQuestion}
+            setDraftQuestion={setDraftQuestion}
+            draftQuestionType={draftQuestionType}
+            onChangeType={handleChangeType}
+            draftTriggerAnswer={draftTriggerAnswer}
+            setDraftTriggerAnswer={setDraftTriggerAnswer}
+            draftActionOnTrigger={draftActionOnTrigger}
+            setDraftActionOnTrigger={setDraftActionOnTrigger}
+            draftOptions={draftOptions}
+            updateOptionField={updateOptionField}
+            addOption={addOption}
+            removeOption={removeOption}
             localError={localError}
             onSave={handleSave}
             onCancel={() => setEditingId(null)}
@@ -1563,76 +1668,164 @@ function PatientConditionRuleEditor({
 }
 
 function PatientConditionForm({
-  config,
-  setConfig,
+  draftQuestion,
+  setDraftQuestion,
+  draftQuestionType,
+  onChangeType,
+  draftTriggerAnswer,
+  setDraftTriggerAnswer,
+  draftActionOnTrigger,
+  setDraftActionOnTrigger,
+  draftOptions,
+  updateOptionField,
+  addOption,
+  removeOption,
   localError,
   onSave,
   onCancel,
   isPending,
 }: {
-  config: PatientConditionConfig
-  setConfig: (c: PatientConditionConfig) => void
+  draftQuestion: string
+  setDraftQuestion: (v: string) => void
+  draftQuestionType: 'yes_no' | 'multiple_choice'
+  onChangeType: (t: 'yes_no' | 'multiple_choice') => void
+  draftTriggerAnswer: TriggerAnswer
+  setDraftTriggerAnswer: (v: TriggerAnswer) => void
+  draftActionOnTrigger: ActionOnTrigger
+  setDraftActionOnTrigger: (v: ActionOnTrigger) => void
+  draftOptions: Array<{ id: string; label: string; action_if_chosen: 'continuar' | 'derivar_humano' | 'rechazar' }>
+  updateOptionField: (idx: number, field: 'label' | 'action_if_chosen', value: string) => void
+  addOption: () => void
+  removeOption: (idx: number) => void
   localError: string | null
   onSave: () => void
   onCancel: () => void
   isPending: boolean
 }): React.JSX.Element {
+  const tooManyOptions = draftOptions.length >= 5
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {/* Toggle de tipo */}
+      <div>
+        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
+          Tipo de pregunta:
+        </div>
+        <div style={{ display: 'flex', gap: '14px', fontSize: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+            <input type="radio" name="qtype" checked={draftQuestionType === 'yes_no'}
+              onChange={() => onChangeType('yes_no')} />
+            Sí / No (rápida)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+            <input type="radio" name="qtype" checked={draftQuestionType === 'multiple_choice'}
+              onChange={() => onChangeType('multiple_choice')} />
+            Opción múltiple
+          </label>
+        </div>
+      </div>
+
+      {/* Pregunta */}
       <div>
         <label style={{ fontSize: '11px', color: 'var(--v2-text-muted)', display: 'block', marginBottom: '4px' }}>
-          Pregunta (tutea al paciente, sí/no clara):
+          Pregunta (tutea al paciente, lenguaje natural):
         </label>
         <input
           type="text"
-          value={config.question}
-          onChange={(e) => setConfig({ ...config, question: e.target.value })}
-          placeholder="¿Estás embarazada actualmente?"
-          style={{
-            width: '100%',
-            padding: '6px 8px',
-            border: '1px solid var(--v2-border-soft)',
-            borderRadius: '4px',
-            fontSize: '12px',
-          }}
+          value={draftQuestion}
+          onChange={(e) => setDraftQuestion(e.target.value)}
+          placeholder={draftQuestionType === 'yes_no'
+            ? '¿Estás embarazada actualmente?'
+            : '¿El mapeo es por cuál de estas causas?'}
+          style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', fontSize: '12px' }}
         />
       </div>
 
-      <div>
-        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
-          Respuesta del paciente que dispara la acción:
-        </div>
-        <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <input type="radio" name="trigger" checked={config.trigger_answer === 'yes'}
-              onChange={() => setConfig({ ...config, trigger_answer: 'yes' })} /> Sí
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <input type="radio" name="trigger" checked={config.trigger_answer === 'no'}
-              onChange={() => setConfig({ ...config, trigger_answer: 'no' })} /> No
-          </label>
-        </div>
-      </div>
+      {/* Sí/No form */}
+      {draftQuestionType === 'yes_no' && (
+        <>
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
+              Respuesta del paciente que dispara la acción:
+            </div>
+            <div style={{ display: 'flex', gap: '12px', fontSize: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input type="radio" name="trigger" checked={draftTriggerAnswer === 'yes'}
+                  onChange={() => setDraftTriggerAnswer('yes')} /> Sí
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input type="radio" name="trigger" checked={draftTriggerAnswer === 'no'}
+                  onChange={() => setDraftTriggerAnswer('no')} /> No
+              </label>
+            </div>
+          </div>
 
-      <div>
-        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
-          Si se dispara, hacer:
+          <div>
+            <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
+              Si se dispara, hacer:
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input type="radio" name="action" checked={draftActionOnTrigger === 'rechazar'}
+                  onChange={() => setDraftActionOnTrigger('rechazar')} />
+                Rechazar — &quot;no podemos agendarte&quot;
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <input type="radio" name="action" checked={draftActionOnTrigger === 'derivar_humano'}
+                  onChange={() => setDraftActionOnTrigger('derivar_humano')} />
+                Derivar a humano
+              </label>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Multi-choice form */}
+      {draftQuestionType === 'multiple_choice' && (
+        <div>
+          <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '6px' }}>
+            Opciones (entre 2 y 6, al menos una debe ser &quot;Continuar&quot;):
+          </div>
+          {draftOptions.map((opt, idx) => (
+            <div key={opt.id} style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '6px', fontSize: '12px' }}>
+              <input
+                type="text"
+                value={opt.label}
+                onChange={(e) => updateOptionField(idx, 'label', e.target.value)}
+                placeholder={['Endometriosis', 'Miomas', 'Adenomiosis', 'Otras', 'Opción 5', 'Opción 6'][idx]}
+                style={{ flex: 1, padding: '5px 7px', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', fontSize: '12px' }}
+              />
+              <select
+                value={opt.action_if_chosen}
+                onChange={(e) => updateOptionField(idx, 'action_if_chosen', e.target.value)}
+                style={{ padding: '5px 7px', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', fontSize: '12px' }}
+              >
+                <option value="continuar">Continuar</option>
+                <option value="derivar_humano">Derivar a humano</option>
+                <option value="rechazar">Rechazar</option>
+              </select>
+              <button onClick={() => removeOption(idx)} disabled={draftOptions.length <= 2}
+                style={{ background: 'none', border: 'none', color: 'var(--v2-red)', cursor: draftOptions.length <= 2 ? 'not-allowed' : 'pointer', fontSize: '14px', padding: '0 4px', opacity: draftOptions.length <= 2 ? 0.4 : 1 }}>
+                ×
+              </button>
+            </div>
+          ))}
+          {draftOptions.length < 6 && (
+            <button onClick={addOption} style={{ fontSize: '11px', padding: '4px 10px', background: 'none', border: '1px dashed var(--v2-border-soft)', borderRadius: '4px', cursor: 'pointer', color: 'var(--v2-text-muted)' }}>
+              + Agregar opción
+            </button>
+          )}
+          {tooManyOptions && (
+            <div style={{ fontSize: '11px', color: '#854d0e', marginTop: '6px', padding: '6px 8px', background: '#fef9c3', borderRadius: '4px' }}>
+              ⚠ Más de 4 opciones puede ser difícil de presentar por WhatsApp. Considerá si todas son necesarias.
+            </div>
+          )}
+          <div style={{ fontSize: '10px', color: 'var(--v2-text-muted)', marginTop: '8px' }}>
+            <strong>Continuar</strong>: el flujo sigue normal (paciente apto).<br />
+            <strong>Derivar a humano</strong>: un asesor coordina la cita.<br />
+            <strong>Rechazar</strong>: no se agenda (raro).
+          </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <input type="radio" name="action"
-              checked={config.action_on_trigger === 'rechazar'}
-              onChange={() => setConfig({ ...config, action_on_trigger: 'rechazar' })} />
-            Rechazar — &quot;no podemos agendarte&quot;
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <input type="radio" name="action"
-              checked={config.action_on_trigger === 'derivar_humano'}
-              onChange={() => setConfig({ ...config, action_on_trigger: 'derivar_humano' })} />
-            Derivar a humano
-          </label>
-        </div>
-      </div>
+      )}
 
       <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', padding: '6px 8px', background: 'var(--v2-bg-soft)', borderRadius: '4px' }}>
         Verificación: Confiar en la respuesta del paciente (el agente clasifica

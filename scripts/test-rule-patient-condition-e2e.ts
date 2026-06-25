@@ -227,6 +227,135 @@ async function main(): Promise<void> {
   console.log('  Cleanup OK')
 
   console.log(`\nResultado: ${passed} ✅ / ${failed} ❌`)
+  // ========================================================
+  // EXTENSIÓN multi-choice (2026-06-25)
+  // Creamos otro CT con regla multi-choice y verificamos los 4
+  // outcomes: continuar, derivar, ambiguous, id inválido.
+  // ========================================================
+
+  console.log('\n=== EXTENSIÓN multi-choice: setup CT separado ===')
+  if (!docRow) { console.error('FATAL: docRow null'); process.exit(1) }
+  const MC_TEST_CT_NAME = '__TEST_PATIENT_CONDITION_MC__'
+  const MC_TEST_PATIENT_PHONE = '+573999000007'
+
+  // Cleanup MC
+  const { data: oldMcCts } = await supa.from('consultation_types').select('id')
+    .eq('clinic_id', ALGIA_CLINIC_ID).eq('name', MC_TEST_CT_NAME)
+  for (const oldCt of oldMcCts ?? []) {
+    await supa.from('consultation_type_rules').delete().eq('consultation_type_id', oldCt.id)
+    await supa.from('appointments').delete().eq('consultation_type_id', oldCt.id)
+    await supa.from('consultation_types').delete().eq('id', oldCt.id)
+  }
+  await supa.from('audit_log').delete()
+    .eq('clinic_id', ALGIA_CLINIC_ID)
+    .eq('action', 'create_appointment_blocked_by_rule')
+    .filter('details->>patient_phone', 'eq', MC_TEST_PATIENT_PHONE)
+  await supa.from('patients').delete().eq('clinic_id', ALGIA_CLINIC_ID).eq('phone', MC_TEST_PATIENT_PHONE)
+
+  const { data: mcCt } = await supa.from('consultation_types').insert({
+    clinic_id: ALGIA_CLINIC_ID,
+    doctor_id: docRow.id,
+    name: MC_TEST_CT_NAME,
+    duration_minutes: 30,
+    price: 100000,
+    is_active: true,
+    bookable_via_whatsapp: true,
+    modality: 'presencial',
+    eps_name: null,
+  }).select('id').single()
+
+  const { data: mcRule } = await supa.from('consultation_type_rules').insert({
+    consultation_type_id: mcCt!.id,
+    clinic_id: ALGIA_CLINIC_ID,
+    rule_type: 'patient_condition',
+    condition_config: {
+      question_type: 'multiple_choice',
+      question: '¿El mapeo es por cuál de estas causas?',
+      options: [
+        { id: 'opt_1', label: 'Endometriosis', action_if_chosen: 'continuar' },
+        { id: 'opt_2', label: 'Miomas',        action_if_chosen: 'continuar' },
+        { id: 'opt_3', label: 'Adenomiosis',   action_if_chosen: 'continuar' },
+        { id: 'opt_4', label: 'Otras',         action_if_chosen: 'derivar_humano' },
+      ],
+      verification_mode: 'trust',
+    },
+    action: 'derivar_humano',
+    message: null,
+    active: true,
+  }).select('id').single()
+
+  const docId = docRow.id  // captured non-null
+  function mcBaseInput(answer: string | undefined): Record<string, unknown> {
+    return {
+      doctor_id: docId,
+      patient_name: 'Paciente MC Test',
+      patient_phone: MC_TEST_PATIENT_PHONE,
+      starts_at: startsAt,
+      consultation_type_id: mcCt!.id,
+      date_of_birth: '1990-01-01',
+      document_type: 'CC',
+      document_number: '99900007',
+      ...(answer !== undefined ? { patient_condition_answers: { [mcRule!.id]: answer } } : {}),
+    }
+  }
+
+  // Caso MC-1: respuesta opt_1 (Endometriosis, continuar) → success
+  console.log('\n=== Caso MC-1: respuesta opt_1 (Endometriosis, continuar) ===')
+  const mc1 = await executeTool('create_appointment', mcBaseInput('opt_1'), ALGIA_CLINIC_ID, clinicRow!, doctorRow!)
+  assert('opt_1 → success=true', mc1.success === true, `error=${mc1.error}`)
+  await supa.from('appointments').delete().eq('clinic_id', ALGIA_CLINIC_ID).eq('consultation_type_id', mcCt!.id)
+  await supa.from('patients').delete().eq('clinic_id', ALGIA_CLINIC_ID).eq('phone', MC_TEST_PATIENT_PHONE)
+
+  // Caso MC-2: opt_4 (Otras, derivar) → BLOCKED_BY_CONDITION_DERIVAR
+  console.log('\n=== Caso MC-2: opt_4 (Otras, derivar_humano) ===')
+  const mc2 = await executeTool('create_appointment', mcBaseInput('opt_4'), ALGIA_CLINIC_ID, clinicRow!, doctorRow!)
+  assert('opt_4 → BLOCKED_BY_CONDITION_DERIVAR',
+    mc2.success === false && mc2.error === 'BLOCKED_BY_CONDITION_DERIVAR',
+    `error=${mc2.error}`)
+  const mc2d = (mc2.data ?? {}) as Record<string, unknown>
+  assert('mc2 must_escalate=true', mc2d.must_escalate === true)
+
+  // Caso MC-3: ambiguous → BLOCKED_BY_CONDITION_AMBIGUOUS
+  console.log('\n=== Caso MC-3: ambiguous ===')
+  const mc3 = await executeTool('create_appointment', mcBaseInput('ambiguous'), ALGIA_CLINIC_ID, clinicRow!, doctorRow!)
+  assert('ambiguous → BLOCKED_BY_CONDITION_AMBIGUOUS',
+    mc3.success === false && mc3.error === 'BLOCKED_BY_CONDITION_AMBIGUOUS',
+    `error=${mc3.error}`)
+
+  // Caso MC-4: id inválido (LLM se inventó) → safe default = derivar
+  console.log('\n=== Caso MC-4: id inexistente "opt_99" → safe default derivar ===')
+  const mc4 = await executeTool('create_appointment', mcBaseInput('opt_99'), ALGIA_CLINIC_ID, clinicRow!, doctorRow!)
+  assert('opt_99 → BLOCKED_BY_CONDITION_AMBIGUOUS (safe default)',
+    mc4.success === false && mc4.error === 'BLOCKED_BY_CONDITION_AMBIGUOUS',
+    `error=${mc4.error}`)
+
+  // Verificar audit log multi-choice
+  console.log('\n=== Audit multi-choice: outcomes esperados ===')
+  const { data: mcAudits } = await supa.from('audit_log')
+    .select('details')
+    .eq('clinic_id', ALGIA_CLINIC_ID)
+    .eq('action', 'create_appointment_blocked_by_rule')
+    .eq('target_id', mcCt!.id)
+  const mcOutcomes = (mcAudits ?? []).map((a) => (a.details as Record<string, unknown>)?.outcome)
+  assert('audit MC tiene triggered', mcOutcomes.includes('triggered'))
+  assert('audit MC tiene ambiguous', mcOutcomes.includes('ambiguous'))
+  assert('audit MC tiene invalid_option', mcOutcomes.includes('invalid_option'))
+  // Verificar que el caso triggered registró option_label_chosen
+  const triggeredAudit = (mcAudits ?? []).find((a) => (a.details as Record<string, unknown>)?.outcome === 'triggered')
+  if (triggeredAudit) {
+    const det = triggeredAudit.details as Record<string, unknown>
+    assert('audit triggered tiene option_label_chosen="Otras"',
+      det.option_label_chosen === 'Otras')
+  }
+
+  // Cleanup MC
+  console.log('\n=== Cleanup MC ===')
+  await supa.from('audit_log').delete().eq('target_id', mcCt!.id).eq('action', 'create_appointment_blocked_by_rule')
+  await supa.from('consultation_type_rules').delete().eq('consultation_type_id', mcCt!.id)
+  await supa.from('consultation_types').delete().eq('id', mcCt!.id)
+  console.log('  Cleanup OK')
+
+  console.log(`\nResultado: ${passed} ✅ / ${failed} ❌`)
   if (failed > 0) process.exit(1)
 }
 

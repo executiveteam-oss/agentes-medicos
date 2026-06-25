@@ -41,6 +41,23 @@ export async function checkWritePermission(module: ModuleKey): Promise<string> {
 }
 
 /**
+ * Bloque 4 — Verifica que el usuario tenga permiso de "review" sobre
+ * autorizaciones direccionadas (aprobar/rechazar). Es un permiso
+ * SEPARADO de conversations.write porque aprobar una autorización es
+ * decidir elegibilidad clínica, semánticamente más sensible.
+ */
+export async function checkAuthorizationReviewPermission(): Promise<string> {
+  const session = await getUserSession()
+  if (!session) {
+    throw new Error(NOT_AUTHENTICATED_MSG)
+  }
+  if (!session.authorizationsReview) {
+    throw new Error('Tu rol no tiene permiso para revisar autorizaciones. Pedile al administrador del consultorio.')
+  }
+  return session.clinicId
+}
+
+/**
  * Verifica que el usuario tenga permiso de lectura en un módulo.
  * Lanza error 403 con mensaje user-friendly si no tiene permiso.
  */

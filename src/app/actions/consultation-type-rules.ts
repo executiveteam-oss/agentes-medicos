@@ -23,6 +23,10 @@ import {
   PatientConditionConfigSchema,
   type PatientConditionConfig,
 } from '@/lib/rules/patient-condition-config'
+import {
+  AuthConvenioConfigSchema,
+  type AuthConvenioConfig,
+} from '@/lib/rules/auth-convenio-config'
 
 // --- Tipos ---
 
@@ -614,4 +618,180 @@ export async function getActivePatientConditionRulesForCts(
     }
   }
   return result
+}
+
+// --- Bloque 4: requires_authorization (auth_convenio) ---
+
+export interface AuthConvenioRule extends ConsultationTypeRule {
+  condition_config: AuthConvenioConfig & Record<string, unknown>
+}
+
+/**
+ * Crea o actualiza la regla auth_convenio del CT (una sola por CT).
+ */
+export async function upsertAuthConvenioRule(
+  consultationTypeId: string,
+  config: AuthConvenioConfig,
+): Promise<{ ok: boolean; error?: string; rule?: ConsultationTypeRule }> {
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
+
+  const parsed = AuthConvenioConfigSchema.safeParse(config)
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'Configuración inválida' }
+  }
+  const validConfig = parsed.data
+
+  const { data: ct } = await supabaseAdmin
+    .from('consultation_types')
+    .select('id, name')
+    .eq('id', consultationTypeId)
+    .eq('clinic_id', clinicId)
+    .maybeSingle()
+  if (!ct) return { ok: false, error: 'Tipo de consulta no encontrado en esta clínica' }
+
+  const { data: existing } = await supabaseAdmin
+    .from('consultation_type_rules')
+    .select('id, active')
+    .eq('consultation_type_id', consultationTypeId)
+    .eq('rule_type', 'requires_authorization')
+    .maybeSingle()
+
+  let ruleId: string
+  let auditAction: 'consultation_type_rule_enabled' | 'consultation_type_rule_updated'
+
+  if (existing) {
+    const { error: upErr } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .update({
+        condition_config: validConfig,
+        action: 'derivar_humano', // todas las reglas de auth siguen el mismo flujo
+        active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+    if (upErr) return { ok: false, error: 'Error actualizando regla' }
+    ruleId = existing.id
+    auditAction = existing.active ? 'consultation_type_rule_updated' : 'consultation_type_rule_enabled'
+  } else {
+    const { data: created, error: insErr } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .insert({
+        consultation_type_id: consultationTypeId,
+        clinic_id: clinicId,
+        rule_type: 'requires_authorization',
+        condition_config: validConfig,
+        action: 'derivar_humano',
+        message: null,
+        active: true,
+      })
+      .select('*')
+      .single()
+    if (insErr || !created) return { ok: false, error: 'Error creando regla' }
+    ruleId = created.id
+    auditAction = 'consultation_type_rule_enabled'
+  }
+
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: clinicId,
+    action: auditAction,
+    actor_type: 'staff',
+    target_type: 'consultation_type_rule',
+    target_id: ruleId,
+    details: {
+      consultation_type_id: consultationTypeId,
+      consultation_type_name: ct.name,
+      rule_type: 'requires_authorization',
+      convenios_count: validConfig.convenios_que_requieren.length,
+    },
+  })
+
+  revalidatePath('/dashboard/settings/doctors')
+  const { data: finalRule } = await supabaseAdmin
+    .from('consultation_type_rules')
+    .select('*')
+    .eq('id', ruleId)
+    .single()
+  return { ok: true, rule: finalRule as ConsultationTypeRule }
+}
+
+export async function disableAuthConvenioRule(
+  consultationTypeId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
+
+  const { data: existing } = await supabaseAdmin
+    .from('consultation_type_rules')
+    .select('id, active')
+    .eq('consultation_type_id', consultationTypeId)
+    .eq('rule_type', 'requires_authorization')
+    .maybeSingle()
+
+  if (!existing || !existing.active) return { ok: true }
+
+  const { error: upErr } = await supabaseAdmin
+    .from('consultation_type_rules')
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq('id', existing.id)
+    .eq('clinic_id', clinicId)
+  if (upErr) return { ok: false, error: 'Error desactivando regla' }
+
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: clinicId,
+    action: 'consultation_type_rule_disabled',
+    actor_type: 'staff',
+    target_type: 'consultation_type_rule',
+    target_id: existing.id,
+    details: { consultation_type_id: consultationTypeId, rule_type: 'requires_authorization' },
+  })
+
+  revalidatePath('/dashboard/settings/doctors')
+  return { ok: true }
+}
+
+/**
+ * Helper interno (sin permission check): devuelve la config auth_convenio
+ * activa de un CT, o null. Usado por agente (capa A) y executor (capa B).
+ */
+export async function getActiveAuthConvenioConfig(
+  consultationTypeId: string,
+): Promise<AuthConvenioConfig | null> {
+  const { data } = await supabaseAdmin
+    .from('consultation_type_rules')
+    .select('condition_config')
+    .eq('consultation_type_id', consultationTypeId)
+    .eq('rule_type', 'requires_authorization')
+    .eq('active', true)
+    .maybeSingle()
+
+  if (!data) return null
+  const parsed = AuthConvenioConfigSchema.safeParse(data.condition_config)
+  return parsed.success ? parsed.data : null
+}
+
+/**
+ * Lista los convenios disponibles para configurar (eps_name distintos
+ * de los CTs de la clínica). Usado por la UI del editor.
+ */
+export async function getAvailableConveniosForClinic(): Promise<string[]> {
+  let clinicId: string
+  try { clinicId = await checkReadPermission('whatsapp') }
+  catch { return [] }
+
+  const { data } = await supabaseAdmin
+    .from('consultation_types')
+    .select('eps_name')
+    .eq('clinic_id', clinicId)
+    .eq('is_active', true)
+    .not('eps_name', 'is', null)
+
+  const unique = new Set<string>()
+  for (const row of data ?? []) {
+    const v = (row as { eps_name: string | null }).eps_name
+    if (v && v.trim()) unique.add(v.trim())
+  }
+  return Array.from(unique).sort()
 }

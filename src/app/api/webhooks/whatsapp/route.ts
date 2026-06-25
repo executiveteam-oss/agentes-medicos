@@ -240,6 +240,169 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
+      // 7.2.5. Bloque 4 — Recepción de archivos por feature flag.
+      //
+      // Si el paciente envía imagen/PDF Y la clínica tiene
+      // feature_config.media_reception_enabled=true, descargamos el
+      // archivo y lo agregamos al historial para que el agente reaccione.
+      //
+      // FLAG OFF (default para todas las clínicas hoy): respondemos
+      // "solo manejo texto, te paso con un asesor" + escalamos. Es el
+      // comportamiento seguro hasta que (a) Meta esté migrado y
+      // (b) legal apruebe Ley 1581.
+      if (isDocumentMediaType(message.type) && !hasDocsPending) {
+        if (!clinicCreds) {
+          console.error('[Webhook] media recibido sin clinicCreds — clínica sin token WhatsApp configurado')
+          return
+        }
+        const featureConfig = (clinic.feature_config as Record<string, unknown> | null) ?? {}
+        const mediaEnabled = featureConfig.media_reception_enabled === true
+
+        if (!mediaEnabled) {
+          // Flag apagado: respondemos amablemente + escalamos (el staff
+          // ve el contexto y coordina lo que el paciente quería mandar).
+          await sendWhatsAppMessage(
+            message.from,
+            '📎 Recibí tu archivo. Por ahora la recepción automática está en proceso de habilitación — te paso con un asesor que lo revisa contigo.',
+            clinicCreds,
+          )
+          const conversation = await findOrCreateConversation(clinic.id, patient.id, patientPhone)
+          // Guardar un mensaje placeholder para que la conversación tenga contexto
+          await saveMessage(
+            conversation.id,
+            'patient',
+            `[Paciente envió un ${message.type === 'image' ? 'imagen' : 'documento'} — recepción automática deshabilitada]`,
+            message.id,
+          )
+          // Escalar para que el humano lo atienda
+          await supabaseAdmin
+            .from('conversations')
+            .update({
+              status: 'escalated',
+              escalated_at: new Date().toISOString(),
+              escalation_reason: 'Paciente envió archivo — recepción de media deshabilitada (feature flag off)',
+            })
+            .eq('id', conversation.id)
+          return
+        }
+
+        // FLAG ON: procesamos el archivo.
+        const conversation = await findOrCreateConversation(clinic.id, patient.id, patientPhone)
+        try {
+          const { downloadWhatsAppMedia, uploadMediaToStorage, recordConversationMedia } =
+            await import('@/lib/whatsapp/media-handler')
+
+          const mediaPayload = message.type === 'image' ? message.image : message.document
+          if (!mediaPayload?.id) {
+            console.error('[Webhook] media sin id', message.type)
+            await sendWhatsAppMessage(message.from, '📎 No pude descargar tu archivo. ¿Podés enviarlo de nuevo?', clinicCreds)
+            return
+          }
+
+          const download = await downloadWhatsAppMedia(mediaPayload.id, clinicCreds.accessToken)
+          if (!download.ok) {
+            console.error('[Webhook] error descargando media:', download.errorCode, download.error)
+            await sendWhatsAppMessage(
+              message.from,
+              download.errorCode === 'media_expired'
+                ? '📎 Tu archivo ya no está disponible. ¿Podés enviarlo de nuevo?'
+                : download.errorCode === 'size_exceeded'
+                ? '📎 Tu archivo es muy grande (máximo 25MB). ¿Podés mandarlo más liviano?'
+                : download.errorCode === 'mime_not_allowed'
+                ? '📎 Necesito el archivo como JPG, PNG o PDF. ¿Podés cambiar el formato?'
+                : '📎 No pude descargar tu archivo. ¿Podés enviarlo de nuevo?',
+              clinicCreds,
+            )
+            return
+          }
+
+          const upload = await uploadMediaToStorage({
+            clinicId: clinic.id,
+            conversationId: conversation.id,
+            mediaId: mediaPayload.id,
+            bytes: download.bytes,
+            mimeType: download.mimeType,
+          })
+          if (!upload.ok) {
+            console.error('[Webhook] error subiendo media:', upload.error)
+            await sendWhatsAppMessage(message.from, '📎 Hubo un problema guardando tu archivo. Te paso con un asesor.', clinicCreds)
+            return
+          }
+
+          // Determinar el contexto: si el último mensaje del agente le pidió
+          // una autorización, lo etiquetamos como 'authorization'.
+          const { data: lastAgentMsg } = await supabaseAdmin
+            .from('messages')
+            .select('content')
+            .eq('conversation_id', conversation.id)
+            .eq('role', 'agent')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          const isAuthContext = lastAgentMsg?.content
+            ? /autorizaci[oó]n|autorizad[oa]/i.test(lastAgentMsg.content as string)
+            : false
+
+          // Guardar mensaje en la conversación que el agente verá como historial.
+          // Hacemos insert directo (no saveMessage) para obtener el id de retorno.
+          const filename = message.type === 'document' ? (message.document?.filename ?? null) : null
+          const placeholderContent = isAuthContext
+            ? '📎 Autorización recibida'
+            : `📎 Archivo recibido (${message.type === 'image' ? 'imagen' : (filename ?? 'documento')})`
+          const { data: savedMsg } = await supabaseAdmin
+            .from('messages')
+            .insert({
+              conversation_id: conversation.id,
+              role: 'patient',
+              content: placeholderContent,
+              whatsapp_message_id: message.id,
+            })
+            .select('id')
+            .single()
+          const savedMessageId = (savedMsg as { id: string } | null)?.id ?? null
+
+          await recordConversationMedia({
+            clinicId: clinic.id,
+            conversationId: conversation.id,
+            messageId: savedMessageId,
+            whatsappMediaId: mediaPayload.id,
+            mediaType: message.type === 'image' ? 'image' : 'document',
+            mimeType: download.mimeType,
+            filename,
+            storagePath: upload.storagePath,
+            sizeBytes: download.sizeBytes,
+            context: isAuthContext ? 'authorization' : 'document_general',
+          })
+
+          // Si es contexto de autorización: escalamos directamente.
+          // El staff revisa el archivo desde el dashboard y agenda.
+          if (isAuthContext) {
+            await sendWhatsAppMessage(
+              message.from,
+              'Recibido, gracias. Voy a coordinar con el equipo y un asesor te contacta pronto para confirmar tu cita.',
+              clinicCreds,
+            )
+            await supabaseAdmin
+              .from('conversations')
+              .update({
+                status: 'escalated',
+                escalated_at: new Date().toISOString(),
+                escalation_reason: 'Autorización recibida — pendiente de revisión humana',
+                last_message_at: new Date().toISOString(),
+              })
+              .eq('id', conversation.id)
+            return
+          }
+
+          // Caso no-autorización: el agente reacciona normalmente al
+          // próximo turno (verá el placeholder en el historial).
+        } catch (err) {
+          console.error('[Webhook] error procesando media:', err)
+          await sendWhatsAppMessage(message.from, '📎 Hubo un problema procesando tu archivo. Te paso con un asesor.', clinicCreds)
+        }
+        return
+      }
+
       // 7.3. Verificar tipo de mensaje
       if (!isSupportedMessageType(message.type, hasDocsPending)) {
         // Si es audio, imagen, etc. → responder que solo maneja texto

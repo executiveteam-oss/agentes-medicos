@@ -824,6 +824,81 @@ async function createAppointment(
     }
   }
 
+  // Bloque 4 (requires_authorization) — CHECK DURO.
+  //
+  // Si el CT tiene regla auth_convenio activa Y el patient_eps declarado
+  // matchea alguno de los convenios → BLOQUEAR create_appointment. La
+  // cita la crea un humano desde el dashboard DESPUÉS de revisar la
+  // autorización que el paciente envió por WhatsApp.
+  //
+  // La capa A (prompt) instruye al LLM a NO llamar create_appointment
+  // en este caso. La capa B es defense in depth: si el LLM lo intenta
+  // igual, lo bloqueamos y le decimos qué hacer.
+  if (consultationTypeId && patientEps) {
+    const { data: authRule } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .select('id, condition_config')
+      .eq('consultation_type_id', consultationTypeId)
+      .eq('rule_type', 'requires_authorization')
+      .eq('active', true)
+      .maybeSingle()
+
+    if (authRule) {
+      const { AuthConvenioConfigSchema, convenioRequiresAuthorization, fillMessagePlaceholders } =
+        await import('@/lib/rules/auth-convenio-config')
+      const parsed = AuthConvenioConfigSchema.safeParse(authRule.condition_config)
+      if (parsed.success) {
+        const config = parsed.data
+        const matches = convenioRequiresAuthorization(patientEps, config.convenios_que_requieren)
+        if (matches) {
+          // Obtener nombre del CT para el mensaje
+          const { data: ctRow } = await supabaseAdmin
+            .from('consultation_types')
+            .select('name')
+            .eq('id', consultationTypeId)
+            .single()
+          const servicioName = (ctRow as { name: string } | null)?.name ?? 'este servicio'
+
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinicId,
+            action: 'create_appointment_blocked_by_rule',
+            actor_type: 'agent',
+            target_type: 'consultation_type',
+            target_id: consultationTypeId,
+            details: {
+              rule_type: 'requires_authorization',
+              rule_id: authRule.id,
+              patient_eps_declared: patientEps,
+              convenios_configured: config.convenios_que_requieren,
+              llm_attempted_anyway: true,
+              patient_phone: patientPhone,
+            },
+          })
+
+          const messageForPatient = fillMessagePlaceholders(
+            config.message_pedir_archivo,
+            { servicio: servicioName, convenio: patientEps },
+          )
+
+          return {
+            success: false,
+            error: 'BLOCKED_BY_AUTH_PENDING',
+            data: {
+              rule_type: 'requires_authorization',
+              outcome: 'authorization_required',
+              must_escalate: true,
+              message_for_patient: messageForPatient,
+              escalate_reason: `Servicio "${servicioName}" con convenio "${patientEps}" requiere autorización direccionada. El paciente debe enviarla por WhatsApp; un humano la revisa antes de agendar.`,
+              escalate_urgency: 'medium',
+              instruction_for_llm:
+                'NO crees la cita. Pedile al paciente que envíe la autorización con el message_for_patient. Esperá el archivo (mensaje "📎 Autorización recibida"). Cuando llegue, escalá. La cita la crea un humano desde el dashboard.',
+            },
+          }
+        }
+      }
+    }
+  }
+
   // Calcular hora de fin: tipo de consulta > per-doctor config > default
   const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
   const docConfig = waConfig?.doctors[doctorId]

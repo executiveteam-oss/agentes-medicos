@@ -69,6 +69,13 @@ export async function getUserSession(): Promise<UserSession | null> {
     const base = emptyPermissions()
     const permissions: Permissions = { ...base, ...stored }
 
+    // Bloque 4 — permission separado authorizations.review (no es un ModuleKey
+    // del modelo estándar read/write porque "review" semánticamente NO es
+    // "write"; es "aprobar/rechazar elegibilidad clínica").
+    const rawPerms = (role?.permissions as unknown as Record<string, unknown>) ?? {}
+    const authPerm = rawPerms.authorizations as { read?: boolean; review?: boolean } | undefined
+    const authorizationsReview = authPerm?.review === true
+
     return {
       authUserId: user.id,
       clinicUserId: clinicUser.id,
@@ -81,6 +88,7 @@ export async function getUserSession(): Promise<UserSession | null> {
         name: role?.name ?? 'Sin rol',
       },
       permissions,
+      authorizationsReview,
       clinic: {
         id: clinic.id,
         name: clinic.name,

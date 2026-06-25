@@ -589,6 +589,131 @@ Importador doctor-first de tipos de consulta desde citas iSalud:
 
 ---
 
+## 🚨 SEC-001 — DEUDA DE SEGURIDAD PREEXISTENTE: tokens WhatsApp en texto plano
+
+**ESCALADO en prioridad el 2026-06-25 al cerrar bloque 4**: el campo
+`clinics.whatsapp_access_token` (token productivo de Meta Business API para
+cada clínica) está en **TEXTO PLANO** en la base de datos. Si alguien accede
+a la DB de Algia (o cualquier clínica), obtiene **el control completo** del
+canal de WhatsApp de esa clínica — puede enviar mensajes haciéndose pasar
+por el consultorio, leer historial via API, descargar archivos enviados por
+pacientes, etc.
+
+**Esto NO es una deuda nueva del bloque 4 — es una deuda PREEXISTENTE** que
+existe desde que se montó WhatsApp Cloud API en producción. El bloque 4
+solo la hace MÁS visible porque ahora el token también descarga archivos
+clínicos (autorizaciones direccionadas con datos sensibles).
+
+**Riesgo concreto HOY (no solo cuando se active media reception)**:
+- Cualquier persona con acceso a la DB (consultor externo, ex-empleado con
+  credenciales no rotadas, brecha de seguridad de Supabase) puede:
+  - Enviar mensajes a pacientes haciéndose pasar por la clínica
+  - Acceder al historial de conversaciones via API de Meta
+  - Descargar media histórica (si estaba activo el flag, aunque sea por minutos)
+- El token NO expira pronto (Meta los emite por 60+ días). Una vez exfiltrado,
+  un atacante tiene meses de ventana.
+
+**Mitigación pendiente**:
+1. Encriptar `clinics.whatsapp_access_token` con clave de aplicación
+   (Supabase Vault, o KMS externo). Decryption solo desde el servidor con
+   permisos elevados.
+2. Lo mismo aplica para `whatsapp_app_secret` (verificación de webhooks) y
+   `whatsapp_verify_token` (handshake inicial).
+3. Política de rotación: rotar tokens cada 60 días via OAuth refresh
+   (requiere setup del flow OAuth de Meta).
+4. Auditoría: cada uso del token (sendMessage, downloadMedia) ya queda en
+   logs de aplicación. Asegurarse de no loggear el token mismo.
+
+**Cuándo arreglar**: NO bloquea el piloto Algia, pero es prioridad ALTA para
+post-piloto. La activación del bloque 4 con pacientes reales debería ir
+JUNTO con esta encriptación — no como dos pasos separados.
+
+**Mismo problema también en `sync_integrations.credentials`** (anotado en
+sección iSalud Sync Agent abajo) — esos credenciales de iSalud también
+están en plain text JSONB.
+
+---
+
+## 🚨 BLOQUE 4 RECEPCIÓN DE ARCHIVOS — CONSTRUIDO, NO ACTIVO
+
+**Estado al 2026-06-25**: el feature de recepción de archivos por WhatsApp
+(imágenes + PDFs) está deployado en producción pero el `feature_flag`
+`media_reception_enabled` está en **FALSE para TODAS las clínicas** (todas
+las migración 00077 lo seteó así).
+
+**Comportamiento mientras el flag está OFF (default)**:
+- El webhook recibe el `type=image`/`type=document` pero NO descarga de Meta
+  (no toca el access_token, no llama Meta API).
+- Responde al paciente: "📎 Recibí tu archivo. Por ahora la recepción
+  automática está en proceso de habilitación — te paso con un asesor que
+  lo revisa contigo."
+- Escala la conversación al staff (status=escalated).
+- Esto es el comportamiento SEGURO hasta los dos OKs de abajo.
+
+**PARA ACTIVAR con pacientes reales se necesita**:
+
+1. **Meta Business Manager con número productivo migrado** del Test Number
+   sandbox al número real 3245820722 (Lady + Meta). Ver sección "LANZAMIENTO
+   ALGIA" arriba.
+
+2. **Revisión legal Ley 1581 sobre los 6 puntos** (con Algia cumplimiento +
+   abogado externo si es necesario):
+   - **Política de retención**: cuánto tiempo guardar las autorizaciones
+     en Storage. Propongo 2 años (consistente con historia clínica
+     colombiana). Hoy NO hay purga — agregar cron cuando legal defina.
+   - **Consentimiento específico**: el aviso de privacidad actual cubre
+     "tratamiento para agendar". Para documentos clínicos enviados por
+     WhatsApp conviene reforzar el consentimiento — definir wording.
+   - **Encriptación del access_token de WhatsApp** (SEC-001 arriba) — la
+     activación del flag toca ese token directamente.
+   - **Política de acceso**: solo usuarios con permission
+     `authorizations.review` (Admin, Coordinadora, Secretaria por default;
+     Doctor y Contador no) pueden aprobar/rechazar — el permiso está
+     separado de `conversations.write` adrede.
+   - **RNBD**: registrar la base de datos en RNBD (Superintendencia de
+     Industria y Comercio) si todavía no está.
+   - **Derecho ARCO** (borrado por pedido del paciente): hoy NO hay
+     endpoint. El path estructurado en Storage
+     (`{clinic_id}/{conversation_id}/{timestamp}_{media_id}.{ext}`) permite
+     borrar todo lo de un paciente fácil — pero hay que escribir el handler.
+
+**Para activar en Algia**:
+```sql
+UPDATE clinics
+SET feature_config = COALESCE(feature_config, '{}'::jsonb) || '{"media_reception_enabled": true}'::jsonb
+WHERE id = 'dac775fe-6ebd-47e3-89b4-eeb1a821facb';
+```
+
+**Bug que reaparece sin activar**: el agente responde "solo manejo texto"
+ante archivos. Eso es comportamiento INTENCIONAL hasta los dos OKs arriba.
+
+**Audit log de cada acceso al archivo**: cuando el flag esté ON, **CADA**
+acceso del staff a un archivo (vista, descarga) queda en `audit_log` con
+`action='media_accessed'` + actor_id + ts. NO se resume por día — para
+documentos clínicos el registro completo es protección legal, no ruido.
+
+**Vista de revisión para el staff**: `/dashboard/conversations/autorizaciones`
+(solo accesible con permission `authorizations.review`). Lista
+autorizaciones pendientes, preview inline del archivo (imagen/PDF), botones
+Aprobar (form de horario → crea cita) y Rechazar (motivo obligatorio).
+
+**Archivos involucrados** (referencia):
+- `supabase/migrations/00075/76/77.sql` — schema + bucket + flag
+- `src/lib/whatsapp/media-handler.ts` — descarga Meta + sube Storage + audit
+- `src/lib/rules/auth-convenio-config.ts` — Zod + normalizador convenios
+- `src/agents/tools/executor.ts` — capa B BLOCKED_BY_AUTH_PENDING
+- `src/agents/prompts/system-prompt.ts` — marca 🛡 + Paso 3.5 + sección
+- `src/app/api/webhooks/whatsapp/route.ts` — gate por feature_flag
+- `src/app/actions/authorization-review.ts` — approve/reject server actions
+- `src/components/dashboard/authorization-review-list.tsx` — UI staff
+
+**Tests verdes al cierre**: 28 (config + normalizer) + 19 (media handler
+con mocks) + 13 (E2E executor) + 9 (snapshot prompt) = **69 tests** del
+bloque 4. Más los 132 acumulados de bloques 1-3 = **201 tests verdes** del
+sistema de reglas configurables.
+
+---
+
 ## 📊 PENDIENTE — Vista consultable de rechazos por edad (post-piloto)
 
 **Anotado 2026-06-24 al cerrar bloque 2 (age_limit)**: hoy los rechazos

@@ -36,6 +36,19 @@ export const whatsappWebhookSchema = z.object({
                   timestamp: z.string(),
                   type: z.string(),
                   text: z.object({ body: z.string() }).optional(),
+                  image: z.object({
+                    id: z.string(),
+                    mime_type: z.string().optional(),
+                    sha256: z.string().optional(),
+                    caption: z.string().optional(),
+                  }).optional(),
+                  document: z.object({
+                    id: z.string(),
+                    mime_type: z.string().optional(),
+                    sha256: z.string().optional(),
+                    filename: z.string().optional(),
+                    caption: z.string().optional(),
+                  }).optional(),
                 })
               )
               .optional(),

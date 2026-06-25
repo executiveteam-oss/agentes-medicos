@@ -87,8 +87,9 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   const escalateHumanByCt = await loadActiveEscalateHumanRules(consultationTypes)
   const ageLimitsByCt = await loadActiveAgeLimitRules(consultationTypes)
   const patientConditionsByCt = await loadActivePatientConditions(consultationTypes)
+  const authConveniosByCt = await loadActiveAuthConvenios(consultationTypes)
 
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt })
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt })
 
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens
@@ -321,6 +322,43 @@ async function loadActiveEscalateHumanRules(
   } catch (err) {
     console.error('[appointment-agent] Error cargando escalate_human rules:', err)
     // Devolver Set vacío — el agente operará sin reglas (degrade graceful)
+  }
+  return result
+}
+
+/**
+ * Carga las reglas requires_authorization activas. Devuelve Map ctId →
+ * config { convenios_que_requieren, message_pedir_archivo }. El LLM usa
+ * esto para detectar cuándo pedir el archivo al paciente. Bloque 4.
+ */
+async function loadActiveAuthConvenios(
+  consultationTypes?: ConsultationType[],
+): Promise<Map<string, { convenios_que_requieren: string[]; message_pedir_archivo: string }>> {
+  const result = new Map<string, { convenios_que_requieren: string[]; message_pedir_archivo: string }>()
+  if (!consultationTypes || consultationTypes.length === 0) return result
+
+  const ctIds = consultationTypes.map((ct) => ct.id)
+  try {
+    const { AuthConvenioConfigSchema } = await import('@/lib/rules/auth-convenio-config')
+    const { data } = await supabaseAdmin
+      .from('consultation_type_rules')
+      .select('consultation_type_id, condition_config')
+      .eq('rule_type', 'requires_authorization')
+      .eq('active', true)
+      .in('consultation_type_id', ctIds)
+
+    for (const row of data ?? []) {
+      const r = row as { consultation_type_id: string; condition_config: unknown }
+      const parsed = AuthConvenioConfigSchema.safeParse(r.condition_config)
+      if (parsed.success) {
+        result.set(r.consultation_type_id, {
+          convenios_que_requieren: parsed.data.convenios_que_requieren,
+          message_pedir_archivo: parsed.data.message_pedir_archivo,
+        })
+      }
+    }
+  } catch (err) {
+    console.error('[appointment-agent] Error cargando auth_convenio rules:', err)
   }
   return result
 }

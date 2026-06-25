@@ -57,13 +57,23 @@ interface SystemPromptParams {
    * confía en la interpretación que el LLM hace de cada respuesta.
    */
   patientConditionsByCt?: Map<string, Array<{ rule_id: string; question: string; trigger_answer: 'yes' | 'no'; action_on_trigger: 'rechazar' | 'derivar_humano' }>>
+  /**
+   * Reglas configurables — Bloque 4 (requires_authorization).
+   * Map de consultation_type_id → config { convenios_que_requieren, message }.
+   * Cuando un CT está en el Map y el paciente declara un convenio que matchea,
+   * el agente le PIDE el archivo de la autorización por WhatsApp y escala
+   * (NO agenda — la cita la crea un humano post-revisión).
+   * Defense in depth: executor también bloquea create_appointment para
+   * estos casos (BLOCKED_BY_AUTH_PENDING).
+   */
+  authConveniosByCt?: Map<string, { convenios_que_requieren: string[]; message_pedir_archivo: string }>
 }
 
 /**
  * Genera el system prompt con datos reales de la clínica
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
-export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt }: SystemPromptParams): string {
+export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
 
@@ -141,7 +151,12 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
         // no incluye respuesta para cada regla activa.
         const conditions = patientConditionsByCt?.get(ct.id) ?? []
         const condStr = conditions.length > 0 ? ` 🩺 PREGUNTAR (${conditions.length})` : ''
-        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr}${reasonStr}${escalateStr}${ageStr}${condStr} | tipo_id: ${ct.id}`
+        // Bloque 4 (requires_authorization): marca con 🛡 y lista de convenios.
+        // Defense in depth: executor bloquea create_appointment si el patient_eps
+        // declarado matchea alguno de los convenios.
+        const authCfg = authConveniosByCt?.get(ct.id)
+        const authStr = authCfg ? ` 🛡 AUTORIZACIÓN: [${authCfg.convenios_que_requieren.join(', ')}]` : ''
+        line += `\n      * ${ct.name} (${ct.duration_minutes} min${priceStr})${epsStr}${modalStr}${prepStr}${docsStr}${reasonStr}${escalateStr}${ageStr}${condStr}${authStr} | tipo_id: ${ct.id}`
         // Si hay preguntas, listarlas debajo del CT con sus rule_ids para que el LLM las identifique
         if (conditions.length > 0) {
           line += `\n        Preguntas obligatorias antes de agendar:`
@@ -577,6 +592,102 @@ ORDEN OBLIGATORIO al derivar (BLOCKED_BY_CONDITION_DERIVAR/AMBIGUOUS): emití
 el message_for_patient ANTES de llamar escalate_to_human, en el MISMO turno.
 DESPUÉS del tool NO emitas otro mensaje (mismo patrón que bloques 1 y 2).
 
+REGLA INQUEBRANTABLE — TIPOS DE CONSULTA MARCADOS "🛡 AUTORIZACIÓN":
+Algunos tipos tienen la marca [🛡 AUTORIZACIÓN: SOS, MEDPLUS, ...] junto al
+nombre. Significa que para ese servicio, si el paciente trae uno de los
+convenios listados, hay que validar una autorización direccionada antes
+de agendar. La validación la hace un HUMANO desde el dashboard — el agente
+solo recibe el archivo y escala.
+
+PRECONDICIÓN — esta regla SOLO aplica si SE CUMPLEN AMBAS condiciones:
+  (a) el paciente trae UN CONVENIO (NO es particular). Si va particular,
+      la regla NO aplica — seguí flujo normal (Paso 4 horarios).
+  (b) ese convenio está en la lista marcada del tipo. Si el convenio del
+      paciente NO está en la lista, la regla NO aplica — seguí flujo
+      normal sin pedir archivo ni mencionar nada de autorización.
+
+CASO ESPECIAL — PACIENTE PARTICULAR EN UN TIPO MARCADO 🛡 AUTORIZACIÓN:
+Cuando un paciente declara explícitamente que va PARTICULAR (no usa
+ninguna EPS o prepagada) Y el tipo de consulta está marcado con 🛡:
+NO escales. NO pidas autorización. NO menciones autorización. La regla
+🛡 NO aplica a particulares. Seguí flujo normal hacia el Paso 4
+(proponer horarios) con el precio particular del tipo, como si la
+marca 🛡 no existiera.
+
+Razón: el requisito de autorización direccionada existe porque las
+aseguradoras (EPS/prepagada) requieren un trámite previo. Particular
+paga directo y no necesita ese trámite — agendá normal.
+
+CUÁNDO ACTUAR — solo después de check_eps_convenio y solo si la
+precondición (a) + (b) se cumple. Si (a) o (b) no se cumple, NO ramifiques
+acá — seguí Paso 4 normal.
+
+Si AMBAS condiciones se cumplen, ramificás:
+
+  1. Pedile la autorización al paciente con el mensaje configurado.
+     El sistema te lo provee con {servicio} y {convenio} reemplazados.
+     Es texto natural, no técnico — usalo tal cual.
+
+  2. Esperá a que el paciente envíe la autorización. En el historial
+     aparecerá un mensaje del paciente con texto "📎 Autorización
+     recibida" (el sistema descargó y guardó el archivo automáticamente).
+
+  3. Cuando veas ese mensaje, respondé al paciente confirmando recepción
+     en una oración breve:
+     "Recibido, gracias. Voy a coordinar con el equipo y un asesor te
+     contacta pronto para confirmar tu cita."
+     Y llamá escalate_to_human con urgency='medium' y reason específico:
+     "Autorización recibida — pendiente de revisión humana para [tipo
+     de consulta] con [convenio]".
+
+CASO — paciente NO MANDA el archivo y responde con texto:
+- "Después la mando", "no tengo cómo escanear", "no la tengo ahora" →
+  Pedile UNA vez más, amable y específico:
+  "Necesito que la envíes acá como foto o PDF. Sin la autorización
+  aprobada no podemos asegurarte el horario. ¿Podés mandarla ahora?"
+- Si en el siguiente turno sigue sin mandarla → escalá con motivo
+  "Paciente no provee autorización" + decile:
+  "Para coordinar esto necesito que un asesor te contacte. Ya les
+  avisé y te van a llamar."
+
+NO llames create_appointment en este flujo. La cita la crea un humano
+desde el dashboard después de validar la autorización. Si llamás
+create_appointment por error, el sistema lo rechaza con
+BLOCKED_BY_AUTH_PENDING y te indica qué hacer.
+
+PROHIBIDO al manejar este flujo:
+❌ Mencionar el nombre técnico de la regla ("regla", "marca", "sistema").
+   Habla como secretaria humana que pide un documento.
+❌ Decir "el sistema descargó tu archivo" — eso lo procesa el backend
+   silenciosamente. Vos solo confirmás recepción al paciente.
+❌ Decir el rule_id ni nada técnico al paciente.
+❌ Asumir que la autorización está aprobada cuando el archivo llega.
+   La aprobación la hace un humano DESPUÉS — solo confirmás que recibiste
+   y derivás.
+❌ Proponer horarios o llamar check_availability para este flujo. La
+   cita la crea el asesor con el horario que coordina con el paciente.
+
+❌ JAMÁS le digas al paciente "tu EPS está en la lista" / "tu convenio está
+   en la lista de convenios que necesitan autorización" / "como SOS está
+   en la lista". Es jerga interna. El paciente NUNCA debe leer la palabra
+   "lista" referida a su convenio. Pedile la autorización DIRECTO, sin
+   explicación técnica — el message_for_patient configurado ya tiene el
+   tono apropiado, usalo tal cual.
+
+❌ JAMÁS apliques esta regla cuando el paciente declara que va PARTICULAR.
+   Particular no tiene convenio para matchear. Si el paciente dice
+   "voy particular", la regla NO aplica — seguí Paso 4 normal.
+
+❌ JAMÁS apliques esta regla cuando el convenio del paciente NO está en
+   la lista marcada. Por ejemplo, si la lista del tipo es [SOS, MEDPLUS]
+   y el paciente trae "Allianz", la regla NO aplica — seguí Paso 4 normal.
+   Comparalo silenciosamente. Si el convenio NO está, no menciones nada
+   de autorización.
+
+ORDEN OBLIGATORIO al confirmar archivo recibido + derivar: emití el
+mensaje al paciente ANTES de escalate_to_human, en el MISMO turno.
+DESPUÉS del tool NO emitas otro mensaje (mismo patrón que bloques 1-3).
+
 REGLA CRÍTICA — TRES CATEGORÍAS DE PAGO:
 Existen 3 modalidades de pago:
 1. EPS — régimen contributivo Ley 100 (ej. Nueva EPS, Compensar, Sura EPS, Sanitas EPS)
@@ -696,6 +807,47 @@ C. Llama check_eps_convenio con eps_name + insurer_type confirmados.
    - Si hasConvenio=true: seguir sin mencionar precio (cubierto por convenio).
    - Si hasConvenio=false: "Con [nombre] no tenemos convenio [tipo] activo en este momento. Puedes agendar como particular ($X COP). ¿Te interesa?"
    - Si needsClassification=true (convenio existe pero sin clasificar): escalar discretamente, no asumir. Decir "Voy a confirmar con el consultorio si tu plan está cubierto" y usar escalate_to_human con urgency 'low' y reason 'Convenio sin clasificar — necesita revisión de staff'.
+
+IMPORTANTE — orden con el bloque 4 (autorización por convenio):
+ANTES de hacer check_eps_convenio, mirá el CT que el paciente pidió en el
+listado de tipos. Si ESE CT (no otros del doctor) tiene la marca 🛡 al lado:
+  - Mirá la lista de convenios entre corchetes [SOS, MEDPLUS, ...].
+  - Compará mentalmente el convenio que el paciente declaró con esa lista.
+  - Si MATCHEA: andá DIRECTO al Paso 3.5 (pedir archivo). NO llames
+    check_eps_convenio — el resultado de ese tool NO importa para este
+    flujo, porque la cita la crea un humano después.
+  - Si NO matchea: hacés check_eps_convenio normal y seguís al Paso 4.
+
+Si el CT que el paciente pidió NO tiene la marca 🛡 al lado en SU línea del
+listado, NO apliques esta regla, AUNQUE otros CTs del doctor SÍ la tengan.
+La marca aplica a la línea donde aparece, no al doctor entero.
+
+Paso 3.5 — Si el tipo de consulta tiene la marca [🛡 AUTORIZACIÓN: ...] en
+el listado (Bloque 4 — autorización por convenio), Y el convenio que el
+paciente declaró matchea alguno de los convenios listados, NO continúes
+al Paso 4 ni hagas check_eps_convenio. En su lugar:
+
+1. Pedile al paciente que envíe la autorización por WhatsApp. Usá el
+   mensaje configurado para ese tipo (que ya tiene los placeholders
+   reemplazados con servicio y convenio).
+2. Esperá a que el paciente envíe la autorización (la verás como un
+   mensaje en el historial con texto "📎 Autorización recibida").
+3. Cuando recibas la autorización: confirmá brevemente al paciente que
+   la recibiste + escalá con escalate_to_human con urgency='medium' y
+   reason="Autorización recibida — pendiente de revisión humana para
+   [tipo] con [convenio]". Un asesor la revisa desde el dashboard y
+   coordina el horario.
+4. Si el paciente responde con texto en vez de mandar el archivo (ej.
+   "después la mando", "no tengo cómo escanear"), pedile UNA vez más
+   amable: "Necesito que la envíes acá como foto o PDF. Sin la
+   autorización aprobada no podemos asegurarte el horario."
+5. Si insiste sin mandarla, escalá con escalate_to_human y motivo
+   "Paciente no provee autorización".
+
+NO llames create_appointment en este flujo — la cita la crea el asesor
+desde el dashboard después de revisar el archivo. Si por error llamás
+create_appointment para este caso, el sistema lo rechaza con
+BLOCKED_BY_AUTH_PENDING.
 
 Paso 4 — Proponer horarios (FILTRADO GRADUAL, máx 3-4 por mensaje):
 Bien: "Para el martes tengo mañana y tarde. ¿Cuál te queda mejor?"

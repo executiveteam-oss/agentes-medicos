@@ -36,10 +36,14 @@ import {
   togglePatientConditionRule,
   deletePatientConditionRule,
   getPatientConditionRulesForCt,
+  upsertAuthConvenioRule,
+  disableAuthConvenioRule,
+  getAvailableConveniosForClinic,
   type PatientConditionRule,
 } from '@/app/actions/consultation-type-rules'
 import type { AgeLimitConfig, EdgeAction } from '@/lib/rules/age-limit-config'
 import type { PatientConditionConfig, TriggerAnswer, ActionOnTrigger } from '@/lib/rules/patient-condition-config'
+import type { AuthConvenioConfig } from '@/lib/rules/auth-convenio-config'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
 import { classifyRes256Category } from '@/app/actions/res256'
 import { getConsultationTypes } from '@/app/actions/consultation-types'
@@ -707,6 +711,9 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
 
       {/* Reglas especiales — Bloque 3: preguntas obligatorias */}
       <PatientConditionRuleEditor ctId={ct.id} ctName={ct.name} onError={onError} />
+
+      {/* Reglas especiales — Bloque 4: autorización por convenio */}
+      <AuthConvenioRuleEditor ctId={ct.id} ctName={ct.name} onError={onError} />
 
       {/* Schedules section */}
       <CtSchedulesEditor ctId={ct.id} />
@@ -1645,6 +1652,222 @@ function PatientConditionForm({
           style={{ fontSize: '11px', padding: '5px 12px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', cursor: 'pointer' }}>
           Cancelar
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// AuthConvenioRuleEditor — Bloque 4 de "Reglas especiales"
+//
+// Lady configura qué convenios requieren autorización direccionada
+// para este tipo de consulta. Cuando un paciente declara uno de esos
+// convenios, el agente le pide el archivo de la autorización por
+// WhatsApp y escala — la cita la crea después un humano que revisa
+// el archivo en el dashboard.
+//
+// IMPORTANTE: la recepción de archivos depende del feature_flag
+// media_reception_enabled de la clínica (false por default). Mientras
+// está apagado, el agente responde "por ahora solo manejo texto" y
+// escala. Ver CLAUDE.md bloque 4 para activación.
+// ============================================================
+
+function AuthConvenioRuleEditor({
+  ctId,
+  ctName,
+  onError,
+}: {
+  ctId: string
+  ctName: string
+  onError: (e: string) => void
+}): React.JSX.Element {
+  const [loaded, setLoaded] = useState(false)
+  const [active, setActive] = useState(false)
+  const [convenios, setConvenios] = useState<string[]>([])
+  const [message, setMessage] = useState<string>(
+    'Para {servicio} con {convenio} necesito que me envíes la autorización direccionada a la clínica. Mandala por aquí como foto o PDF y un asesor la revisa antes de agendarte.',
+  )
+  const [availableConvenios, setAvailableConvenios] = useState<string[]>([])
+  const [isPending, startTransition] = useTransition()
+  const [saved, setSaved] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+    Promise.all([
+      getRulesForConsultationType(ctId),
+      getAvailableConveniosForClinic(),
+    ]).then(([rules, available]) => {
+      if (!mounted) return
+      setAvailableConvenios(available)
+      const authRule = rules.find((r) => r.rule_type === 'requires_authorization')
+      if (authRule) {
+        setActive(authRule.active)
+        const cfg = authRule.condition_config as AuthConvenioConfig
+        if (Array.isArray(cfg.convenios_que_requieren)) setConvenios(cfg.convenios_que_requieren)
+        if (typeof cfg.message_pedir_archivo === 'string') setMessage(cfg.message_pedir_archivo)
+      }
+      setLoaded(true)
+    }).catch(() => { if (mounted) setLoaded(true) })
+    return () => { mounted = false }
+  }, [ctId])
+
+  function toggleConvenio(name: string): void {
+    setConvenios((prev) => prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name])
+    setLocalError(null)
+  }
+
+  function validate(): string | null {
+    if (convenios.length === 0) return 'Seleccioná al menos un convenio'
+    if (message.trim().length < 20) return 'El mensaje debe tener al menos 20 caracteres'
+    if (message.trim().length > 500) return 'El mensaje no puede exceder 500 caracteres'
+    return null
+  }
+
+  function handleSave(): void {
+    const err = validate()
+    if (err) { setLocalError(err); return }
+    setLocalError(null)
+
+    startTransition(async () => {
+      const r = await upsertAuthConvenioRule(ctId, {
+        convenios_que_requieren: convenios,
+        message_pedir_archivo: message.trim(),
+        match_mode: 'normalized_name',
+      })
+      if (!r.ok) { onError(r.error ?? 'Error guardando'); return }
+      setActive(true)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    })
+  }
+
+  function handleDisable(): void {
+    startTransition(async () => {
+      const r = await disableAuthConvenioRule(ctId)
+      if (!r.ok) { onError(r.error ?? 'Error desactivando'); return }
+      setActive(false)
+    })
+  }
+
+  if (!loaded) return <div style={{ marginBottom: '12px', height: '20px' }} />
+
+  // Validación de placeholders mal escritos
+  const hasUnknownPlaceholder = /\{(?!(?:servicio|convenio)\})[a-z_]+\}/.test(message)
+
+  return (
+    <div style={{
+      marginBottom: '12px',
+      padding: '12px 14px',
+      background: active ? '#fef3c7' : 'var(--v2-bg-soft)',
+      border: `1px solid ${active ? '#f5b500' : 'var(--v2-border-soft)'}`,
+      borderRadius: 'var(--v2-radius)',
+    }}>
+      <div style={{
+        fontSize: '12px',
+        fontWeight: 700,
+        color: active ? '#7a5500' : 'var(--v2-text)',
+        marginBottom: '4px',
+      }}>
+        {active ? `🛡 Autorización por convenio (activa, ${convenios.length})` : '🛡 Autorización por convenio'}
+      </div>
+      <div style={{
+        fontSize: '11px',
+        color: active ? '#7a5500' : 'var(--v2-text-muted)',
+        marginBottom: '10px',
+      }}>
+        Para <strong>{ctName}</strong>, si el paciente trae un convenio de los marcados,
+        el agente le pide la autorización por WhatsApp y deriva al staff para que
+        la revise antes de agendar.
+      </div>
+
+      <div style={{ marginBottom: '10px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
+          Convenios que requieren autorización ({convenios.length} seleccionados):
+        </div>
+        <div style={{
+          maxHeight: '180px',
+          overflowY: 'auto',
+          padding: '6px',
+          background: 'var(--v2-bg)',
+          borderRadius: '4px',
+          fontSize: '12px',
+        }}>
+          {availableConvenios.length === 0 ? (
+            <div style={{ color: 'var(--v2-text-muted)', padding: '6px' }}>
+              No hay convenios configurados en este consultorio. Agregá tipos de
+              consulta con eps_name primero.
+            </div>
+          ) : availableConvenios.map((c) => (
+            <label key={c} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={convenios.includes(c)}
+                onChange={() => toggleConvenio(c)}
+              />
+              <span>{c}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: '10px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '4px' }}>
+          Mensaje al paciente (usá <code>{'{servicio}'}</code> y <code>{'{convenio}'}</code> para personalizar):
+        </div>
+        <textarea
+          value={message}
+          onChange={(e) => { setMessage(e.target.value); setLocalError(null) }}
+          rows={4}
+          style={{
+            width: '100%',
+            padding: '6px 8px',
+            border: '1px solid var(--v2-border-soft)',
+            borderRadius: '4px',
+            fontSize: '12px',
+            fontFamily: 'inherit',
+            resize: 'vertical',
+          }}
+        />
+        {hasUnknownPlaceholder && (
+          <div style={{ fontSize: '11px', color: '#854d0e', marginTop: '4px' }}>
+            ⚠ Detecté un placeholder no reconocido. Solo {'{servicio}'} y {'{convenio}'} se reemplazan.
+          </div>
+        )}
+      </div>
+
+      {localError && (
+        <div style={{ fontSize: '11px', color: 'var(--v2-red)', marginBottom: '8px' }}>{localError}</div>
+      )}
+
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <button
+          onClick={handleSave}
+          disabled={isPending || convenios.length === 0}
+          className="btn-v2-primary"
+          style={{ fontSize: '11px', padding: '5px 12px' }}
+        >
+          {isPending ? 'Guardando...' : active ? 'Actualizar' : 'Activar'}
+        </button>
+        {active && (
+          <button
+            onClick={handleDisable}
+            disabled={isPending}
+            style={{
+              fontSize: '11px',
+              color: 'var(--v2-text-muted)',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '5px 8px',
+            }}
+          >
+            Desactivar
+          </button>
+        )}
+        {saved && (
+          <span style={{ fontSize: '11px', color: 'var(--v2-green)' }}>✓ Guardado</span>
+        )}
       </div>
     </div>
   )

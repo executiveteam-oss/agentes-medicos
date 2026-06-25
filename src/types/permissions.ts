@@ -45,6 +45,13 @@ export interface UserSession {
     name: string
   }
   permissions: Permissions
+  /**
+   * Bloque 4 — permiso separado para aprobar/rechazar autorizaciones direccionadas.
+   * Lectura semánticamente más sensible que el flag genérico de conversaciones.
+   * Por defecto: Admin, Coordinadora y Secretaria; Doctor y Contador no.
+   * Lady puede ajustar en la UI de roles.
+   */
+  authorizationsReview: boolean
   clinic: {
     id: string
     name: string

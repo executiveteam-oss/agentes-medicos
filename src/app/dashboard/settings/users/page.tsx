@@ -9,7 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
 import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
-import { getClinicUsers } from '@/app/actions/users'
+import { getClinicUsers, getPendingInvitations } from '@/app/actions/users'
 import { getClinicRoles } from '@/app/actions/roles'
 import { UsersPanel } from './users-panel'
 
@@ -18,9 +18,10 @@ export default async function UsersPage() {
   if (!session) redirect('/login')
   if (isDoctorRole(session)) redirect('/dashboard/settings/clinic')
 
-  const [users, roles] = await Promise.all([
+  const [users, roles, pendingInvitations] = await Promise.all([
     getClinicUsers(),
     getClinicRoles(),
+    getPendingInvitations(),
   ])
 
   // Cargar doctores activos SIN usuario vinculado (para el selector de invitación)
@@ -41,5 +42,12 @@ export default async function UsersPage() {
   const linkedSet = new Set((linkedDoctorIds ?? []).map((r) => (r as { doctor_id: string }).doctor_id))
   const doctors = (allDoctors ?? []).filter((d) => !linkedSet.has(d.id))
 
-  return <UsersPanel users={users} roles={roles} doctors={(doctors ?? []) as { id: string; name: string }[]} />
+  return (
+    <UsersPanel
+      users={users}
+      roles={roles}
+      doctors={(doctors ?? []) as { id: string; name: string }[]}
+      pendingInvitations={pendingInvitations}
+    />
+  )
 }

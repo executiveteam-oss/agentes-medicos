@@ -25,6 +25,21 @@ export interface ClinicUserRow {
   doctor_id: string | null
 }
 
+// Tipo para invitaciones sin aceptar — diferencia clave con ClinicUserRow:
+// estas personas NUNCA completaron el registro, no tienen fila en clinic_users.
+// Se carga aparte para que el equipo pueda reenviarles el link aunque haya
+// expirado. Hueco descubierto el 2026-06-26 (caso Kelly de Algia).
+export interface PendingInvitationRow {
+  id: string
+  email: string
+  full_name: string
+  created_at: string
+  expires_at: string
+  is_expired: boolean
+  clinic_role: { id: string; name: string } | null
+  doctor_id: string | null
+}
+
 /** Invitar un nuevo usuario al consultorio via Resend */
 export async function inviteUserAction(formData: FormData): Promise<{ ok: boolean; error?: string }> {
   try {
@@ -362,6 +377,105 @@ export async function updateUserDoctor(
 }
 
 /** Obtener lista de usuarios del consultorio (enriquecida con email y estado) */
+/**
+ * Devuelve TODAS las invitaciones sin aceptar (accepted_at IS NULL),
+ * incluyendo las EXPIRADAS (expires_at < NOW()). Importante: estas personas
+ * NO están en clinic_users — getClinicUsers no las trae. La UI las muestra
+ * en una sección separada con botón "Reenviar invitación".
+ *
+ * Sin esto, las invitaciones expiradas son invisibles y Lady depende de
+ * intervención manual por SQL (caso Kelly 2026-06-26).
+ */
+export async function getPendingInvitations(): Promise<PendingInvitationRow[]> {
+  const clinicId = await getSessionClinicId()
+  const now = new Date().toISOString()
+
+  const { data } = await supabaseAdmin
+    .from('invitations')
+    .select(`
+      id,
+      email,
+      full_name,
+      created_at,
+      expires_at,
+      doctor_id,
+      clinic_roles ( id, name )
+    `)
+    .eq('clinic_id', clinicId)
+    .is('accepted_at', null)
+    .order('created_at', { ascending: false })
+
+  if (!data) return []
+
+  return data.map((row) => {
+    const r = row as unknown as {
+      id: string
+      email: string
+      full_name: string
+      created_at: string
+      expires_at: string
+      doctor_id: string | null
+      clinic_roles: { id: string; name: string } | { id: string; name: string }[] | null
+    }
+    const role = Array.isArray(r.clinic_roles) ? r.clinic_roles[0] ?? null : r.clinic_roles
+    return {
+      id: r.id,
+      email: r.email,
+      full_name: r.full_name,
+      created_at: r.created_at,
+      expires_at: r.expires_at,
+      is_expired: r.expires_at < now,
+      clinic_role: role,
+      doctor_id: r.doctor_id,
+    }
+  })
+}
+
+/**
+ * Elimina una invitación que NUNCA fue aceptada. Útil para limpiar
+ * invitaciones abandonadas que no se van a renovar (caso coordinadora
+ * administrativa de Algia, expirada hace meses).
+ */
+export async function deletePendingInvitation(
+  invitationId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('user_management')
+
+    // Verificar que la invitación pertenece a la clínica y NO está aceptada
+    const { data: inv } = await supabaseAdmin
+      .from('invitations')
+      .select('id, email, accepted_at')
+      .eq('id', invitationId)
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+
+    if (!inv) return { ok: false, error: 'Invitación no encontrada' }
+    if (inv.accepted_at) return { ok: false, error: 'No se puede eliminar una invitación ya aceptada' }
+
+    const { error: delErr } = await supabaseAdmin
+      .from('invitations')
+      .delete()
+      .eq('id', invitationId)
+      .eq('clinic_id', clinicId)
+
+    if (delErr) return { ok: false, error: 'Error eliminando invitación' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'invitation_deleted',
+      actor_type: 'staff',
+      details: { invitation_id: invitationId, email: inv.email },
+    })
+
+    revalidatePath('/dashboard/settings/users')
+    return { ok: true }
+  } catch (err) {
+    console.error('[deletePendingInvitation]', err)
+    return { ok: false, error: 'Error inesperado' }
+  }
+}
+
 export async function getClinicUsers(): Promise<ClinicUserRow[]> {
   const clinicId = await getSessionClinicId()
 

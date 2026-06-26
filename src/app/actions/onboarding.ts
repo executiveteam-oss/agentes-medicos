@@ -72,7 +72,10 @@ export async function inviteUser(data: {
     const session = await getUserSession()
 
     const token = randomUUID()
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
+    // 7 días — el equipo se registra en orden no inmediato (fines de semana,
+    // viajes, vacaciones). 48h era muy corto y generaba expiraciones antes
+    // de que el invitado pudiera abrir el email. Subido el 2026-06-26.
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
     // Obtener nombre de la clínica
     const { data: clinic } = await supabaseAdmin
@@ -117,7 +120,7 @@ export async function inviteUser(data: {
               Aceptar invitación
             </a>
           </p>
-          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 48 horas.</p>
+          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 7 días.</p>
           <p style="color: #94a3b8; margin-top: 24px;">— El equipo de Omuwan</p>
         </div>
       `,

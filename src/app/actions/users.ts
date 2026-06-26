@@ -73,7 +73,10 @@ export async function inviteUserAction(formData: FormData): Promise<{ ok: boolea
 
     // Generar token de invitación
     const token = randomUUID()
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000) // 48 horas
+    // 7 días — el equipo se registra en orden no inmediato (fines de semana,
+    // viajes, vacaciones). 48h era muy corto y generaba expiraciones antes
+    // de que el invitado pudiera abrir el email. Subido el 2026-06-26.
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
 
     // Obtener nombre de la clínica
     const { data: clinic } = await supabaseAdmin
@@ -119,7 +122,7 @@ export async function inviteUserAction(formData: FormData): Promise<{ ok: boolea
               Aceptar invitación
             </a>
           </p>
-          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 48 horas.</p>
+          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 7 días.</p>
           <p style="font-size: 13px; color: #64748b;">Si no esperabas esta invitación, puedes ignorar este correo.</p>
           <p style="color: #94a3b8; margin-top: 24px;">— El equipo de Omuwan</p>
         </div>
@@ -232,8 +235,8 @@ export async function resendInvite(email: string): Promise<{ ok: boolean; error?
     if (!inv) return { ok: false, error: 'No hay invitación pendiente para este email' }
     if (inv.accepted_at) return { ok: false, error: 'Esta invitación ya fue aceptada' }
 
-    // Renovar expiración a 48h desde ahora
-    const newExpiry = new Date(Date.now() + 48 * 60 * 60 * 1000)
+    // Renovar expiración a 7 días desde ahora (ver comentario de TTL arriba)
+    const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
     await supabaseAdmin
       .from('invitations')
       .update({ expires_at: newExpiry.toISOString() })
@@ -263,7 +266,7 @@ export async function resendInvite(email: string): Promise<{ ok: boolean; error?
               Aceptar invitación
             </a>
           </p>
-          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 48 horas.</p>
+          <p style="font-size: 13px; color: #64748b;">Este enlace expira en 7 días.</p>
           <p style="color: #94a3b8; margin-top: 24px;">— El equipo de Omuwan</p>
         </div>
       `,

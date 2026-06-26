@@ -390,43 +390,55 @@ export async function getPendingInvitations(): Promise<PendingInvitationRow[]> {
   const clinicId = await getSessionClinicId()
   const now = new Date().toISOString()
 
-  const { data } = await supabaseAdmin
+  // NO hay FK entre invitations.role_id y clinic_roles.id (migración 00045
+  // lo declaró sin REFERENCES). Supabase JS no puede resolver el join
+  // automático, así que hacemos 2 queries y mergeamos a mano.
+  // Hueco descubierto el 2026-06-26 cuando la card de Invitaciones
+  // mostraba 0 aunque Kelly estaba vigente en DB.
+  const { data: invs, error: invsErr } = await supabaseAdmin
     .from('invitations')
-    .select(`
-      id,
-      email,
-      full_name,
-      created_at,
-      expires_at,
-      doctor_id,
-      clinic_roles ( id, name )
-    `)
+    .select('id, email, full_name, created_at, expires_at, doctor_id, role_id')
     .eq('clinic_id', clinicId)
     .is('accepted_at', null)
     .order('created_at', { ascending: false })
 
-  if (!data) return []
+  if (invsErr) {
+    console.error('[getPendingInvitations] error consultando invitations:', invsErr)
+    return []
+  }
+  if (!invs || invs.length === 0) return []
 
-  return data.map((row) => {
-    const r = row as unknown as {
+  // Cargar los roles referenciados en un solo query
+  const roleIds = Array.from(new Set(invs.map((i) => i.role_id).filter(Boolean)))
+  const { data: roles, error: rolesErr } = await supabaseAdmin
+    .from('clinic_roles')
+    .select('id, name')
+    .in('id', roleIds)
+  if (rolesErr) console.error('[getPendingInvitations] error consultando clinic_roles:', rolesErr)
+  const rolesMap = new Map<string, { id: string; name: string }>()
+  for (const r of roles ?? []) {
+    rolesMap.set((r as { id: string; name: string }).id, r as { id: string; name: string })
+  }
+
+  return invs.map((inv) => {
+    const i = inv as {
       id: string
       email: string
       full_name: string
       created_at: string
       expires_at: string
       doctor_id: string | null
-      clinic_roles: { id: string; name: string } | { id: string; name: string }[] | null
+      role_id: string | null
     }
-    const role = Array.isArray(r.clinic_roles) ? r.clinic_roles[0] ?? null : r.clinic_roles
     return {
-      id: r.id,
-      email: r.email,
-      full_name: r.full_name,
-      created_at: r.created_at,
-      expires_at: r.expires_at,
-      is_expired: r.expires_at < now,
-      clinic_role: role,
-      doctor_id: r.doctor_id,
+      id: i.id,
+      email: i.email,
+      full_name: i.full_name,
+      created_at: i.created_at,
+      expires_at: i.expires_at,
+      is_expired: i.expires_at < now,
+      clinic_role: i.role_id ? rolesMap.get(i.role_id) ?? null : null,
+      doctor_id: i.doctor_id,
     }
   })
 }

@@ -794,6 +794,30 @@ Archivos involucrados:
 
 ---
 
+## 🪣 Deuda conocida: `invitations.role_id` sin FK a `clinic_roles(id)`
+
+**Descubierto 2026-06-26** mientras se diagnosticaba por qué la card "Invitaciones" del panel `/dashboard/configuracion/usuarios` mostraba 0 aunque la invitación de Kelly estaba vigente en DB.
+
+La migración `00045_invitations_table.sql:9` declara `role_id UUID NOT NULL` **sin `REFERENCES clinic_roles(id)`**. La tabla `clinic_users` SÍ tiene esa FK (migración 00007), por eso los embeds tipo `clinic_roles ( id, name )` de PostgREST funcionan en `getClinicUsers` pero **NO** en queries contra `invitations`.
+
+**Síntoma del bug**: Supabase JS no podía resolver el relation embed, devolvía un `error` que el código original ignoraba (`const { data } = ...` sin chequear `error`) → `data` quedaba null → función devolvía `[]` → UI mostraba 0.
+
+**Workaround aplicado (commit del 2026-06-26)**: `getPendingInvitations` en `src/app/actions/users.ts` hace **2 queries separadas** (invitations + clinic_roles) y mergea con un Map. Seguro y funcional, pero no resuelve la causa raíz del schema.
+
+**Por qué NO agregar la FK ahora**:
+- Una migración `ALTER TABLE invitations ADD CONSTRAINT ... REFERENCES clinic_roles(id)` puede **fallar** si hay filas huérfanas (role_id apuntando a un clinic_role borrado).
+- Estamos en medio del onboarding de Algia — no es el momento de abrir una migración con riesgo de bloqueo.
+
+**Cuándo agregarla (post-piloto Algia)**:
+1. Auditar filas huérfanas: `SELECT i.id, i.role_id FROM invitations i LEFT JOIN clinic_roles cr ON cr.id = i.role_id WHERE cr.id IS NULL;`
+2. Decidir qué hacer con las huérfanas (limpiar o setear role_id a un rol "Sin rol asignado"). 
+3. Recién después, migración con `ON DELETE SET NULL` (consistente con `clinic_users.role_id`).
+4. Una vez la FK existe, se puede volver al embed `clinic_roles ( id, name )` y simplificar `getPendingInvitations` a 1 query.
+
+**Mientras tanto el riesgo**: cualquier query nueva contra `invitations` que use relation embed de PostgREST contra `clinic_roles` va a fallar silenciosamente igual. Si aparece otro caso así, replicar el patrón de 2 queries + chequeo de `error`.
+
+---
+
 ## 🪣 Deuda conocida: variantes de nombre de convenio en `isalud_import_staging`
 
 **Anotado 2026-06-23 durante análisis del bug "no se agrega prepagada"** (que resultó ser el mismo bug de permisos arriba, pero el análisis del catálogo descubrió este otro problema separado).

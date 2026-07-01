@@ -217,6 +217,121 @@ export async function markAsRead(
 }
 
 /**
+ * Envía un template Meta pre-aprobado.
+ *
+ * A diferencia de sendWhatsAppMessage (que envía texto libre y solo funciona
+ * dentro de la ventana 24h posterior al último mensaje del paciente), este
+ * envía una plantilla pre-aprobada por Meta y puede iniciar conversación
+ * en cualquier momento — es el patrón obligatorio para mensajes proactivos
+ * como recordatorios, encuestas, etc.
+ *
+ * Meta espera un payload con `components` que combina:
+ *  - body params (para las variables {{1}}, {{2}}, ... del cuerpo del template)
+ *  - button params (opcional, para variables en URLs dinámicas de botones CTA)
+ *
+ * El template DEBE existir y estar APROBADO en el Meta Business Manager de
+ * la clínica (creds.phoneNumberId). Si no lo está, Meta responde 132001
+ * (template no encontrado) o 132000 (template no aprobado).
+ *
+ * @param to - Número del paciente SIN "+" (ej: "573101112233")
+ * @param templateName - Nombre exacto con el que se aprobó en Meta
+ * @param languageCode - Código de idioma del template (ej: 'es_CO')
+ * @param bodyParams - Array de valores para variables {{1}}, {{2}}, ... en orden
+ * @param buttonUrlParam - Valor de la variable {{1}} del botón URL, o null si el
+ *                         template no tiene botón dinámico
+ * @param clinicCreds - Credenciales de la clínica
+ * @returns { ok, messageId } o { ok:false, error, errorCode }
+ */
+export interface SendTemplateResult {
+  ok: boolean
+  messageId?: string
+  error?: string
+  errorCode?: number
+}
+
+export async function sendWhatsAppTemplate(
+  to: string,
+  templateName: string,
+  languageCode: string,
+  bodyParams: string[],
+  buttonUrlParam: string | null,
+  clinicCreds?: ClinicWhatsAppCredentials | null,
+): Promise<SendTemplateResult> {
+  const { phoneNumberId, accessToken } = getConfig(clinicCreds)
+
+  const components: unknown[] = []
+
+  if (bodyParams.length > 0) {
+    components.push({
+      type: 'body',
+      parameters: bodyParams.map((text) => ({ type: 'text', text })),
+    })
+  }
+
+  if (buttonUrlParam !== null) {
+    components.push({
+      type: 'button',
+      sub_type: 'url',
+      index: '0',
+      parameters: [{ type: 'text', text: buttonUrlParam }],
+    })
+  }
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: languageCode },
+      components,
+    },
+  }
+
+  console.log(`[WhatsApp:template] "${templateName}" (${languageCode}) → ${to.slice(0, 5)}***`)
+
+  try {
+    const response = await fetch(
+      `${WHATSAPP_API_URL}/${phoneNumberId}/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    )
+
+    const responseBody = await response.json()
+
+    if (!response.ok) {
+      const errorCode = responseBody?.error?.code as number | undefined
+      const errorMessage = responseBody?.error?.message ?? 'Error desconocido'
+
+      if (errorCode === 132001) {
+        console.error(`[WhatsApp:template] TEMPLATE NO EXISTE (132001): "${templateName}" — verificar que esté aprobado en Meta Business Manager de la clínica`)
+      } else if (errorCode === 132000) {
+        console.error(`[WhatsApp:template] TEMPLATE NO APROBADO (132000): "${templateName}" — pendiente de aprobación en Meta`)
+      } else if (errorCode === 132015) {
+        console.error(`[WhatsApp:template] TEMPLATE PAUSADO (132015): "${templateName}" — Meta lo pausó por bajo engagement`)
+      } else {
+        console.error(`[WhatsApp:template] ERROR ${response.status} (code ${errorCode}): ${errorMessage}`)
+      }
+
+      return { ok: false, error: errorMessage, errorCode }
+    }
+
+    const messageId = responseBody.messages?.[0]?.id ?? undefined
+    return { ok: true, messageId }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('[WhatsApp:template] Error de red:', msg)
+    return { ok: false, error: `Network error: ${msg}` }
+  }
+}
+
+/**
  * Carga las credenciales de WhatsApp de una clínica desde la DB.
  * Retorna null si la clínica no tiene WhatsApp configurado.
  */

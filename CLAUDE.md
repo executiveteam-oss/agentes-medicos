@@ -504,6 +504,53 @@ Algia plan `core` cae al fallback `basic = 100K tokens/mes`. Estimación primer 
 
 ---
 
+## 🎯 Feature: Encuesta post-consulta (configurable, multi-tenant)
+
+**Estado 2026-07-01**: **CONSTRUIDO, NO ACTIVABLE hasta 2 dependencias**:
+1. Número Meta productivo migrado (mismo bloqueante del piloto)
+2. Cada clínica somete su propio template a Meta y espera aprobación
+
+**Feature flag maestro**: `clinics.feature_config.survey_post_consulta_enabled` (boolean, default false para TODAS las clínicas).
+
+**Config de la clínica** (activable desde `/dashboard/settings/automations/survey`): `clinics.whatsapp_config.automations.survey.*` — validado con Zod (`src/lib/rules/survey-config.ts`):
+- `enabled` (bool) — toggle de la clínica
+- `template_name` (default `encuesta_satisfaccion`) — nombre en Meta
+- `form_url` (URL HTTPS) — link del Google Form / Typeform
+- `clinic_display_name` (opcional) — cómo aparece la clínica en el mensaje
+- `guardrail_hours` (default 48) — no envía a citas viejas si el cron cayó
+- `cron_frequency_minutes` (informativo, cron real en vercel.json)
+
+**Disparador**: `attendance_outcome='facturado'` (setea Bloque D que sigue en pausa — ver abajo). Cron cada hora. Idempotencia con `appointments.survey_sent` + `survey_sent_at` (columnas nuevas de migración 00078, aisladas del `followup_sent` del NPS legacy).
+
+**Aislado del NPS legacy**: coexiste con `/api/cron/post-consulta` (cron viejo que envía mensaje conversacional 1-10 basado en `status='completed'`, filtrado que nadie usa). El nuevo cron es `/api/cron/survey-post-consulta`. Cero shared state — cada uno tiene sus columnas.
+
+**⏸ Bloqueado por Bloque D pendiente** (sync iSalud debe traer Facturado/Inasistente como `attendance_outcome`): el dry-run nocturno de `scripts/discover-isalud-fases.ts` va a confirmar spelling exacto de las fases (`Facturado` vs `Facturada` vs otra variante). Sin ese cambio, la columna `attendance_outcome` para citas iSalud nunca llega a `facturado` → cero disparadores.
+
+**Archivos**:
+- `supabase/migrations/00078_appointments_survey_sent.sql` — columnas nuevas + índice parcial
+- `src/lib/rules/survey-config.ts` — Zod schema + `canSendSurvey` + `extractFirstName`
+- `src/lib/whatsapp/client.ts` — nueva `sendWhatsAppTemplate` (coexiste con `sendWhatsAppMessage`)
+- `src/app/api/cron/survey-post-consulta/route.ts` — cron nuevo
+- `src/app/actions/survey-config.ts` — server actions con gate `settings.write`
+- `src/app/dashboard/settings/automations/**` — UI raíz + sub-página survey
+- `src/app/dashboard/settings/automations/survey/survey-form.tsx` — form + preview + onboarding guide
+- `docs/ENCUESTA_POST_CONSULTA.md` — doc user-facing
+- `vercel.json` — cron `"0 * * * *"`
+
+**Tests verdes**: 19 (survey-config) + 7 (send-template) + 6 (snapshot template) = 32.
+
+**Para activar en una clínica (post-piloto, post-aprobación Meta)**:
+```sql
+UPDATE clinics
+SET feature_config = COALESCE(feature_config, '{}'::jsonb) || '{"survey_post_consulta_enabled": true}'::jsonb
+WHERE id = '<UUID>';
+```
+Después la clínica completa la config desde UI y activa el toggle.
+
+**Snapshot test del texto**: `scripts/test-survey-template-snapshot.ts` protege contra edits sin coordinar con Meta. Si alguien cambia el BODY del template sin re-someter a Meta, la plantilla aprobada + el texto del prompt divergen silenciosamente.
+
+---
+
 ## ⏳ MIGRACIÓN ALGIA — código de un solo uso, NO es feature del producto Omuwan
 
 **Decisión de alcance (2026-06-10)**: TODO el código que toca iSalud — sync de citas, importador de convenios, parseo de aseguradora, derivación consulta-convenio, derivación de horarios (descartada) — es **infraestructura de migración de Algia**, no feature del producto Omuwan.
@@ -546,6 +593,16 @@ Algia plan `core` cae al fallback `basic = 100K tokens/mes`. Estimación primer 
 | `src/app/api/sync/isalud/route.ts` | ACTIVO (cron endpoint) |
 
 Cuando Algia corte iSalud para agenda, **estos 3 también se apagan y se borran**.
+
+### Import de pacientes ejecutado 2026-06-30
+
+Corrida real del importador `scripts/import-isalud-clientes.ts --apply` contra Algia: **482 INSERT + 3 UPDATE (2 phone, 1 cédula) = 485 pacientes tocados**, sobre 578 que matchearon nombre contra citas reales (de 15.587 clientes totales en iSalud). Total `patients` de Algia post-import: **491** (los 9 pre-existentes + 482 nuevos). Audit log en `audit_log` con `action='patients_imported_from_isalud'` timestamp `2026-06-30T15:50:42Z`.
+
+**Pendiente menor — 13 pacientes iSalud no importados por `phone` duplicado**:
+- Causa: el cliente iSalud trae un teléfono que ya existe en otro `patients` de Algia, pero la cédula NO coincide con ese patient existente → el matcher no lo clasificó como `match_by_*` y el INSERT chocó con `UNIQUE (clinic_id, phone)` → error capturado, loop continuó.
+- Hipótesis típica (no confirmada caso a caso): familiares compartiendo número (hermana/madre/hija registradas con el celular de una sola), o typos del propio iSalud cuando una secretaria copia un número equivocado.
+- **Decisión 2026-06-30**: NO los resolvemos ahora. Prioridad baja. Si alguno de esos 13 contacta a Algia por WhatsApp post-piloto, lo creamos manualmente en ese momento.
+- Para listarlos cuando haga falta: el array `errors` del audit_log NO los guarda en detalle. Habría que re-correr el importador en dry-run con flag de "mostrar errores" — el script ya imprime los errores en consola pero no los persiste. Si llega a hacer falta el listado exacto, se re-extrae del scrape (caché en `~/.omuwan-cache/algia-clientes/`).
 
 **Cómo distinguir si algo es migración Algia vs feature productivo**:
 - Si vive en `src/lib/isalud/` → migración Algia
@@ -711,6 +768,54 @@ Aprobar (form de horario → crea cita) y Rechazar (motivo obligatorio).
 con mocks) + 13 (E2E executor) + 9 (snapshot prompt) = **69 tests** del
 bloque 4. Más los 132 acumulados de bloques 1-3 = **201 tests verdes** del
 sistema de reglas configurables.
+
+### 🪣 Deuda BLOQUEANTE — input "agregar otro convenio" no construido
+
+**Anotado 2026-06-30.** El `AuthConvenioRuleEditor`
+(`src/components/dashboard/doctors/doctor-detail.tsx:1868`) solo expone
+**checkboxes contra `availableConvenios`**, que viene de
+`getAvailableConveniosForClinic()` — los `eps_name` distintos que YA
+existen en `consultation_types` de la clínica. NO hay input de texto libre.
+
+**Consecuencia para Algia**: las reglas originales de Algia (WSP.docx) dicen
+que **colposcopia requiere autorización para SOS, MEDPLUS, COLMÉDICA y AXA
+COLPATRIA**. De esos 4:
+- SOS — existe como `eps_name` (COLPOSCOPIA SOD) → marcable. ✅
+- COLMÉDICA — ahora unificada como `COLMÉDICA MEDICINA PREPAGADA S.A.` → marcable. ✅
+- MEDPLUS — NO existe como `eps_name` en ningún CT → **NO marcable** en el editor. ❌
+- AXA COLPATRIA — sí existe (`COLPOSCOPIA → AXA COLPATRIA` Prepagada) → marcable. ✅
+
+Workaround actual: para que MEDPLUS aparezca como opción, Lady tendría que
+crear un CT placeholder con `eps_name='MEDPLUS MEDICINA PREPAGADA S.A.'` (o
+similar canónico). Tedioso y propenso a errores.
+
+**Por qué es bloqueante de "reglas Algia completas"**: sin el input manual,
+Algia NO puede configurar correctamente la regla de colposcopia (le faltaría
+MEDPLUS). Cualquier paciente MEDPLUS que pida colposcopia se agendaría sin
+pedirle la autorización direccionada → potencial conflicto operativo el día
+de la cita.
+
+**NO bloquea el piloto** (la regla de auth todavía no está activada — `0
+rows` en `consultation_type_rules` para Algia al 2026-06-30), pero sí
+bloquea el momento en que Algia decida activar las reglas con la lista
+correcta.
+
+**Diseño del input cuando se construya**:
+- Donde dice "Convenios que requieren autorización (N seleccionados)"
+  agregar al final del listado una fila tipo `[ + Agregar otro convenio ]`
+- Click abre un input de texto + botón "Agregar"
+- Validación: nombre canónico (no permitir si ya existe en
+  `availableConvenios` ignorando case+tildes; sugerir la variante existente
+  si la hay)
+- El convenio agregado se persiste en `condition_config.convenios_que_requieren`
+  pero NO toca `consultation_types` — vive solo dentro de la regla de ese CT
+- Función `convenioRequiresAuthorization` ya tolera variantes vía
+  `normalizeConvenioName` (en `src/lib/rules/auth-convenio-config.ts`) →
+  match seguro aunque la paciente diga "MedPlus" y la regla diga
+  "MEDPLUS MEDICINA PREPAGADA S.A."
+
+**Costo estimado**: ~1 sesión chica. UI + validation + zod schema (ya
+acepta strings arbitrarios). NO requiere migración de DB.
 
 ---
 

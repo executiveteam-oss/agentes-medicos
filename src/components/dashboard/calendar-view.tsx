@@ -21,6 +21,12 @@ import { parseLocalDate, toDateStr, getColombiaDateStr, DAYS_FULL_ES, MONTHS_ES,
 // Re-export types for page.tsx imports
 export type { CalendarAppointment, CalendarDoctor }
 
+export interface SurveyConfigForCalendar {
+  enabled: boolean
+  form_url: string | null
+  clinic_display_name: string
+}
+
 interface Props {
   appointments: CalendarAppointment[]
   initialDate: string
@@ -29,9 +35,10 @@ interface Props {
   restrictDoctorId?: string | null
   userRole: string
   clinicId: string
+  surveyConfig?: SurveyConfigForCalendar
 }
 
-export function CalendarView({ appointments: initialAppointments, initialDate, clinicName, doctors, restrictDoctorId, userRole, clinicId }: Props) {
+export function CalendarView({ appointments: initialAppointments, initialDate, clinicName, doctors, restrictDoctorId, userRole, clinicId, surveyConfig }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -150,6 +157,8 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           ends_at: newApt.ends_at as string,
           status: newApt.status as string,
           attendance_outcome: (newApt.attendance_outcome as CalendarAppointment['attendance_outcome']) ?? null,
+          survey_sent: (newApt.survey_sent as boolean) ?? false,
+          survey_sent_at: (newApt.survey_sent_at as string) ?? null,
           reason: (newApt.reason as string | null) ?? null,
           reminder_24h_sent: false,
           reminder_confirmed: null,
@@ -334,6 +343,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           setExpandedApt={setExpandedApt}
           doctorFilter={doctorFilter}
           doctorName={doctorFilter !== 'all' ? (doctors.find((d) => d.id === doctorFilter)?.name ?? null) : null}
+          surveyConfig={surveyConfig}
         />
       )}
       {view === 'week' && (

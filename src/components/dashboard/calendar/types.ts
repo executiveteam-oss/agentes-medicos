@@ -8,6 +8,8 @@ export interface CalendarAppointment {
   ends_at: string
   status: string
   attendance_outcome: 'admitido' | 'facturado' | 'inasistente' | null
+  survey_sent: boolean
+  survey_sent_at: string | null
   reason: string | null
   reminder_24h_sent: boolean
   reminder_confirmed: boolean | null
@@ -31,6 +33,7 @@ export interface CalendarAppointment {
     date_of_birth: string | null
     doctor_notes: string | null
     data_consent_at: string | null
+    first_name: string | null
   } | null
   doctor: {
     name: string

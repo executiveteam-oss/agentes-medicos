@@ -4,25 +4,47 @@
 // QuickActions — Marcado de asistencia de cita
 // Migración 00073: campo attendance_outcome (admitido/facturado/inasistente)
 // Estados modelados según columna FASE del export iSalud
+//
+// SurveyRow (embed): feedback + botón wa.me solo cuando attendance_outcome='facturado'
+// - Ver Feature "Encuesta post-consulta" en CLAUDE.md
 // ============================================================
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
+import Link from 'next/link'
 import {
   markAsAdmitido,
   markAsFacturado,
   markAsInasistente,
   revertAttendanceOutcome,
 } from '@/app/actions/appointments'
+import { markSurveySentManually } from '@/app/actions/survey-config'
+import { buildSurveyMessage } from '@/lib/rules/survey-config'
+import { buildWhatsAppUrl, isValidColombianMobile } from '@/lib/utils/whatsapp-url'
 import type { AppointmentStatus, AttendanceOutcome } from '@/types/database'
 import { attendanceOutcomeLabel } from '@/lib/utils/attendance-outcome'
+
+interface SurveyState {
+  sent: boolean
+  sentAt: string | null
+  patientFirstName: string | null
+  patientPhone: string | null
+}
+
+interface SurveyConfigForRow {
+  enabled: boolean
+  form_url: string | null
+  clinic_display_name: string
+}
 
 interface QuickActionsProps {
   appointmentId: string
   currentStatus: AppointmentStatus
   attendanceOutcome: AttendanceOutcome | null
+  surveyState?: SurveyState
+  surveyConfig?: SurveyConfigForRow | null
 }
 
-export function QuickActions({ appointmentId, currentStatus, attendanceOutcome }: QuickActionsProps) {
+export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, surveyState, surveyConfig }: QuickActionsProps) {
   const [isPending, startTransition] = useTransition()
 
   // Si la cita está cancelada o bloqueo externo, no aplica marca de asistencia
@@ -87,8 +109,216 @@ export function QuickActions({ appointmentId, currentStatus, attendanceOutcome }
           ↺ Revertir a Programado
         </button>
       )}
+
+      {/* SurveyRow: solo cuando la cita quedó Facturada */}
+      {attendanceOutcome === 'facturado' && surveyState && (
+        <SurveyRow
+          appointmentId={appointmentId}
+          state={surveyState}
+          config={surveyConfig ?? null}
+        />
+      )}
     </div>
   )
+}
+
+// ============================================================
+// SurveyRow — Feedback visual + botón wa.me para envío manual
+// ============================================================
+
+interface SurveyRowProps {
+  appointmentId: string
+  state: SurveyState
+  config: SurveyConfigForRow | null
+}
+
+function SurveyRow({ appointmentId, state, config }: SurveyRowProps) {
+  const [isPending, startTransition] = useTransition()
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // === Estado A — ya enviada
+  if (state.sent) {
+    const sentAtStr = state.sentAt ? formatSentAt(state.sentAt) : null
+    return (
+      <div style={surveyBoxStyle('#ecfdf5', '#a7f3d0')}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>✅ Encuesta enviada</span>
+          {sentAtStr && (
+            <span style={{ fontSize: 11, color: '#047857' }}>· {sentAtStr}</span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // === Estado D — config incompleta (feature no configurado por la clínica)
+  if (!config || !config.form_url) {
+    return (
+      <div style={surveyBoxStyle('#fef3c7', '#fde68a')}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f' }}>⚠ Encuesta no configurada</div>
+        <div style={{ fontSize: 11, color: '#78350f', marginTop: 3, marginBottom: 6 }}>
+          Configurá primero la URL del formulario en Automatizaciones.
+        </div>
+        <Link
+          href="/dashboard/settings/automations/survey"
+          style={{
+            fontSize: 11,
+            fontWeight: 600,
+            color: '#92400e',
+            textDecoration: 'underline',
+          }}
+        >
+          → Configurar
+        </Link>
+      </div>
+    )
+  }
+
+  // === Estado C — sin teléfono válido
+  const validPhone = isValidColombianMobile(state.patientPhone)
+  if (!validPhone) {
+    return (
+      <div style={surveyBoxStyle('var(--v2-bg-soft)', 'var(--v2-border-soft)')}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--v2-text-muted)' }}>⚠ Sin teléfono válido</div>
+        <div style={{ fontSize: 11, color: 'var(--v2-text-muted)', marginTop: 3 }}>
+          No se puede enviar la encuesta.
+        </div>
+      </div>
+    )
+  }
+
+  // === Estado B — pendiente, todo listo para enviar
+  const firstName = capitalizeFirst(state.patientFirstName ?? 'hola')
+  const message = buildSurveyMessage({
+    patientFirstName: firstName,
+    clinicDisplayName: config.clinic_display_name,
+    formUrl: config.form_url,
+  })
+  const waUrl = buildWhatsAppUrl(state.patientPhone as string, message)
+
+  function handleOpenWhatsApp(): void {
+    if (waUrl) {
+      window.open(waUrl, '_blank', 'noopener,noreferrer')
+      setAwaitingConfirm(true)
+    }
+  }
+
+  function handleConfirmSent(): void {
+    setErrorMsg(null)
+    startTransition(async () => {
+      const r = await markSurveySentManually(appointmentId)
+      if (!r.ok) {
+        setErrorMsg(r.error ?? 'Error marcando como enviada')
+        setAwaitingConfirm(false)
+      }
+      // ok=true → revalidatePath refresca → survey_sent=true → Estado A
+    })
+  }
+
+  return (
+    <div style={surveyBoxStyle('#fef3c7', '#fde68a')}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#78350f', marginBottom: 6 }}>⚠ Encuesta no enviada</div>
+
+      {!awaitingConfirm && (
+        <button
+          onClick={handleOpenWhatsApp}
+          disabled={!waUrl || isPending}
+          style={{
+            width: '100%',
+            background: '#25d366',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            padding: '8px 12px',
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: !waUrl || isPending ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            opacity: !waUrl || isPending ? 0.5 : 1,
+          }}
+        >
+          📤 Enviar por WhatsApp
+        </button>
+      )}
+
+      {awaitingConfirm && (
+        <div>
+          <div style={{ fontSize: 11, color: '#78350f', marginBottom: 6 }}>
+            Se abrió WhatsApp en otra pestaña. ¿Ya enviaste el mensaje?
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={handleConfirmSent}
+              disabled={isPending}
+              style={{
+                flex: 1,
+                background: '#059669',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '7px 10px',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: isPending ? 'wait' : 'pointer',
+              }}
+            >
+              {isPending ? 'Guardando…' : 'Sí, marcar como enviada'}
+            </button>
+            <button
+              onClick={() => setAwaitingConfirm(false)}
+              disabled={isPending}
+              style={{
+                background: 'transparent',
+                color: '#78350f',
+                border: '1px solid #fde68a',
+                borderRadius: 8,
+                padding: '7px 10px',
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: isPending ? 'wait' : 'pointer',
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div style={{ marginTop: 6, fontSize: 11, color: '#991b1b' }}>{errorMsg}</div>
+      )}
+    </div>
+  )
+}
+
+function surveyBoxStyle(bg: string, border: string): React.CSSProperties {
+  return {
+    marginTop: 10,
+    padding: '10px 12px',
+    background: bg,
+    border: `1px solid ${border}`,
+    borderRadius: 8,
+  }
+}
+
+function capitalizeFirst(s: string): string {
+  if (!s) return s
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+}
+
+function formatSentAt(iso: string): string {
+  // Formato compacto: "2 jul 15:32"
+  const d = new Date(iso)
+  const day = d.getDate()
+  const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+  const month = months[d.getMonth()]
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  return `${day} ${month} ${h}:${m}`
 }
 
 function OutcomeButton({

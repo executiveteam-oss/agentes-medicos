@@ -52,6 +52,38 @@ La pantalla de configuración muestra un preview del mensaje con tus valores act
 - **NO envía a citas canceladas ni no-shows**. Solo dispara con `attendance_outcome = 'facturado'`.
 - **NO reenvía**. Cada cita recibe la encuesta como máximo una vez.
 
+## Envío manual (sin template aprobado — funciona hoy)
+
+Además del envío automático por template (que necesita aprobación de Meta), hay un **envío manual** disponible desde el momento en que marcás una cita como Facturada:
+
+1. Abrí la cita en el calendario (vista Día).
+2. Marcá la cita como **Facturado** usando los botones de estado.
+3. Debajo aparece un panel amarillo: **⚠ Encuesta no enviada** + botón **📤 Enviar por WhatsApp**.
+4. Click en el botón:
+   - Se abre WhatsApp Web/Desktop en una pestaña nueva (o tu app de WhatsApp en móvil) con el mensaje ya escrito y el destinatario cargado.
+   - El mensaje incluye el nombre de la paciente, el nombre de tu clínica, y el link a tu formulario — es el mismo texto que envía el template automático.
+5. Verificá el mensaje, presioná enviar dentro de WhatsApp.
+6. Volvé a Omuwan y presioná **Sí, marcar como enviada** para dejar el registro.
+
+Después del marcado, el panel se pone verde: **✅ Encuesta enviada · [fecha]**.
+
+Si te equivocaste al abrir WhatsApp (número mal, no querés enviar), click en **Cancelar** para deshacer sin marcar.
+
+### Estados que podés ver
+
+| Estado del panel | Cuándo aparece |
+|---|---|
+| ✅ Encuesta enviada · [fecha] | Ya se envió (por template automático o marcada manual) |
+| ⚠ Encuesta no enviada + botón | Cita facturada, config completa, teléfono válido → todo listo |
+| ⚠ Sin teléfono válido | La paciente no tiene celular colombiano registrado |
+| ⚠ Encuesta no configurada + link | Falta la URL del formulario en Automatizaciones |
+
+### Envío manual vs automático — ¿cuál usa Algia?
+
+Los dos coexisten. Cuando el cron automático corre (cada hora) y encuentra una cita facturada sin encuesta, la envía como template. Si por alguna razón el envío automático falla (Meta no aprobó el template todavía, config incompleta, etc.), el botón manual queda disponible para envío one-click desde el WhatsApp de la secretaria.
+
+Diferencia técnica invisible para la paciente: el template automático usa un botón CTA nativo de WhatsApp para el link. El manual usa el link concatenado al final del texto. Los dos abren el mismo formulario.
+
 ## Requisitos técnicos
 
 - WhatsApp Business conectado a Omuwan

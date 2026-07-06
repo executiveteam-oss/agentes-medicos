@@ -9,12 +9,19 @@ import type { CalendarAppointment, CalendarDoctor } from './types'
 import { STATUS_LABELS, STATUS_STYLES } from './types'
 import type { AppointmentStatus } from '@/types/database'
 
+export interface SurveyPropsForQuickActions {
+  enabled: boolean
+  form_url: string | null
+  clinic_display_name: string
+}
+
 interface Props {
   appointment: CalendarAppointment
   onClose: () => void
+  surveyConfig?: SurveyPropsForQuickActions
 }
 
-export function AppointmentDetail({ appointment: apt, onClose }: Props) {
+export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: Props) {
   const patient = apt.patient
   const doctor = apt.doctor
   const st = STATUS_STYLES[apt.status] ?? STATUS_STYLES.confirmed
@@ -96,7 +103,18 @@ export function AppointmentDetail({ appointment: apt, onClose }: Props) {
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-        <QuickActions appointmentId={apt.id} currentStatus={apt.status as AppointmentStatus} attendanceOutcome={apt.attendance_outcome} />
+        <QuickActions
+          appointmentId={apt.id}
+          currentStatus={apt.status as AppointmentStatus}
+          attendanceOutcome={apt.attendance_outcome}
+          surveyState={{
+            sent: apt.survey_sent,
+            sentAt: apt.survey_sent_at,
+            patientFirstName: apt.patient?.first_name ?? apt.patient?.name ?? null,
+            patientPhone: apt.patient?.phone ?? null,
+          }}
+          surveyConfig={surveyConfig ?? null}
+        />
       </div>
       {(apt.status === 'confirmed' || apt.status === 'rescheduled') && (
         <CancelAppointmentButton appointmentId={apt.id} />

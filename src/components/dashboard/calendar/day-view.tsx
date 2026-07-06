@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { formatTimeForPatient } from '@/lib/utils/dates'
 import { Calendar, XCircle } from 'lucide-react'
-import { AppointmentDetail } from './appointment-detail'
+import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
 import { STATUS_STYLES, STATUS_LABELS, toDateStr, MONTHS_ES } from './types'
@@ -28,12 +28,13 @@ interface Props {
   setExpandedApt: (id: string | null) => void
   doctorFilter?: string  // 'all' or doctor_id
   doctorName?: string | null
+  surveyConfig?: SurveyPropsForQuickActions
 }
 
 
 
 
-export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName }: Props) {
+export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig }: Props) {
   const dateStr = toDateStr(date)
   const isToday = dateStr === todayStr
   const [showBulkCancel, setShowBulkCancel] = useState(false)
@@ -210,7 +211,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
                 </button>
 
                 {isExpanded && (
-                  <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} />
+                  <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} surveyConfig={surveyConfig} />
                 )}
               </div>
             )

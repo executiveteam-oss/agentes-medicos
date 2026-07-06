@@ -9,6 +9,7 @@ import { getRestrictedDoctorId } from '@/lib/doctor-filter'
 import { nowColombia } from '@/lib/utils/dates'
 import { CalendarView } from '@/components/dashboard/calendar-view'
 import type { CalendarAppointment, CalendarDoctor } from '@/components/dashboard/calendar-view'
+import { getSurveyConfig } from '@/app/actions/survey-config'
 import { redirect } from 'next/navigation'
 import { format } from 'date-fns'
 
@@ -63,10 +64,11 @@ export default async function AgendaPage() {
   let aptsQuery = supabaseAdmin
     .from('appointments')
     .select(`
-      id, starts_at, ends_at, status, attendance_outcome, reason, reminder_24h_sent, reminder_confirmed,
+      id, starts_at, ends_at, status, attendance_outcome, survey_sent, survey_sent_at,
+      reason, reminder_24h_sent, reminder_confirmed,
       payment_type, doctor_id, modality, virtual_link,
       documents_requested, documents_received, free_text_reason,
-      patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at),
+      patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at, first_name),
       doctors(name, specialty),
       consultation_types(name)
     `)
@@ -90,6 +92,8 @@ export default async function AgendaPage() {
       ends_at: apt.ends_at as string,
       status: apt.status as string,
       attendance_outcome: (raw.attendance_outcome as CalendarAppointment['attendance_outcome']) ?? null,
+      survey_sent: (raw.survey_sent as boolean) ?? false,
+      survey_sent_at: (raw.survey_sent_at as string) ?? null,
       reason: (apt.reason as string) ?? null,
       reminder_24h_sent: (apt.reminder_24h_sent as boolean) ?? false,
       reminder_confirmed: (raw.reminder_confirmed as boolean | null) ?? null,
@@ -112,6 +116,15 @@ export default async function AgendaPage() {
     agenda_closed: (d.agenda_closed as boolean) ?? false,
   }))
 
+  // Config de encuesta post-consulta para el botón manual en QuickActions.
+  // Cargar acá evita fetch per-appointment en la UI.
+  const surveyRaw = await getSurveyConfig()
+  const surveyConfig = {
+    enabled: surveyRaw.config.enabled,
+    form_url: surveyRaw.config.form_url,
+    clinic_display_name: surveyRaw.config.clinic_display_name || surveyRaw.clinicName,
+  }
+
   return (
     <div className="space-y-6">
       <CalendarView
@@ -122,6 +135,7 @@ export default async function AgendaPage() {
         restrictDoctorId={session.doctorId}
         userRole={session.role.name}
         clinicId={clinic.id}
+        surveyConfig={surveyConfig}
       />
     </div>
   )

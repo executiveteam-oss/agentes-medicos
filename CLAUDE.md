@@ -549,6 +549,46 @@ Después la clínica completa la config desde UI y activa el toggle.
 
 **Snapshot test del texto**: `scripts/test-survey-template-snapshot.ts` protege contra edits sin coordinar con Meta. Si alguien cambia el BODY del template sin re-someter a Meta, la plantilla aprobada + el texto del prompt divergen silenciosamente.
 
+### Envío manual (Opción 3 click-to-chat) — CONSTRUIDO 2026-07-02, USABLE HOY
+
+Coexiste con el envío automático. Funciona **sin** template aprobado por Meta porque el mensaje lo envía la secretaria desde SU WhatsApp — Omuwan solo abre `wa.me/...` con el mensaje pre-cargado.
+
+**Vive en**: `QuickActions` (`src/components/dashboard/quick-actions.tsx`), el panel debajo de "Marcar Facturado" en el detalle de cita del calendario. **Aparece solo cuando `attendance_outcome='facturado'`**.
+
+**4 estados de UI**:
+- **A** — `survey_sent=true`: bloque verde "✅ Encuesta enviada · [fecha]"
+- **B** — `survey_sent=false` + teléfono válido + config completa: bloque amarillo con botón **📤 Enviar por WhatsApp** → abre wa.me → confirmación explícita "¿Ya enviaste?" Sí/Cancelar
+- **C** — `survey_sent=false` + teléfono inválido: bloque gris "⚠ Sin teléfono válido — no se puede enviar"
+- **D** — `survey_sent=false` + config incompleta: bloque amarillo con link a `/dashboard/settings/automations/survey` para configurar
+
+**Consistencia manual ↔ template Meta**: helper `buildSurveyMessage` en `src/lib/rules/survey-config.ts` usa `SURVEY_MESSAGE_TEMPLATE` — mismo wording que `TEMPLATE_BODY_TEXT` del template Meta. El snapshot test extendido verifica esta consistencia (si alguien edita uno solo, el test falla).
+
+**Server action**: `markSurveySentManually` en `src/app/actions/survey-config.ts`. Gate `agenda.write` (Admin + Coordinadora + Secretaria). Validaciones defensivas: cita facturada + `survey_sent=false` (idempotencia atómica anti-race con cron automático). Audit log con `action='survey_sent_manual'` (distinto de `'survey_sent'` que usa el cron).
+
+**Validación teléfono**: `src/lib/utils/whatsapp-url.ts` con `isValidColombianMobile` estricto (post-`normalizePhone` debe matchear `^\+573\d{9}$`). Data real de Algia hoy: 491/491 = 100% válidos, Estado C es defensa preventiva.
+
+**Archivos nuevos/modificados**:
+- `src/lib/utils/whatsapp-url.ts` — isValidColombianMobile + buildWhatsAppUrl
+- `src/lib/rules/survey-config.ts` — + SURVEY_MESSAGE_TEMPLATE + buildSurveyMessage
+- `src/app/actions/survey-config.ts` — + markSurveySentManually
+- `src/components/dashboard/quick-actions.tsx` — SurveyRow embed
+- `src/components/dashboard/calendar/appointment-detail.tsx` — pasa surveyConfig+state props
+- `src/components/dashboard/calendar/day-view.tsx` — pasa surveyConfig
+- `src/components/dashboard/calendar-view.tsx` — pasa surveyConfig
+- `src/components/dashboard/calendar/types.ts` — CalendarAppointment ganó survey_sent + survey_sent_at + patient.first_name
+- `src/app/dashboard/agenda/page.tsx` — carga surveyConfig, incluye survey_sent en query
+
+**Tests adicionales**: 31 nuevos (23 whatsapp-url + 6 message-builder + 2 snapshot consistencia). Total feature: **63 tests verdes**.
+
+### Opción 1 (disparar template desde Omuwan) — PENDIENTE
+
+El cron `/api/cron/survey-post-consulta` YA está construido y deployado inerte. Espera:
+- Aprobación del template por Meta en la clínica correspondiente
+- `attendance_outcome='facturado'` disponible → depende del Bloque D del sync iSalud (todavía en pausa, esperando dry-run nocturno de spelling)
+- `UPDATE feature_config` para activar
+
+Cuando estos 3 estén listos, la Opción 1 se activa con un solo UPDATE SQL. Cero código nuevo.
+
 ---
 
 ## ⏳ MIGRACIÓN ALGIA — código de un solo uso, NO es feature del producto Omuwan

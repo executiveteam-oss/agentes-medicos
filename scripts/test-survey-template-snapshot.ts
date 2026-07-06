@@ -28,6 +28,7 @@ import {
   TEMPLATE_BUTTON_TEXT,
   TEMPLATE_DEFAULT_NAME,
 } from '../src/app/dashboard/settings/automations/survey/survey-form'
+import { SURVEY_MESSAGE_TEMPLATE, buildSurveyMessage } from '../src/lib/rules/survey-config'
 
 let pass = 0
 let fail = 0
@@ -80,6 +81,27 @@ test('BODY no supera 1024 chars (límite Meta)', () => {
 
 test('Texto del botón ≤ 25 chars (límite Meta)', () => {
   if (TEMPLATE_BUTTON_TEXT.length > 25) throw new Error(`Botón tiene ${TEMPLATE_BUTTON_TEXT.length} chars`)
+})
+
+console.log('\nConsistencia manual ↔ template Meta (wording debe coincidir)')
+
+test('SURVEY_MESSAGE_TEMPLATE (manual) normalizado = TEMPLATE_BODY_TEXT (Meta)', () => {
+  // El helper del envío manual y el template Meta DEBEN decir lo MISMO.
+  // Solo difieren los placeholders: manual usa {firstName}/{clinicName}, Meta usa {{1}}/{{2}}.
+  const manualNormalized = SURVEY_MESSAGE_TEMPLATE
+    .replace('{firstName}', '{{1}}')
+    .replace('{clinicName}', '{{2}}')
+  assertEq(manualNormalized, TEMPLATE_BODY_TEXT, 'Wording divergente — sincronizar SURVEY_MESSAGE_TEMPLATE y TEMPLATE_BODY_TEXT')
+})
+
+test('buildSurveyMessage produce texto = body renderizado + \\n\\n + URL', () => {
+  const msg = buildSurveyMessage({
+    patientFirstName: 'María',
+    clinicDisplayName: 'Algia',
+    formUrl: 'https://forms.gle/xxx',
+  })
+  const expectedBody = TEMPLATE_BODY_TEXT.replace('{{1}}', 'María').replace('{{2}}', 'Algia')
+  assertEq(msg, `${expectedBody}\n\nhttps://forms.gle/xxx`, 'Manual concatena bien')
 })
 
 console.log(`\n${pass} pass · ${fail} fail`)

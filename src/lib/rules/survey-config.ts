@@ -113,3 +113,40 @@ function capitalize(s: string): string {
   // para el mensaje WhatsApp (más natural).
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
 }
+
+/**
+ * TEXTO BASE del mensaje de encuesta (sin link).
+ * DEBE ser idéntico al BODY del template Meta.
+ * El snapshot test protege esta consistencia.
+ *
+ * Si cambia, hay que:
+ *   1. Coordinar re-aprobación del template Meta con cada clínica
+ *   2. Actualizar TEMPLATE_BODY_TEXT en survey-form.tsx (o al revés)
+ *   3. Actualizar el snapshot test
+ */
+export const SURVEY_MESSAGE_TEMPLATE =
+  'Buen día {firstName}. Sería tan amable de diligenciar la encuesta de satisfacción de {clinicName}. Gracias por ayudarnos a mejorar nuestra atención.'
+
+/**
+ * Construye el mensaje de encuesta para envío MANUAL vía wa.me.
+ *
+ * Diferencia con el template Meta:
+ *   - Template Meta usa {{1}}, {{2}} + botón CTA con URL en variable {{1}}
+ *   - Manual usa {firstName}, {clinicName} + link concatenado al final del cuerpo
+ *
+ * El texto principal (SURVEY_MESSAGE_TEMPLATE) es idéntico entre los dos —
+ * garantía de que la paciente reciba el MISMO wording, sea que se envíe
+ * automático o manual. La diferencia visible para ella es solo el link:
+ * en template aparece como botón "Responder encuesta"; en manual como URL
+ * clickable al final del mensaje.
+ */
+export function buildSurveyMessage(params: {
+  patientFirstName: string
+  clinicDisplayName: string
+  formUrl: string
+}): string {
+  const body = SURVEY_MESSAGE_TEMPLATE
+    .replace('{firstName}', params.patientFirstName)
+    .replace('{clinicName}', params.clinicDisplayName)
+  return `${body}\n\n${params.formUrl}`
+}

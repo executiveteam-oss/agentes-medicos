@@ -741,14 +741,14 @@ function buildInitialRows(
   return map
 }
 
-function hasConflict(existing: ConsultationType[], nombre: string, epsName: string | null): boolean {
+function hasConflict(existing: ConsultationType[], nombre: string, _epsName: string | null): boolean {
+  // Post-unificación 2026-07-10: un servicio se identifica SOLO por nombre.
+  // Antes se comparaba nombre + eps_name, lo que causaba una fila por convenio
+  // y llenó el catálogo de Algia con 45 duplicados. La lista de convenios
+  // asociados vive ahora en consultation_types.available_conventions,
+  // no en filas separadas.
   const n = nombre.trim().toLowerCase()
-  const epsNorm = epsName?.trim().toLowerCase() ?? null
-  return existing.some((ct) => {
-    const ctName = ct.name.trim().toLowerCase()
-    const ctEps = ct.eps_name?.trim().toLowerCase() ?? null
-    return ctName === n && ctEps === epsNorm
-  })
+  return existing.some((ct) => ct.name.trim().toLowerCase() === n)
 }
 
 function isRowDataValid(r: RowState): boolean {

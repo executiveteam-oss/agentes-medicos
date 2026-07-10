@@ -781,8 +781,13 @@ export async function getActiveAuthConvenioConfig(
 }
 
 /**
- * Lista los convenios disponibles para configurar (eps_name distintos
- * de los CTs de la clínica). Usado por la UI del editor.
+ * Lista los convenios disponibles para configurar en el editor de auth.
+ *
+ * Post-unificación 2026-07-10: la fuente es `available_conventions` (TEXT[])
+ * que quedó poblado en cada CT canónico como parte del dedup. Antes de la
+ * unificación, los convenios se derivaban de filas duplicadas por convenio;
+ * ahora vienen del array. Se conserva el fallback a `eps_name` legacy por si
+ * queda alguna fila vieja o de otras clínicas sin migrar.
  */
 export async function getAvailableConveniosForClinic(): Promise<string[]> {
   let clinicId: string
@@ -791,15 +796,21 @@ export async function getAvailableConveniosForClinic(): Promise<string[]> {
 
   const { data } = await supabaseAdmin
     .from('consultation_types')
-    .select('eps_name')
+    .select('eps_name, available_conventions')
     .eq('clinic_id', clinicId)
     .eq('is_active', true)
-    .not('eps_name', 'is', null)
 
   const unique = new Set<string>()
   for (const row of data ?? []) {
-    const v = (row as { eps_name: string | null }).eps_name
-    if (v && v.trim()) unique.add(v.trim())
+    const r = row as { eps_name: string | null; available_conventions: string[] | null }
+    // Fuente nueva: array de convenios asociados al servicio (post-dedup)
+    if (Array.isArray(r.available_conventions)) {
+      for (const c of r.available_conventions) {
+        if (c && c.trim()) unique.add(c.trim())
+      }
+    }
+    // Fallback legacy: eps_name scalar (para CTs no migrados o de otras clínicas)
+    if (r.eps_name && r.eps_name.trim()) unique.add(r.eps_name.trim())
   }
   return Array.from(unique).sort()
 }

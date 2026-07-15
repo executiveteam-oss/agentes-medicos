@@ -49,7 +49,9 @@ Hace **fan-out por usuario** reutilizando `createStaffNotification` (una fila po
 - `body` = el motivo/último mensaje truncado
 - `navigate_to='/dashboard/conversations/{conversationId}'`
 
-Se invoca en **los 4 puntos** de `src/app/api/webhooks/whatsapp/route.ts` donde se setea `status='escalated'`, incluidos los dos que hoy escalan mudos:
+**Idempotente — una sola alerta viva por conversación.** Antes de insertar, el helper consulta si ya existe una escalación **no resuelta** para esa conversación (`WHERE conversation_id=$1 AND type='conversation_escalated' AND read_at IS NULL LIMIT 1`, usa el índice parcial). Si existe → **no hace nada** (la alerta ya está viva, no se multiplican filas). Si no existe → fan-out fresco de N filas. Esto garantiza que en todo momento haya **como máximo un set de alertas vivo por conversación**, sin importar cuántos mensajes mande la paciente. No se hace UPDATE del `created_at` de la alerta viva: así "hace X" refleja honestamente cuánto lleva esperando esta tanda sin respuesta.
+
+Se invoca en **los 5 puntos** de `src/app/api/webhooks/whatsapp/route.ts` — los 4 donde se setea `status='escalated'` (incluidos los dos que hoy escalan mudos) **más el mensaje entrante sobre una conversación ya escalada**:
 
 | Camino | file:line (aprox) | Hoy | Después |
 |---|---|---|---|
@@ -57,8 +59,11 @@ Se invoca en **los 4 puntos** de `src/app/api/webhooks/whatsapp/route.ts` donde 
 | Tool `escalate_to_human` del agente | `route.ts:726-743` | WhatsApp+email externo | + notif in-app |
 | Autorización recibida (flag ON) | `route.ts:379-394` | **mudo** | **notif in-app** |
 | Archivo recibido (flag OFF) | `route.ts:277-286` | **mudo** | **notif in-app** |
+| **Mensaje entrante en conversación ya escalada** | `route.ts:440` (early-return) | **mudo** | **re-alerta (si no hay una viva)** |
 
-**Aditivo y fire-and-forget.** Cada llamada va envuelta en try/catch (o `.catch()` sin await), igual que `notifyStaffOfAppointmentChange` hoy (`route.ts:746`). Si la notif falla, la escalación sigue su curso. No se modifica ninguna rama existente del webhook — solo se agregan las 4 llamadas. No se toca el parseo del mensaje, el agente, ni los early-returns.
+**El 5º camino cierra el hueco de la re-pregunta.** Secuencia real: paciente escala → alerta → Lady responde (`sendStaffMessage` → resuelve la alerta, pero la conversación sigue `escalated`) → la paciente repregunta ("gracias, ¿y a qué hora?"). Ese mensaje entra por el early-return de `route.ts:440`; como ya no hay alerta viva (Lady la resolvió al responder), el helper **re-alerta** con un set fresco. Mientras la paciente hable y nadie conteste, hay alerta; la idempotencia evita que 3 mensajes seguidos generen 3 alertas. El mensaje entrante **ya se guarda** en `route.ts:431` (antes del early-return), así que Lady ve la repregunta en el chat al hacer click.
+
+**Aditivo y fire-and-forget.** Cada llamada va envuelta en try/catch (o `.catch()` sin await), igual que `notifyStaffOfAppointmentChange` hoy (`route.ts:746`). Si la notif falla, la escalación sigue su curso. No se modifica ninguna rama existente del webhook — solo se agregan las 5 llamadas. En el 5º punto la llamada va **antes** del `return` existente (línea 442), sin alterar el early-return en sí. No se toca el parseo del mensaje, el agente, ni la lógica de los early-returns.
 
 ### 3. Resolución — ligada al estado de la conversación (Opción A)
 
@@ -124,12 +129,14 @@ La campana ya renderiza `formatDistanceToNow(created_at, { locale: es })` en cad
 | Secretaria hace click en la notif de escalación | Navega a la conversación, pero la alerta **sigue** en el badge hasta atender. |
 | Conversación escalada 30+ días sin atender | El cron **no** la borra (excluida). Sigue en el badge. |
 | Secretaria A reabre/resuelve/responde | Se limpian las N filas de esa conversación → badge de A **y** de B queda limpio. |
+| Lady responde y la paciente repregunta | La alerta se re-crea (5º camino) porque hay una paciente esperando de nuevo. |
+| Paciente manda 3 mensajes seguidos sin respuesta | Una sola alerta viva (idempotencia). No se acumulan. |
 
 ---
 
 ## Análisis de riesgo
 
-- **Webhook (crítico):** cambio 100% aditivo. Se agregan 4 llamadas fire-and-forget; no se modifica ninguna rama existente. Patrón idéntico al ya probado de `notifyStaffOfAppointmentChange`. Si la notif falla, el flujo de mensajes no se afecta.
+- **Webhook (crítico):** cambio 100% aditivo. Se agregan 5 llamadas fire-and-forget; no se modifica ninguna rama existente (en el 5º punto la llamada va antes del `return` ya existente). Patrón idéntico al ya probado de `notifyStaffOfAppointmentChange`. Si la notif falla, el flujo de mensajes no se afecta.
 - **Migración:** drop/recreate de un CHECK + columna nullable + índice. Tabla chica (~1000 filas, cleanup diario). Sin riesgo de datos.
 - **Cron cleanup:** el filtro `.or(...)` es más conservador que hoy (borra menos, nunca más). No puede borrar de más.
 - **Campana:** los cambios son exclusiones por tipo — las notifs de cita se comportan exactamente igual que hoy.
@@ -137,6 +144,7 @@ La campana ya renderiza `formatDistanceToNow(created_at, { locale: es })` en cad
 ## Tests
 
 - Unit del helper `notifyStaffOfEscalation`: fan-out correcto (N filas, una por staff no-Doctor), `conversation_id` seteado, `navigate_to` correcto.
+- Unit de la idempotencia: con una alerta viva para la conversación, una segunda llamada **no** crea filas; tras resolver, una llamada **sí** re-crea el set. Verificar "una sola alerta viva" con 3 llamadas seguidas.
 - Unit del resolver `resolveEscalationNotifications`: marca todas las filas de la conversación, idempotente, no toca otras conversaciones ni otros tipos.
 - Test del filtro del cron: escalación no resuelta vieja **no** se borra; escalación resuelta vieja **sí**; notif de cita vieja **sí**.
 - E2E/integración de los 4 caminos del webhook: cada uno inserta la notif (mockeando Meta).
@@ -148,12 +156,12 @@ La campana ya renderiza `formatDistanceToNow(created_at, { locale: es })` en cad
 |---|---|
 | `supabase/migrations/00080_*.sql` | CHECK + columna `conversation_id` + índice |
 | `src/lib/notifications/types.ts` | Nuevo tipo `conversation_escalated` |
-| `src/lib/notifications/create-notification.ts` | Helper `notifyStaffOfEscalation` |
-| `src/app/api/webhooks/whatsapp/route.ts` | 4 llamadas al helper (aditivo) |
+| `src/lib/notifications/create-notification.ts` | Helper `notifyStaffOfEscalation` idempotente |
+| `src/app/api/webhooks/whatsapp/route.ts` | 5 llamadas al helper (aditivo, incluye re-alerta en early-return) |
 | `src/app/actions/conversations.ts` | Resolver + llamadas en reopen/resolve/sendStaffMessage |
 | `src/components/dashboard/notification-bell.tsx` | Excluir escalaciones de markAllRead/click; emoji |
 | `src/app/api/cron/cleanup-notifications/route.ts` | Filtro `.or(...)` que preserva escalaciones no resueltas |
 
 ## Esfuerzo estimado
 
-~1 día. Migración ~30 min · helper + 4 sitios del webhook ~1-2h · resolver + 3 hooks ~1h · ajuste de la campana ~1-2h · filtro del cron ~15 min · tests ~1-2h.
+~1 día. Migración ~30 min · helper idempotente + 5 sitios del webhook ~1-2h · resolver + 3 hooks ~1h · ajuste de la campana ~1-2h · filtro del cron ~15 min · tests ~1-2h. (El 5º sitio y la idempotencia son marginales sobre lo ya estimado.)

@@ -18,6 +18,10 @@ export async function GET(request: NextRequest) {
     .from('staff_notifications')
     .delete({ count: 'exact' })
     .lt('created_at', thirtyDaysAgo)
+    // No borrar escalaciones NO resueltas: la alerta persiste hasta que
+    // alguien atienda, sin importar la antigüedad. Se borran las notifs de
+    // cita viejas y las escalaciones YA resueltas (read_at no nulo).
+    .or('read_at.not.is.null,type.neq.conversation_escalated')
 
   if (error) {
     console.error('[Cron:CleanupNotifs] Error:', error.message)

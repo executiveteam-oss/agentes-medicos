@@ -5,6 +5,9 @@
 // DB y se agrega en la Task 3.
 // ============================================================
 
+import { supabaseAdmin } from '@/lib/supabase/admin'
+import { createStaffNotification } from './create-notification'
+
 const MAX_BODY = 120
 
 /** Trunca a MAX_BODY chars agregando "..." si se pasó. Puro. */
@@ -30,9 +33,6 @@ export function buildEscalationPayload(
     navigateTo: `/dashboard/conversations/${conversationId}`,
   }
 }
-
-import { supabaseAdmin } from '@/lib/supabase/admin'
-import { createStaffNotification } from './create-notification'
 
 /**
  * Inserta una notif de escalación para todo el staff no-Doctor de la

@@ -17,12 +17,16 @@ function loadEnv(p: string) {
 }
 loadEnv('.env.production.local'); loadEnv('.env.local')
 
-import { supabaseAdmin } from '../src/lib/supabase/admin'
-import { notifyStaffOfEscalation, resolveEscalationNotifications } from '../src/lib/notifications/escalation-notify'
-
 const ALGIA = 'dac775fe-6ebd-47e3-89b4-eeb1a821facb'
 
 async function main() {
+  // Import dinámico DESPUÉS de loadEnv: supabaseAdmin captura la URL/keys al
+  // evaluar su módulo. Con import estático, el hoisting lo evaluaría ANTES de
+  // loadEnv y tomaría el placeholder. Va dentro de main() (no top-level)
+  // porque el proyecto transpila a CJS y no soporta top-level await.
+  const { supabaseAdmin } = await import('../src/lib/supabase/admin')
+  const { notifyStaffOfEscalation, resolveEscalationNotifications } = await import('../src/lib/notifications/escalation-notify')
+
   // 1. Crear una conversación de prueba escalada
   const { data: conv, error: convErr } = await supabaseAdmin
     .from('conversations')

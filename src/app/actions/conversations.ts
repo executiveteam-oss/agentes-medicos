@@ -8,6 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { revalidatePath } from 'next/cache'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
+import { resolveEscalationNotifications } from '@/lib/notifications/escalation-notify'
 import type { ConversationStatus } from '@/types/database'
 
 // ---- Tipos ----
@@ -222,6 +223,9 @@ export async function sendStaffMessage(
       .update({ last_message_at: new Date().toISOString() })
       .eq('id', conversationId)
 
+    // Responder = atender: limpia la alerta de escalación de esta conversación.
+    await resolveEscalationNotifications(conversationId)
+
     // Audit log
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,
@@ -273,6 +277,11 @@ export async function updateConversationStatus(
 
     if (error) return { ok: false, error: 'Error actualizando conversación' }
 
+    // Marcar resuelta = atender: limpia la alerta de escalación clinic-wide.
+    if (status === 'resolved') {
+      await resolveEscalationNotifications(conversationId)
+    }
+
     // Audit log
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,
@@ -305,6 +314,9 @@ export async function reopenConversation(
       .eq('clinic_id', clinicId)
 
     if (error) return { ok: false, error: 'Error reabriendo conversación' }
+
+    // Reabrir = atender: limpia la alerta de escalación de esta conversación.
+    await resolveEscalationNotifications(conversationId)
 
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,

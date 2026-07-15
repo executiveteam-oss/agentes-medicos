@@ -15,7 +15,8 @@ import type { NotificationPayload, NotificationType } from './types'
  */
 export async function createStaffNotification(
   clinicId: string,
-  payload: NotificationPayload
+  payload: NotificationPayload,
+  conversationId?: string,
 ): Promise<number> {
   // Find recipients: active clinic_users with non-Doctor role
   const { data: recipients, error: recipErr } = await supabaseAdmin
@@ -47,6 +48,7 @@ export async function createStaffNotification(
     body: payload.body ?? null,
     metadata: payload.metadata,
     navigate_to: payload.navigateTo,
+    conversation_id: conversationId ?? null,
   }))
 
   const { error: insertErr } = await supabaseAdmin

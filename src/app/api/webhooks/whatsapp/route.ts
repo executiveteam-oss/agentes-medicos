@@ -29,6 +29,7 @@ import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
+import { notifyStaffOfEscalation } from '@/lib/notifications/escalation-notify'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
 import {
   detectHallucinatedAppointmentConfirmation,
@@ -283,6 +284,13 @@ async function processWebhook(body: unknown): Promise<void> {
               context: { escalation_reason: 'Paciente envió archivo — recepción de media deshabilitada (feature flag off)' },
             })
             .eq('id', conversation.id)
+          // Notificación in-app persistente para el staff (campana)
+          await notifyStaffOfEscalation({
+            clinicId: clinic.id,
+            conversationId: conversation.id,
+            patientName: patient.name,
+            reason: 'Paciente envió un archivo — recepción deshabilitada',
+          })
           return
         }
 
@@ -391,6 +399,13 @@ async function processWebhook(body: unknown): Promise<void> {
                 last_message_at: new Date().toISOString(),
               })
               .eq('id', conversation.id)
+            // Notificación in-app persistente para el staff (campana)
+            await notifyStaffOfEscalation({
+              clinicId: clinic.id,
+              conversationId: conversation.id,
+              patientName: patient.name,
+              reason: 'Autorización recibida — pendiente de revisión',
+            })
             return
           }
 
@@ -438,6 +453,15 @@ async function processWebhook(body: unknown): Promise<void> {
 
       // 15. Si la conversación está escalada → no responder (un humano se encarga)
       if (conversation.status === 'escalated') {
+        // Re-alerta si no hay una viva (idempotente): la paciente sigue
+        // esperando aunque Lady ya haya respondido antes. El mensaje ya
+        // se guardó arriba (línea 431), así que se ve en el chat.
+        await notifyStaffOfEscalation({
+          clinicId: clinic.id,
+          conversationId: conversation.id,
+          patientName: patient.name,
+          reason: sanitizedText,
+        })
         console.log(`[Webhook] Conversación escalada, no responder. ID: ${conversation.id}`)
         return
       }
@@ -490,6 +514,14 @@ async function processWebhook(body: unknown): Promise<void> {
           patientPhone: message.from,
           lastPatientMessage: sanitizedText,
           clinicCreds,
+        })
+
+        // Notificación in-app persistente para el staff (campana)
+        await notifyStaffOfEscalation({
+          clinicId: clinic.id,
+          conversationId: conversation.id,
+          patientName: patient.name,
+          reason: sanitizedText,
         })
 
         console.log(`[Webhook] Escalado por keyword: "${escalationMatch}"`)
@@ -739,6 +771,14 @@ async function processWebhook(body: unknown): Promise<void> {
           patientPhone: message.from,
           lastPatientMessage: sanitizedText,
           clinicCreds,
+        })
+
+        // Notificación in-app persistente para el staff (campana)
+        await notifyStaffOfEscalation({
+          clinicId: clinic.id,
+          conversationId: conversation.id,
+          patientName: patient.name,
+          reason: sanitizedText,
         })
       }
 

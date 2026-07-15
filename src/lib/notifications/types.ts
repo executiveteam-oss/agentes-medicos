@@ -2,7 +2,7 @@
 // Staff notification types
 // ============================================================
 
-export type NotificationType = 'appointment_canceled' | 'appointment_rescheduled' | 'appointment_moved'
+export type NotificationType = 'appointment_canceled' | 'appointment_rescheduled' | 'appointment_moved' | 'conversation_escalated'
 
 export interface StaffNotification {
   id: string
@@ -21,17 +21,6 @@ export interface NotificationPayload {
   type: NotificationType
   title: string
   body?: string
-  metadata: {
-    appointment_id?: string
-    old_appointment_id?: string
-    new_appointment_id?: string
-    patient_id: string
-    patient_name: string
-    doctor_id: string
-    doctor_name: string
-    conversation_id: string
-    old_starts_at?: string
-    new_starts_at?: string
-  }
+  metadata: Record<string, unknown>
   navigateTo: string
 }

@@ -18,6 +18,7 @@ const TYPE_EMOJI: Record<string, string> = {
   appointment_canceled: '❌',
   appointment_rescheduled: '🔄',
   appointment_moved: '➡️',
+  conversation_escalated: '🚨',
 }
 
 export function NotificationBell() {
@@ -97,12 +98,18 @@ export function NotificationBell() {
   const markAllRead = useCallback(async () => {
     if (!userId) return
     const supabase = createSupabaseBrowserClient()
-    await supabase.from('staff_notifications').update({ read_at: new Date().toISOString() }).eq('recipient_user_id', userId).is('read_at', null)
-    setNotifications((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? new Date().toISOString() })))
+    await supabase.from('staff_notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('recipient_user_id', userId)
+      .is('read_at', null)
+      .neq('type', 'conversation_escalated')
+    setNotifications((prev) => prev.map((n) =>
+      n.type === 'conversation_escalated' ? n : { ...n, read_at: n.read_at ?? new Date().toISOString() }
+    ))
   }, [userId])
 
   function handleNotifClick(notif: StaffNotification) {
-    if (!notif.read_at) markAsRead(notif.id)
+    if (!notif.read_at && notif.type !== 'conversation_escalated') markAsRead(notif.id)
     if (notif.navigate_to) router.push(notif.navigate_to)
     setIsOpen(false)
   }

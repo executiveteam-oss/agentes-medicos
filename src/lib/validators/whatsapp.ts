@@ -49,6 +49,13 @@ export const whatsappWebhookSchema = z.object({
                     filename: z.string().optional(),
                     caption: z.string().optional(),
                   }).optional(),
+                  // Respuesta a botón Quick Reply de un template (ej. recordatorio_cita):
+                  // Meta envía type:'button' con { text, payload } = texto del botón
+                  // ("Confirmar"/"Reagendar"/"Cancelar"). Sin esto, Zod lo descarta.
+                  button: z.object({
+                    text: z.string().optional(),
+                    payload: z.string().optional(),
+                  }).optional(),
                 })
               )
               .optional(),

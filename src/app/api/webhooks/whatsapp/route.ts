@@ -418,16 +418,27 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
+      // 7.2.8. Quick Reply de template (recordatorio_cita): cuando la paciente
+      //         toca "Confirmar"/"Reagendar"/"Cancelar", Meta manda un mensaje
+      //         type:'button' (NO 'text') con message.button = { text, payload }.
+      //         Tratamos el texto del botón como si fuera texto libre de la
+      //         paciente para que fluya por el pipeline existente
+      //         (sanitize → handleReminderResponse). Es un mensaje ENTRANTE →
+      //         abre la ventana de 24h, así el agente puede responder por texto
+      //         libre después (ej. ofrecer cupos tras "Reagendar").
+      const buttonText = message.button?.text ?? message.button?.payload
+
       // 7.3. Verificar tipo de mensaje
-      if (!isSupportedMessageType(message.type, hasDocsPending)) {
+      //      Los botones de template son válidos aunque no sean type:'text'.
+      if (!buttonText && !isSupportedMessageType(message.type, hasDocsPending)) {
         // Si es audio, imagen, etc. → responder que solo maneja texto
         const unsupportedMsg = getUnsupportedTypeMessage(message.type)
         await sendWhatsAppMessage(message.from, unsupportedMsg, clinicCreds)
         return
       }
 
-      // 8. Obtener el texto del mensaje
-      const rawText = message.text?.body
+      // 8. Obtener el texto del mensaje (texto libre o texto del botón Quick Reply)
+      const rawText = message.text?.body ?? buttonText
       if (!rawText) return
 
       // 9. Sanitizar el mensaje (anti-inyección, límite de caracteres)

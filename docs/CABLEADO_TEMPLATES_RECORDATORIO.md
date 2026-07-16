@@ -18,7 +18,9 @@ Body:
 ```
 Hola {{1}} 👋 Te recordamos tu cita con {{2}} el {{3}} a las {{4}}.
 📍 {{5}}
+Te esperamos.
 ```
+> **Nota Meta:** el `Te esperamos.` final es obligatorio — Meta rechaza variables al inicio o al final del body, y sin esa línea `{{5}}` quedaba último. `{{1}}` al inicio está OK porque lo precede `Hola `.
 - `{{1}}` nombre · `{{2}}` doctor · `{{3}}` cuándo · `{{4}}` hora · `{{5}}` dirección
 - Botones Quick Reply: `Confirmar` · `Reagendar` · `Cancelar`
 - Un solo template para las 3 tandas (72h/24h/2h). Cambia solo `{{3}}`: "el viernes 18 de julio" / "mañana miércoles 16 de julio" / "hoy".

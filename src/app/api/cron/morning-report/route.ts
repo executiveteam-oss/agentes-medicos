@@ -73,9 +73,10 @@ export async function GET(request: NextRequest) {
 async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: number; skipped: number }> {
   const { data: doctors } = await supabaseAdmin
     .from('doctors')
-    .select('id, name, phone')
+    .select('id, name, phone, daily_summary_enabled')
     .eq('clinic_id', clinicId)
     .eq('is_active', true)
+    .eq('daily_summary_enabled', true)
 
   const withPhone = (doctors ?? []).filter((d) => d.phone && d.phone.trim() !== '')
   if (withPhone.length === 0) return { sent: 0, skipped: 0 }

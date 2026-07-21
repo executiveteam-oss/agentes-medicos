@@ -8,6 +8,8 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkWritePermission, extractActionError } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
 import { normalizeWorkingHours, validateBlocks, WORKING_HOURS_DAY_KEYS } from '@/lib/utils/working-hours'
+import { normalizePhone } from '@/lib/utils/dates'
+import { isValidColombianMobile } from '@/lib/utils/whatsapp-url'
 import type { WorkingHours } from '@/types/database'
 
 export interface CreateDoctorInput {
@@ -100,6 +102,105 @@ export async function updateDoctor(
       target_type: 'doctor',
       target_id: doctorId,
       details: { name: input.name.trim(), specialty: input.specialty.trim() },
+    })
+
+    revalidatePath('/dashboard/whatsapp')
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
+  }
+}
+
+/**
+ * Actualiza el teléfono del médico (destino del resumen diario).
+ * Valida celular colombiano (+57 3XX XXX XXXX). Invariante: si se borra el
+ * teléfono, se apaga el resumen diario (no puede quedar "activo sin teléfono").
+ */
+export async function updateDoctorPhone(
+  doctorId: string,
+  phone: string,
+): Promise<{ ok: boolean; error?: string; phone?: string | null }> {
+  try {
+    const clinicId = await checkWritePermission('whatsapp')
+
+    const trimmed = phone.trim()
+    let normalized: string | null = null
+    if (trimmed !== '') {
+      const norm = normalizePhone(trimmed)
+      if (!isValidColombianMobile(norm)) {
+        return { ok: false, error: 'Teléfono inválido. Debe ser un celular colombiano (+57 3XX XXX XXXX).' }
+      }
+      normalized = norm
+    }
+
+    // Invariante: sin teléfono, el resumen diario no puede quedar activo.
+    const updates: Record<string, unknown> = { phone: normalized }
+    if (normalized === null) updates.daily_summary_enabled = false
+
+    const { error } = await supabaseAdmin
+      .from('doctors')
+      .update(updates)
+      .eq('id', doctorId)
+      .eq('clinic_id', clinicId)
+
+    if (error) return { ok: false, error: 'Error actualizando teléfono' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'doctor_phone_updated',
+      actor_type: 'staff',
+      target_type: 'doctor',
+      target_id: doctorId,
+      details: { has_phone: normalized !== null, cleared_summary: normalized === null },
+    })
+
+    revalidatePath('/dashboard/whatsapp')
+    return { ok: true, phone: normalized }
+  } catch (err) {
+    return { ok: false, error: extractActionError(err) }
+  }
+}
+
+/**
+ * Prende/apaga el resumen diario de citas para el médico.
+ * Activar REQUIERE que el médico tenga teléfono guardado (invariante
+ * server-side, defensa en profundidad además del disabled de la UI).
+ */
+export async function setDoctorDailySummaryEnabled(
+  doctorId: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('whatsapp')
+
+    if (enabled) {
+      const { data: doc } = await supabaseAdmin
+        .from('doctors')
+        .select('phone')
+        .eq('id', doctorId)
+        .eq('clinic_id', clinicId)
+        .maybeSingle()
+      const hasPhone = !!(doc?.phone && (doc.phone as string).trim() !== '')
+      if (!hasPhone) {
+        return { ok: false, error: 'Guardá primero el teléfono del médico para activar el resumen.' }
+      }
+    }
+
+    const { error } = await supabaseAdmin
+      .from('doctors')
+      .update({ daily_summary_enabled: enabled })
+      .eq('id', doctorId)
+      .eq('clinic_id', clinicId)
+
+    if (error) return { ok: false, error: 'Error actualizando el resumen diario' }
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'doctor_daily_summary_toggled',
+      actor_type: 'staff',
+      target_type: 'doctor',
+      target_id: doctorId,
+      details: { enabled },
     })
 
     revalidatePath('/dashboard/whatsapp')

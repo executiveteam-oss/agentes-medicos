@@ -56,6 +56,7 @@ export default async function DoctorDetailPage({ params }: { params: Promise<{ i
         manual_availability_message: (doctor.manual_availability_message as string) ?? null,
         working_hours: doctor.working_hours as Record<string, unknown> | null,
         created_at: doctor.created_at as string,
+        daily_summary_enabled: (doctor.daily_summary_enabled as boolean) ?? false,
       }}
       consultationTypes={consultationTypes}
       blockedDates={blockedDates}

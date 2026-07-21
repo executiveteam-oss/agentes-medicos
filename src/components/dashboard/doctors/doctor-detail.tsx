@@ -15,6 +15,8 @@ import {
   reopenDoctorAgenda,
   updateDoctorScheduleType,
   updateDoctorWorkingHours,
+  updateDoctorPhone,
+  setDoctorDailySummaryEnabled,
   deleteDoctor,
 } from '@/app/actions/doctors'
 import {
@@ -60,6 +62,7 @@ interface DoctorData {
   is_active: boolean; agenda_closed: boolean; agenda_closed_reason: string | null; agenda_closed_until: string | null
   schedule_type: 'fixed' | 'manual'; manual_availability_message: string | null
   working_hours: Record<string, unknown> | null; created_at: string
+  daily_summary_enabled: boolean
 }
 
 type TabKey = 'basic' | 'schedule' | 'types' | 'blocks'
@@ -270,6 +273,15 @@ export function DoctorDetailClient({
               </button>
             </div>
           )}
+
+          <DailySummarySection
+            doctorId={doctor.id}
+            initialPhone={doctor.phone}
+            initialEnabled={doctor.daily_summary_enabled}
+            canWrite={canWrite}
+            onError={showToast}
+            onToast={showToast}
+          />
         </Card>
       )}
 
@@ -443,6 +455,153 @@ function CloseAgendaBtn({ onClose, disabled }: { onClose: (reason: string, until
         <button onClick={() => { onClose(reason, until); setShow(false) }} disabled={disabled} className="btn-v2-primary" style={{ fontSize: '11px', padding: '5px 10px' }}>Cerrar</button>
         <button onClick={() => setShow(false)} className="btn-v2-ghost" style={{ fontSize: '11px', padding: '5px 10px' }}>Cancelar</button>
       </div>
+    </div>
+  )
+}
+
+// ============================================================
+// DailySummarySection — Resumen de citas diario (tab "Datos")
+//
+// El médico recibe por WhatsApp un resumen de sus citas cada
+// mañana. INVARIANTE: no se puede activar el resumen sin un
+// teléfono guardado (gate en UI + validación server-side en
+// setDoctorDailySummaryEnabled). Borrar el teléfono apaga el
+// resumen (updateDoctorPhone lo hace server-side).
+// ============================================================
+
+function DailySummarySection({
+  doctorId,
+  initialPhone,
+  initialEnabled,
+  canWrite,
+  onError,
+  onToast,
+}: {
+  doctorId: string
+  initialPhone: string | null
+  initialEnabled: boolean
+  canWrite: boolean
+  onError: (e: string) => void
+  onToast: (m: string) => void
+}): React.JSX.Element {
+  // savedPhone = teléfono persistido en DB; habilita el toggle.
+  const [savedPhone, setSavedPhone] = useState<string | null>(initialPhone)
+  const [phoneInput, setPhoneInput] = useState(initialPhone ?? '')
+  const [enabled, setEnabled] = useState(initialEnabled)
+  const [savingPhone, startPhoneTransition] = useTransition()
+  const [togglePending, startToggleTransition] = useTransition()
+
+  const hasPhone = !!(savedPhone && savedPhone.trim() !== '')
+  const toggleDisabled = !canWrite || !hasPhone || togglePending
+
+  function handleSavePhone(): void {
+    startPhoneTransition(async () => {
+      const r = await updateDoctorPhone(doctorId, phoneInput)
+      if (r.ok) {
+        const newPhone = r.phone ?? null
+        setSavedPhone(newPhone)
+        setPhoneInput(newPhone ?? '')
+        // Si el server borró el teléfono, también apagó el resumen (invariante).
+        if (!newPhone) setEnabled(false)
+        onToast('Teléfono guardado')
+      } else {
+        onError(r.error ?? 'Error al guardar el teléfono')
+      }
+    })
+  }
+
+  function handleToggle(): void {
+    if (!hasPhone) return
+    const next = !enabled
+    setEnabled(next) // optimistic
+    startToggleTransition(async () => {
+      const r = await setDoctorDailySummaryEnabled(doctorId, next)
+      if (!r.ok) {
+        setEnabled(!next) // rollback
+        onError(r.error ?? 'Error al actualizar el resumen diario')
+      }
+    })
+  }
+
+  return (
+    <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--v2-border-soft)' }}>
+      <p style={{ fontSize: '12px', fontWeight: 700, color: 'var(--v2-text-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Resumen de citas diario</p>
+
+      {/* Teléfono destino (+57) */}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '200px' }}>
+          <Field label="Teléfono del médico (+57)" value={phoneInput} onChange={setPhoneInput} placeholder="+57 300 123 4567" disabled={!canWrite} />
+        </div>
+        {canWrite && (
+          <button onClick={handleSavePhone} disabled={savingPhone} className="btn-v2-secondary" style={{ fontSize: '12px', padding: '8px 14px' }}>
+            {savingPhone ? 'Guardando...' : 'Guardar teléfono'}
+          </button>
+        )}
+      </div>
+
+      {/* Toggle "Recibir resumen cada mañana" */}
+      <div style={{
+        marginTop: '14px',
+        padding: '12px 14px',
+        background: enabled ? '#fef3c7' : 'var(--v2-bg-soft)',
+        border: `1px solid ${enabled ? '#f5b500' : 'var(--v2-border-soft)'}`,
+        borderRadius: 'var(--v2-radius)',
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '12px',
+      }}>
+        <button
+          onClick={handleToggle}
+          disabled={toggleDisabled}
+          className="toggle-v2"
+          data-active={enabled ? 'true' : 'false'}
+          style={{
+            flexShrink: 0,
+            marginTop: '2px',
+            opacity: toggleDisabled ? 0.5 : 1,
+            cursor: toggleDisabled ? 'not-allowed' : 'pointer',
+          }}
+          title="Recibir resumen cada mañana"
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontSize: '12px',
+            fontWeight: 700,
+            color: enabled ? '#7a5500' : 'var(--v2-text)',
+            marginBottom: '2px',
+          }}>
+            Recibir resumen cada mañana
+          </div>
+          <div style={{
+            fontSize: '11px',
+            color: enabled ? '#7a5500' : 'var(--v2-text-muted)',
+            lineHeight: 1.4,
+          }}>
+            El médico recibe por WhatsApp un resumen de sus citas del día cada mañana.
+          </div>
+          {!hasPhone && (
+            <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '6px', fontStyle: 'italic' }}>
+              Guardá primero el teléfono del médico para activar el resumen.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Aviso plantilla Meta — solo cuando el toggle está ON */}
+      {enabled && (
+        <div style={{
+          marginTop: '12px',
+          padding: '12px 14px',
+          background: 'var(--v2-amber-soft)',
+          border: '1px solid rgba(255,184,69,0.3)',
+          borderRadius: 'var(--v2-radius)',
+          fontSize: '12px',
+          color: '#7a5500',
+          lineHeight: 1.5,
+        }}>
+          📋 Para que el resumen llegue, tu clínica necesita la plantilla aprobada en Meta. Es un trámite único — una sola vez por clínica. Si es la primera vez que activás esta función, escribinos a soporte y lo gestionamos.
+        </div>
+      )}
     </div>
   )
 }

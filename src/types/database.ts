@@ -272,6 +272,7 @@ export interface Doctor {
   agenda_closed_until: string | null       // Fecha hasta la cual está cerrada YYYY-MM-DD (migración 00026)
   schedule_type: DoctorScheduleType        // fixed = horario fijo, manual = sin horario fijo (migración 00029)
   manual_availability_message: string | null // Mensaje para pacientes cuando schedule_type = manual (migración 00029)
+  daily_summary_enabled: boolean           // Resumen diario de citas por WhatsApp (migración 00081, opt-in)
   created_at: string
 }
 

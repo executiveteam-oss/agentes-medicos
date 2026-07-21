@@ -11,7 +11,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, sendWhatsAppTemplate, getClinicCreds } from '@/lib/whatsapp/client'
+import { REMINDER_TEMPLATE_NAME, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
 import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import { calculateNoShowProbability } from '@/lib/utils/noshow'
 import { syncClinicSheet } from '@/lib/google-sheets'
@@ -167,17 +168,19 @@ async function send72hReminders(
       ? `${clinic.address}, ${clinic.city}`
       : clinic.address
 
-    const message =
-      `Hola ${patient.name} 👋 Te recordamos que tienes cita con ${doctorPrefix} ${doctor.name} el ${dateText} a las ${timeText}.\n\n` +
-      `📍 ${address}\n\n` +
-      `Si necesitas cambiar tu cita responde CAMBIAR y te ayudamos de inmediato.`
-
     const whatsappNumber = patient.phone.replace('+', '')
     const creds = await getClinicCreds(apt.clinic_id)
     if (!creds) { console.warn(`[Cron:72h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
-    const result = await sendWhatsAppMessage(whatsappNumber, message, creds)
+    const result = await sendWhatsAppTemplate(
+      whatsappNumber,
+      REMINDER_TEMPLATE_NAME,
+      TEMPLATE_LANGUAGE,
+      [patient.name, `${doctorPrefix} ${doctor.name}`, dateText, timeText, address],
+      null,   // Quick Reply buttons — sin param de URL
+      creds,
+    )
 
-    if (result !== null) {
+    if (result.ok) {
       sent++
       await supabaseAdmin
         .from('appointments')
@@ -277,34 +280,19 @@ async function send24hReminders(
     const dateText = formatDateForPatient(apt.starts_at)
     const timeText = formatTimeForPatient(apt.starts_at)
 
-    // Mensaje base
-    let message =
-      `Hola ${patient.name} 👋\n\n` +
-      `Te recordamos tu cita mañana:\n` +
-      `📅 ${dateText}\n` +
-      `🕐 ${timeText}\n` +
-      `👨‍⚕️ ${doctor.name}\n` +
-      `📍 ${clinic.address}`
-
-    // IMPROVEMENT 3: Agregar instrucciones de preparación si existen
-    if (ctData?.preparation_instructions) {
-      message += `\n\n⚠️ Recuerda: ${ctData.preparation_instructions}`
-    }
-
-    // IMPROVEMENT 3: Agregar documentos requeridos si aplica
-    if (ctData?.requires_documents && ctData?.required_documents_description) {
-      message += `\n\n📄 Recuerda traer: ${ctData.required_documents_description}`
-    }
-
-    // Confirmación explícita con opciones claras
-    message += `\n\n¿Confirmas tu cita? Responde:\n✅ SÍ para confirmar\n❌ NO para cancelar\n📅 CAMBIAR para reagendar`
-
     const whatsappNumber = patient.phone.replace('+', '')
     const creds24 = await getClinicCreds(apt.clinic_id)
     if (!creds24) { console.warn(`[Cron:24h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
-    const result = await sendWhatsAppMessage(whatsappNumber, message, creds24)
+    const result = await sendWhatsAppTemplate(
+      whatsappNumber,
+      REMINDER_TEMPLATE_NAME,
+      TEMPLATE_LANGUAGE,
+      [patient.name, doctor.name, dateText, timeText, clinic.address],
+      null,   // Quick Reply buttons — sin param de URL
+      creds24,
+    )
 
-    if (result !== null) {
+    if (result.ok) {
       sent++
       await supabaseAdmin
         .from('appointments')
@@ -375,7 +363,7 @@ async function send2hReminders(
       id, starts_at, created_at, clinic_id, patient_id, doctor_id,
       patients(name, phone, no_show_count, total_appointments),
       doctors(name),
-      clinics(name),
+      clinics(name, address, city),
       consultation_types(name)
     `)
     .in('status', ['confirmed', 'rescheduled'])
@@ -403,9 +391,10 @@ async function send2hReminders(
       total_appointments: number
     } | null
     const doctor = apt.doctors as unknown as { name: string } | null
+    const clinic = apt.clinics as unknown as { name: string; address: string; city: string | null } | null
     const ct2hName = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
 
-    if (!patient || !doctor) continue
+    if (!patient || !doctor || !clinic) continue
 
     // --- Filtro de alto riesgo ---
     const noShowCount = patient.no_show_count ?? 0
@@ -440,16 +429,23 @@ async function send2hReminders(
     }
 
     const timeText = formatTimeForPatient(apt.starts_at)
-
-    const message =
-      `Hola ${patient.name}, te esperamos hoy a las ${timeText} con ${doctor.name}. ¡Hasta pronto! 🙂`
+    const address = clinic.city
+      ? `${clinic.address}, ${clinic.city}`
+      : clinic.address
 
     const whatsappNumber = patient.phone.replace('+', '')
     const creds2h = await getClinicCreds(apt.clinic_id)
     if (!creds2h) { console.warn(`[Cron:2h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
-    const result = await sendWhatsAppMessage(whatsappNumber, message, creds2h)
+    const result = await sendWhatsAppTemplate(
+      whatsappNumber,
+      REMINDER_TEMPLATE_NAME,
+      TEMPLATE_LANGUAGE,
+      [patient.name, doctor.name, 'hoy', timeText, address],
+      null,   // Quick Reply buttons — sin param de URL
+      creds2h,
+    )
 
-    if (result !== null) {
+    if (result.ok) {
       sent++
       await supabaseAdmin
         .from('appointments')

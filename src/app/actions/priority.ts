@@ -6,7 +6,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { revalidatePath } from 'next/cache'
 
 import { normalizeWorkingHours, dayTotalMinutes } from '@/lib/utils/working-hours'
@@ -283,7 +283,13 @@ export async function notifyHighestPriorityWaitlistPatient(
     `¿Te gustaría agendar tu cita ahora? Responde "sí" para que te ayudemos.`
 
   const phone = patient.phone.replace('+', '')
-  await sendWhatsAppMessage(phone, mensaje)
+  // NOTA: la lista de espera sigue en texto libre (sin template aprobado —
+  // se salteó `cupo_disponible`), por eso este envío falla con code 131047
+  // fuera de la ventana de 24h de WhatsApp. Pendiente post-piloto: crear el
+  // template + usar sendWhatsAppTemplate. El fix de creds abajo solo sirve
+  // para envíos DENTRO de ventana (evita el fallback global multi-tenant).
+  const clinicCreds = await getClinicCreds(clinicId)
+  await sendWhatsAppMessage(phone, mensaje, clinicCreds)
 
   // Marcar como notificado
   await supabaseAdmin

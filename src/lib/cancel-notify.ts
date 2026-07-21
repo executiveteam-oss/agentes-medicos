@@ -4,7 +4,8 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, sendWhatsAppTemplate, getClinicCreds } from '@/lib/whatsapp/client'
+import { CANCEL_TEMPLATE_NAME, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
 import { formatTimeForPatient } from '@/lib/utils/dates'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -69,25 +70,24 @@ export async function cancelAndNotifyPatient(
     return { ok: true, whatsappSent: false, warning: 'Cita cancelada. WhatsApp no configurado — contactar al paciente manualmente.' }
   }
 
-  const { data: clinic } = await supabaseAdmin.from('clinics').select('name').eq('id', clinicId).single()
-  const clinicName = clinic?.name ?? 'el consultorio'
   const reasonText = patientReason?.trim() || 'por motivos del consultorio'
   const dateFormatted = format(parseISO(apt.starts_at as string), "EEEE d 'de' MMMM", { locale: es })
   const timeFormatted = formatTimeForPatient(apt.starts_at as string)
   const doctorName = doctor?.name ?? 'el doctor'
 
-  // 5. Find next 3 slots
-  const slotsMsg = await findNextSlotsForDoctor(clinicId, apt.doctor_id as string, new Date())
-
-  const message =
-    `Hola ${patient.name} 👋\n\n` +
-    `Te escribimos de ${clinicName}. Lamentablemente tuvimos que cancelar tu cita con ${doctorName} del ${dateFormatted} a las ${timeFormatted} ${reasonText}. Te pedimos disculpas por el inconveniente.\n\n` +
-    slotsMsg +
-    `\n\nResponde a este mensaje y con gusto te reagendamos.`
-
+  // 5. Enviar cancelación por template aprobado en Meta.
+  // Los "próximos 3 cupos" ya NO van en el mensaje: se ofrecen en conversación
+  // cuando la paciente toca el botón "Reagendar" del template.
   try {
-    const sendResult = await sendWhatsAppMessage(patient.phone.replace('+', ''), message, creds)
-    if (sendResult === null) {
+    const sendResult = await sendWhatsAppTemplate(
+      patient.phone.replace('+', ''),
+      CANCEL_TEMPLATE_NAME,
+      TEMPLATE_LANGUAGE,
+      [patient.name, doctorName, dateFormatted, timeFormatted, reasonText],
+      null,
+      creds,
+    )
+    if (!sendResult.ok) {
       await insertPendingContact({
         clinic_id: clinicId,
         patient_id: apt.patient_id as string | undefined,

@@ -5,6 +5,7 @@
 import {
   REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_BODY, REMINDER_BUTTONS,
   CANCEL_TEMPLATE_NAME, CANCEL_TEMPLATE_BODY, CANCEL_BUTTON,
+  RESUMEN_TEMPLATE_NAME, RESUMEN_TEMPLATE_BODY,
   TEMPLATE_LANGUAGE,
 } from '../src/lib/whatsapp/appointment-templates'
 
@@ -44,13 +45,24 @@ assert(
 )
 
 // --- Reglas de Meta ---
+assert('nombre resumen', RESUMEN_TEMPLATE_NAME === 'resumen_diario_medico')
+assert(
+  'body resumen EXACTO',
+  RESUMEN_TEMPLATE_BODY === 'Buenos días, {{1}} 👋 Estas son sus citas de hoy: {{2}}. Que tenga un buen día.',
+  JSON.stringify(RESUMEN_TEMPLATE_BODY),
+)
+
 assert('recordatorio: 5 variables', countVars(REMINDER_TEMPLATE_BODY) === 5, `${countVars(REMINDER_TEMPLATE_BODY)}`)
 assert('cancelación: 5 variables', countVars(CANCEL_TEMPLATE_BODY) === 5, `${countVars(CANCEL_TEMPLATE_BODY)}`)
+assert('resumen: 2 variables', countVars(RESUMEN_TEMPLATE_BODY) === 2, `${countVars(RESUMEN_TEMPLATE_BODY)}`)
 
 assert('recordatorio NO empieza con variable', !startsWithVariable(REMINDER_TEMPLATE_BODY))
 assert('recordatorio NO termina con variable', !endsWithVariable(REMINDER_TEMPLATE_BODY))
 assert('cancelación NO empieza con variable', !startsWithVariable(CANCEL_TEMPLATE_BODY))
 assert('cancelación NO termina con variable', !endsWithVariable(CANCEL_TEMPLATE_BODY))
+assert('resumen NO empieza con variable', !startsWithVariable(RESUMEN_TEMPLATE_BODY))
+assert('resumen NO termina con variable', !endsWithVariable(RESUMEN_TEMPLATE_BODY))
+assert('resumen body ≤ 1024', RESUMEN_TEMPLATE_BODY.length <= 1024)
 
 assert('recordatorio body ≤ 1024', REMINDER_TEMPLATE_BODY.length <= 1024)
 assert('cancelación body ≤ 1024', CANCEL_TEMPLATE_BODY.length <= 1024)

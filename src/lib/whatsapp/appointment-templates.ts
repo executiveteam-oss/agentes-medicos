@@ -26,3 +26,11 @@ export const CANCEL_TEMPLATE_NAME = 'cancelacion_cita'
 export const CANCEL_TEMPLATE_BODY =
   'Hola {{1}} 👋 Lamentamos informarte que tu cita con {{2}} del {{3}} a las {{4}} fue cancelada {{5}}. Queremos reagendarte lo antes posible.'
 export const CANCEL_BUTTON = 'Reagendar'
+
+// --- Resumen diario del médico (cron 6am, sin botones) ---
+// {{2}} lleva cantidad + lista en UNA sola línea (ej. "4 citas — 8:00 AM Juana
+// Pérez, 9:00 AM María López"). Sin saltos de línea (Meta rechaza newlines en
+// params). El código pluraliza "1 cita" / "N citas" dentro de {{2}}.
+export const RESUMEN_TEMPLATE_NAME = 'resumen_diario_medico'
+export const RESUMEN_TEMPLATE_BODY =
+  'Buenos días, {{1}} 👋 Estas son sus citas de hoy: {{2}}. Que tenga un buen día.'

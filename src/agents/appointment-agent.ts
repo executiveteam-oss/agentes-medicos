@@ -13,7 +13,7 @@
 
 import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
-import { buildSystemPrompt } from '@/agents/prompts/system-prompt'
+import { buildSystemPrompt, PROMPT_CACHE_SPLIT_ANCHOR } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { Clinic, ConsultationType, Doctor, Message, WhatsAppConfig } from '@/types/database'
@@ -91,6 +91,29 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
 
   const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt })
 
+  // PROMPT CACHING: partir el system en prefijo estable (cacheable) + cola volátil.
+  // El prefijo (instrucciones + catálogo + reglas, ~34K tokens) es idéntico entre
+  // pacientes y entre llamadas → cache_control ephemeral (TTL 5 min) → el prefijo
+  // se cobra ~0.1x en lecturas. La cola (fecha/hora + datos del paciente) NO se
+  // cachea porque cambia por llamada. Orden de render: tools → system → messages,
+  // así que el breakpoint del prefijo también cubre las tools.
+  const splitIdx = systemPrompt.indexOf(PROMPT_CACHE_SPLIT_ANCHOR)
+  const systemBlocks =
+    splitIdx > 0
+      ? [
+          { type: 'text' as const, text: systemPrompt.slice(0, splitIdx), cache_control: { type: 'ephemeral' as const } },
+          { type: 'text' as const, text: systemPrompt.slice(splitIdx) },
+        ]
+      : [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }]
+
+  // Segundo breakpoint en la última tool (la lista de tools es estable). Da una
+  // capa de cache independiente que sobrevive si cambia el system prompt.
+  const cachedTools = agentTools.map((t, i) =>
+    i === agentTools.length - 1
+      ? { ...t, cache_control: { type: 'ephemeral' as const } }
+      : t
+  )
+
   // 2. Construir el historial de mensajes para Claude
   //    Tomamos los últimos 20 mensajes para dar contexto sin gastar muchos tokens
   const messages: MessageParam[] = buildMessageHistory(messageHistory)
@@ -137,8 +160,8 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       // adaptive thinking por default, que con max_tokens=1024 podría truncar
       // la respuesta corta de WhatsApp → lo desactivamos.
       thinking: { type: 'disabled' },
-      system: systemPrompt,
-      tools: agentTools,
+      system: systemBlocks,
+      tools: cachedTools,
       messages,
     })
 

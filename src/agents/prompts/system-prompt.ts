@@ -93,6 +93,13 @@ interface SystemPromptParams {
  * Genera el system prompt con datos reales de la clínica
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
+// Ancla para partir el prompt en dos para prompt caching (ver appointment-agent.ts).
+// Todo lo ANTERIOR a esta línea es estable (instrucciones + catálogo + reglas) e
+// idéntico entre pacientes y llamadas → se cachea. Desde esta línea en adelante
+// es volátil (fecha/hora actual + datos del paciente) → NO se cachea.
+// Si se edita el texto "FECHA Y HORA ACTUAL:" del template, actualizar acá también.
+export const PROMPT_CACHE_SPLIT_ANCHOR = '\nFECHA Y HORA ACTUAL:'
+
 export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })

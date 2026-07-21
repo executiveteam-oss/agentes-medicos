@@ -133,7 +133,10 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     const response = await anthropic.messages.create({
       model: CLAUDE_CONFIG.model,
       max_tokens: CLAUDE_CONFIG.maxTokens,
-      temperature: CLAUDE_CONFIG.temperature,
+      // Sonnet 5 rechaza temperature (400). Y sin thinking explícito activa
+      // adaptive thinking por default, que con max_tokens=1024 podría truncar
+      // la respuesta corta de WhatsApp → lo desactivamos.
+      thinking: { type: 'disabled' },
       system: systemPrompt,
       tools: agentTools,
       messages,
@@ -142,6 +145,22 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     // Acumular tokens de cada llamada
     totalInputTokens += response.usage?.input_tokens ?? 0
     totalOutputTokens += response.usage?.output_tokens ?? 0
+
+    // Log de uso para medir caching (input normal vs cache_read vs cache_write).
+    // Sin caching: cache_read/creation = 0. Con caching: el prefijo (system +
+    // tools ~17.5K tokens) aparece en cache_creation la 1ª vez y cache_read
+    // después. Ver logs de Vercel: [AgentUsage].
+    const u = response.usage as {
+      input_tokens?: number
+      output_tokens?: number
+      cache_creation_input_tokens?: number | null
+      cache_read_input_tokens?: number | null
+    }
+    console.log(
+      `[AgentUsage] iter=${iteration} input=${u.input_tokens ?? 0} ` +
+        `cache_write=${u.cache_creation_input_tokens ?? 0} ` +
+        `cache_read=${u.cache_read_input_tokens ?? 0} output=${u.output_tokens ?? 0}`
+    )
 
     // Capturar texto que el LLM emitió en este turno. Acumulamos entre
     // iteraciones para preservar mensajes pre-tool con motivos. Excepción:

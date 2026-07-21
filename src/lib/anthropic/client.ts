@@ -1,7 +1,7 @@
 // ============================================================
 // Cliente Anthropic (Claude AI) — Singleton
 // Se crea UNA vez y se reutiliza en toda la app
-// Modelo: claude-sonnet para balance entre calidad y costo
+// Modelo: claude-sonnet-5 para balance entre calidad y costo
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk'
@@ -17,8 +17,11 @@ export const anthropic = new Anthropic({
 })
 
 // Configuración del modelo — centralizada para cambiar fácil
+// NOTA: Sonnet 5 rechaza temperature/top_p/top_k con un 400. Por eso ya no
+// hay temperature acá — la consistencia se logra por prompt, no por sampling.
+// El thinking se desactiva en el call site (appointment-agent.ts) para no
+// gastar tokens de razonamiento ni arriesgar truncar la respuesta corta.
 export const CLAUDE_CONFIG = {
-  model: 'claude-sonnet-4-20250514',    // Sonnet: rápido y bueno para conversaciones
+  model: 'claude-sonnet-5',              // Sonnet 5: rápido y bueno para conversaciones
   maxTokens: 1024,                       // Respuestas cortas para WhatsApp
-  temperature: 0.3,                      // Baja = respuestas más consistentes
 } as const

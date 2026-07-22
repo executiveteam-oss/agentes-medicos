@@ -168,7 +168,7 @@ export function normalizeForSafety(text: string): string {
   return text
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')  // quitar diacríticos
+    .replace(/[\u0300-\u036f]/g, '')  // quitar diacriticos (acentos)
     .replace(/(.)\1{2,}/g, '$1')      // colapsar 3+ repeticiones (holaaa → hola)
     .replace(/[^\w\s]/g, ' ')         // puntuación → espacio
     .replace(/\s+/g, ' ')

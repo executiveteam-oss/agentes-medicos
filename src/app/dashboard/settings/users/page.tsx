@@ -32,14 +32,28 @@ export default async function UsersPage() {
     .eq('is_active', true)
     .order('name')
 
-  // Filtrar doctores que ya tienen un clinic_user con doctor_id
+  // Filtrar doctores que YA tienen un clinic_user con doctor_id...
   const { data: linkedDoctorIds } = await supabaseAdmin
     .from('clinic_users')
     .select('doctor_id')
     .eq('clinic_id', session.clinicId)
     .not('doctor_id', 'is', null)
 
-  const linkedSet = new Set((linkedDoctorIds ?? []).map((r) => (r as { doctor_id: string }).doctor_id))
+  // ...o una invitación PENDIENTE (aún no aceptada, no vencida) con ese médico.
+  // Sin esto, dos invitaciones podrían apuntar al mismo médico y la segunda
+  // quedaría sin vincular al aceptar (accept-invite omite el doble-vínculo).
+  const { data: pendingDoctorIds } = await supabaseAdmin
+    .from('invitations')
+    .select('doctor_id')
+    .eq('clinic_id', session.clinicId)
+    .is('accepted_at', null)
+    .not('doctor_id', 'is', null)
+    .gt('expires_at', new Date().toISOString())
+
+  const linkedSet = new Set<string>([
+    ...(linkedDoctorIds ?? []).map((r) => (r as { doctor_id: string }).doctor_id),
+    ...(pendingDoctorIds ?? []).map((r) => (r as { doctor_id: string }).doctor_id),
+  ])
   const doctors = (allDoctors ?? []).filter((d) => !linkedSet.has(d.id))
 
   return (

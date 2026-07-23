@@ -9,6 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkWritePermission, getSessionClinicId } from '@/lib/actions-helpers'
 import { getUserSession } from '@/lib/session'
 import { sendEmail } from '@/lib/email/client'
+import { toTitleCase } from '@/lib/utils/normalize-name'
 import { revalidatePath } from 'next/cache'
 import { randomUUID } from 'crypto'
 
@@ -47,12 +48,37 @@ export async function inviteUserAction(formData: FormData): Promise<{ ok: boolea
     const session = await getUserSession()
 
     const email = formData.get('email') as string
-    const fullName = formData.get('full_name') as string
+    let fullName = formData.get('full_name') as string
     const roleId = formData.get('role_id') as string
     const doctorId = (formData.get('doctor_id') as string) || null
 
-    if (!email || !fullName || !roleId) {
-      return { ok: false, error: 'Todos los campos son requeridos' }
+    if (!email || !roleId) {
+      return { ok: false, error: 'Email y rol son requeridos' }
+    }
+
+    // ¿Invitación de rol Doctor? Defensa en profundidad: para Doctor, el
+    // full_name se DERIVA del nombre del médico vinculado (ignora lo que venga
+    // del form), así el nombre de la cuenta nunca puede diferir del médico.
+    const { data: roleRow } = await supabaseAdmin
+      .from('clinic_roles')
+      .select('name')
+      .eq('id', roleId)
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    const isDoctorInvite = (roleRow as { name: string } | null)?.name === 'Doctor'
+
+    if (isDoctorInvite) {
+      if (!doctorId) return { ok: false, error: 'El rol Doctor requiere un médico vinculado' }
+      const { data: doctor } = await supabaseAdmin
+        .from('doctors')
+        .select('name')
+        .eq('id', doctorId)
+        .eq('clinic_id', clinicId)
+        .maybeSingle()
+      if (!doctor) return { ok: false, error: 'El médico seleccionado no existe' }
+      fullName = toTitleCase((doctor as { name: string }).name)
+    } else if (!fullName) {
+      return { ok: false, error: 'El nombre completo es requerido' }
     }
 
     // Verificar si ya existe en la clínica
@@ -110,7 +136,7 @@ export async function inviteUserAction(formData: FormData): Promise<{ ok: boolea
         email,
         full_name: fullName,
         role_id: roleId,
-        doctor_id: doctorId,
+        doctor_id: isDoctorInvite ? doctorId : null,
         token,
         invited_by: session?.clinicUserId ?? null,
         expires_at: expiresAt.toISOString(),

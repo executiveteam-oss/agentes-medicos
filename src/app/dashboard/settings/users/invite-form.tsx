@@ -43,15 +43,30 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="label">Nombre completo</label>
-          <input
-            name="full_name"
-            required
-            className="input-v2"
-            placeholder="Ana García"
-          />
-        </div>
+        {isDoctorRole ? (
+          <div>
+            <label className="label">Médico</label>
+            <select name="doctor_id" required defaultValue="" disabled={doctors.length === 0} className="input-v2">
+              <option value="" disabled>Seleccioná el médico</option>
+              {doctors.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-400 mt-1">
+              El nombre de la cuenta se toma del médico elegido.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <label className="label">Nombre completo</label>
+            <input
+              name="full_name"
+              required
+              className="input-v2"
+              placeholder="Ana García"
+            />
+          </div>
+        )}
         <div>
           <label className="label">Email</label>
           <input
@@ -79,18 +94,10 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
         </select>
       </div>
 
-      {isDoctorRole && doctors.length > 0 && (
-        <div>
-          <label className="label">Vincular con médico</label>
-          <select name="doctor_id" className="input-v2">
-            <option value="">Sin vincular (configurar después)</option>
-            {doctors.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-          <p className="text-xs text-slate-400 mt-1">
-            Vincula esta cuenta con un perfil de médico para que vea su agenda y horario.
-          </p>
+      {isDoctorRole && doctors.length === 0 && (
+        <div className="p-3 rounded-lg text-sm bg-amber-50 border border-amber-200 text-amber-700">
+          No hay médicos disponibles para vincular (todos ya tienen cuenta, o no hay médicos configurados).
+          Creá o liberá uno en <strong>Médicos y servicios</strong> antes de invitar a un Doctor.
         </div>
       )}
 
@@ -106,7 +113,7 @@ export function InviteUserForm({ roles, doctors }: { roles: Role[]; doctors: Doc
 
       <button
         type="submit"
-        disabled={loading}
+        disabled={loading || (isDoctorRole && doctors.length === 0)}
         className="btn-v2-primary"
       >
         {loading ? 'Enviando...' : 'Enviar invitación'}

@@ -104,6 +104,7 @@ export interface WhatsAppConfig {
   escalation_keywords: string[]
   doctors: Record<string, WhatsAppDoctorConfig>  // doctor_id → config
   automations: WhatsAppAutomations
+  crisis?: import('@/lib/safety/crisis-config').CrisisConfig  // Capa 0 (opcional; default en getWhatsAppConfig)
 }
 
 // --- CLÍNICAS (tabla: clinics) ---

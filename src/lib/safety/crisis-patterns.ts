@@ -19,7 +19,11 @@ export function normalizeForSafety(text: string): string {
 }
 
 // Cola de modismo que DESACTIVA el match de "morir" (calificador inequívoco).
-const IDIOM_TAIL = '(?! (de (la |el |las |los )?(pena|verguenza|risa|susto|aburrimiento|ganas|hambre|sueno|frio|calor|sed|amor|miedo|nervios)|por ))'
+// Cola de modismo que DESACTIVA "morir": SOLO el calificador "de <modismo>"
+// (de la pena / de risa / de hambre...). Se quitó la exclusión de "por" a
+// propósito (decisión de calibración): "me quiero morir por el dolor/por esto"
+// se trata como CRISIS — errar hacia sobre-detectar (costo asimétrico).
+const IDIOM_TAIL = '(?! de (la |el |las |los )?(pena|verguenza|risa|susto|aburrimiento|ganas|hambre|sueno|frio|calor|sed|amor|miedo|nervios))'
 
 // Patrones de crisis. Cada uno corre sobre el texto YA normalizado.
 const CRISIS_PATTERNS: { re: RegExp; label: string }[] = [
@@ -44,6 +48,9 @@ const HUMAN_REQUEST_PATTERNS: { re: RegExp; label: string }[] = [
   // "escalar" solo con intención de transferencia — NO la palabra "escala"
   // suelta ("escala del dolor" es frecuente en una clínica de dolor pélvico).
   { re: /\bescala(r)? a (un |una )?(humano|persona|asesor|alguien|secretaria)\b/, label: 'escalar a' },
+  // Formas reflexivas imperativas ("escálame", "escálenme", "escalarme") =
+  // pedido de transferencia inequívoco, con o sin destino explícito.
+  { re: /\bescal(ame|enme|arme)\b/, label: 'escalar reflexivo' },
 ]
 
 export function detectCrisis(text: string): { matched: boolean; pattern?: string } {

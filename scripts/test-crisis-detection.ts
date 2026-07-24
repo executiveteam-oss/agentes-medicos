@@ -38,7 +38,9 @@ const crisisAmbiguo = [
   'me quiero morir',
   'quiero morir',
   'ya no aguanto mas',
-  'no quiero seguir aca',        // bare → crisis
+  'no quiero seguir aca',            // bare → crisis
+  'me quiero morir por el dolor',    // "por X" → crisis (calibrado #3, sobre-detectar)
+  'me quiero morir por esto que me pasa',
 ]
 for (const t of crisisAmbiguo) assert(`CRISIS-ambiguo+ "${t}"`, detectCrisis(t).matched, 'ambiguo debe ir a crisis')
 
@@ -81,6 +83,9 @@ const humanPos = [
   'pasame con alguien del consultorio',
   'necesito una persona real',
   'quiero escalar con un humano',
+  'escálame a alguien',                  // conjugado (calibrado #2)
+  'escálenme a alguien del equipo',      // conjugado (calibrado #2)
+  'escálame',                            // reflexivo bare → pedido de transferencia
 ]
 for (const t of humanPos) assert(`HUMANO+ "${t}"`, detectHumanRequest(t).matched, 'no disparó')
 

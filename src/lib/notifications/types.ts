@@ -2,7 +2,7 @@
 // Staff notification types
 // ============================================================
 
-export type NotificationType = 'appointment_canceled' | 'appointment_rescheduled' | 'appointment_moved' | 'conversation_escalated'
+export type NotificationType = 'appointment_canceled' | 'appointment_rescheduled' | 'appointment_moved' | 'conversation_escalated' | 'crisis_detected'
 
 export interface StaffNotification {
   id: string
@@ -15,6 +15,7 @@ export interface StaffNotification {
   navigate_to: string | null
   read_at: string | null
   created_at: string
+  refreshed_at: string | null
 }
 
 export interface NotificationPayload {

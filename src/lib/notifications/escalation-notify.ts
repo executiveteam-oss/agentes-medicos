@@ -88,3 +88,74 @@ export async function resolveEscalationNotifications(conversationId: string): Pr
     console.error('[Escalation] resolveEscalationNotifications falló (no crítico):', err)
   }
 }
+
+const MAX_BODY_CRISIS = 120
+
+/**
+ * Alerta de CRISIS. Rompe idempotencia a propósito: SIEMPRE inserta una alerta
+ * nueva (fan-out a todo el staff no-Doctor), aunque ya haya otra escalación viva.
+ * body = el mensaje real del paciente (truncado). Nunca lanza.
+ */
+export async function notifyCrisis(params: {
+  clinicId: string
+  conversationId: string
+  patientName: string | null
+  patientMessage: string
+}): Promise<void> {
+  const { clinicId, conversationId, patientName, patientMessage } = params
+  try {
+    const displayName = patientName?.trim() || 'Paciente nuevo'
+    const body = patientMessage.trim().length > MAX_BODY_CRISIS
+      ? patientMessage.trim().slice(0, MAX_BODY_CRISIS) + '...'
+      : patientMessage.trim()
+    await createStaffNotification(
+      clinicId,
+      {
+        type: 'crisis_detected',
+        title: `🆘 CRISIS — ${displayName}`,
+        body,
+        metadata: { crisis: true },
+        navigateTo: `/dashboard/conversations/${conversationId}`,
+      },
+      conversationId,
+    )
+  } catch (err) {
+    console.error('[CAPA0] notifyCrisis falló (no crítico):', err)
+  }
+}
+
+/**
+ * Fix de la "zona muerta": ante un mensaje nuevo a una conversación ya escalada,
+ * refresca las alertas de escalación vivas (body al último mensaje + refreshed_at)
+ * para que re-suban en la campana. Si NO hay ninguna viva (fue atendida pero la
+ * conversación sigue escalada), crea una nueva vía notifyStaffOfEscalation.
+ * Nunca lanza.
+ */
+export async function refreshEscalationNotifications(params: {
+  conversationId: string
+  clinicId: string
+  patientName: string | null
+  latestMessage: string
+}): Promise<void> {
+  const { conversationId, clinicId, patientName, latestMessage } = params
+  try {
+    const body = latestMessage.trim().length > MAX_BODY
+      ? latestMessage.trim().slice(0, MAX_BODY) + '...'
+      : latestMessage.trim()
+    const { data: updated } = await supabaseAdmin
+      .from('staff_notifications')
+      .update({ body, refreshed_at: new Date().toISOString() })
+      .eq('conversation_id', conversationId)
+      .eq('type', 'conversation_escalated')
+      .is('read_at', null)
+      .select('id')
+
+    if (!updated || updated.length === 0) {
+      // No hay alerta viva (atendida antes) pero la conversación sigue escalada
+      // y el paciente volvió a escribir → crear una nueva.
+      await notifyStaffOfEscalation({ clinicId, conversationId, patientName, reason: latestMessage })
+    }
+  } catch (err) {
+    console.error('[CAPA0] refreshEscalationNotifications falló (no crítico):', err)
+  }
+}

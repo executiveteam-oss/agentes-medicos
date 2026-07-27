@@ -29,7 +29,9 @@ import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
-import { notifyStaffOfEscalation } from '@/lib/notifications/escalation-notify'
+import { notifyStaffOfEscalation, notifyCrisis, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
+import { detectCrisis, detectHumanRequest } from '@/lib/safety/crisis-patterns'
+import { buildContainmentMessage, DEFAULT_CRISIS_CONFIG, type CrisisConfig } from '@/lib/safety/crisis-config'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
 import {
   detectHallucinatedAppointmentConfirmation,
@@ -462,18 +464,32 @@ async function processWebhook(body: unknown): Promise<void> {
         .update({ last_message_at: new Date().toISOString() })
         .eq('id', conversation.id)
 
+      // 14.5. CAPA 0 DE SEGURIDAD — determinista, corre ANTES de la regla 15
+      //       (escalada) y del gate de consentimiento (paso 16). No depende del LLM.
+      const crisisCfg: CrisisConfig = waConfig.crisis ?? DEFAULT_CRISIS_CONFIG
+      if (crisisCfg.detection_enabled) {
+        if (detectCrisis(sanitizedText).matched) {
+          await handleCrisis(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
+          return
+        }
+        if (detectHumanRequest(sanitizedText).matched) {
+          await handleHumanRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
+          return
+        }
+      }
+
       // 15. Si la conversación está escalada → no responder (un humano se encarga)
       if (conversation.status === 'escalated') {
-        // Re-alerta si no hay una viva (idempotente): la paciente sigue
-        // esperando aunque Lady ya haya respondido antes. El mensaje ya
-        // se guardó arriba (línea 431), así que se ve en el chat.
-        await notifyStaffOfEscalation({
-          clinicId: clinic.id,
+        // Fix zona muerta: refresca la alerta viva con el último mensaje (o crea
+        // una nueva si fue atendida). Así la campana refleja lo último que dijo
+        // el paciente y re-sube. La crisis ya se manejó arriba en la Capa 0.
+        await refreshEscalationNotifications({
           conversationId: conversation.id,
+          clinicId: clinic.id,
           patientName: patient.name,
-          reason: sanitizedText,
+          latestMessage: sanitizedText,
         })
-        console.log(`[Webhook] Conversación escalada, no responder. ID: ${conversation.id}`)
+        console.log(`[Webhook] Conversación escalada, no responder (alerta refrescada). ID: ${conversation.id}`)
         return
       }
 
@@ -863,10 +879,11 @@ function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
       post_consulta: { enabled: false },
       reactivacion: { enabled: false, days_inactive: 90 },
     },
+    crisis: DEFAULT_CRISIS_CONFIG,
   }
   const raw = (clinic.whatsapp_config as WhatsAppConfig | null)
   if (!raw) return DEFAULT
-  return { ...DEFAULT, ...raw, automations: { ...DEFAULT.automations, ...(raw.automations ?? {}) } }
+  return { ...DEFAULT, ...raw, automations: { ...DEFAULT.automations, ...(raw.automations ?? {}) }, crisis: { ...DEFAULT_CRISIS_CONFIG, ...(raw.crisis ?? {}) } }
 }
 
 /**
@@ -1057,6 +1074,84 @@ async function getMessageHistory(conversationId: string): Promise<Message[]> {
 
   // Revertir para que Claude reciba el historial en orden cronológico
   return ((data ?? []) as Message[]).reverse()
+}
+
+/**
+ * Maneja un mensaje de CRISIS detectado por la Capa 0. Detección + escalación +
+ * alerta 🆘 SIEMPRE (Opción B). El mensaje de contención al paciente solo se
+ * envía si Algia lo aprobó clínicamente (auto_message_approved). Nunca lanza.
+ */
+async function handleCrisis(
+  clinic: Clinic,
+  patient: { id: string; name: string | null },
+  conversation: { id: string; status: string },
+  patientPhone: string,
+  patientMessage: string,
+  clinicCreds: ClinicWhatsAppCredentials | null,
+  crisisCfg: CrisisConfig,
+): Promise<void> {
+  // 1. Contención al paciente — SOLO si el wording fue aprobado por Algia.
+  if (crisisCfg.auto_message_approved) {
+    const containment = buildContainmentMessage(crisisCfg, patient.name ?? undefined)
+    await saveMessage(conversation.id, 'agent', containment)
+    const sentId = await sendWhatsAppMessage(patientPhone, containment, clinicCreds)
+    if (!sentId) {
+      console.error(`[CAPA0][CRISIS] CRÍTICO: contención NO se envió (conv ${conversation.id})`)
+    }
+  } else {
+    console.warn(`[CAPA0][CRISIS] auto_message_approved=false — no se envía contención, solo alerta al staff (conv ${conversation.id})`)
+  }
+
+  // 2. Escalar la conversación (si no lo estaba).
+  if (conversation.status !== 'escalated') {
+    await supabaseAdmin
+      .from('conversations')
+      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'crisis' } })
+      .eq('id', conversation.id)
+  }
+
+  // 3. Alerta 🆘 SIEMPRE (rompe idempotencia).
+  await notifyCrisis({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, patientMessage })
+
+  // 4. Audit (sin el texto sensible del paciente, pero SÍ con el target para
+  //    que la traza legal identifique la conversación afectada).
+  try {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinic.id, action: 'crisis_detected', actor_type: 'system',
+      target_type: 'conversation', target_id: conversation.id,
+      details: { urgency: 'emergency' },
+    })
+  } catch { /* no crítico */ }
+
+  console.log(`[CAPA0][CRISIS] manejada. conv ${conversation.id}`)
+}
+
+/**
+ * Maneja un pedido EXPLÍCITO de humano detectado por la Capa 0. Escala + avisa.
+ * El handoff no tiene gate clínico (no es wording de crisis). Nunca lanza.
+ */
+async function handleHumanRequest(
+  clinic: Clinic,
+  patient: { id: string; name: string | null },
+  conversation: { id: string; status: string },
+  patientPhone: string,
+  patientMessage: string,
+  clinicCreds: ClinicWhatsAppCredentials | null,
+  crisisCfg: CrisisConfig,
+): Promise<void> {
+  await saveMessage(conversation.id, 'agent', crisisCfg.human_handoff_message)
+  await sendWhatsAppMessage(patientPhone, crisisCfg.human_handoff_message, clinicCreds)
+
+  if (conversation.status === 'escalated') {
+    await refreshEscalationNotifications({ conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name, latestMessage: patientMessage })
+  } else {
+    await supabaseAdmin
+      .from('conversations')
+      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'pedido_humano' } })
+      .eq('id', conversation.id)
+    await notifyStaffOfEscalation({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, reason: patientMessage })
+  }
+  console.log(`[CAPA0][HUMANO] manejado. conv ${conversation.id}`)
 }
 
 /**

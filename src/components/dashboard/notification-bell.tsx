@@ -19,6 +19,7 @@ const TYPE_EMOJI: Record<string, string> = {
   appointment_rescheduled: '🔄',
   appointment_moved: '➡️',
   conversation_escalated: '🚨',
+  crisis_detected: '🆘',
 }
 
 export function NotificationBell() {
@@ -40,6 +41,7 @@ export function NotificationBell() {
       .from('staff_notifications')
       .select('*')
       .eq('recipient_user_id', userId)
+      .order('refreshed_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(20)
       .then(({ data }) => {
@@ -102,14 +104,14 @@ export function NotificationBell() {
       .update({ read_at: new Date().toISOString() })
       .eq('recipient_user_id', userId)
       .is('read_at', null)
-      .neq('type', 'conversation_escalated')
+      .not('type', 'in', '("conversation_escalated","crisis_detected")')
     setNotifications((prev) => prev.map((n) =>
-      n.type === 'conversation_escalated' ? n : { ...n, read_at: n.read_at ?? new Date().toISOString() }
+      n.type === 'conversation_escalated' || n.type === 'crisis_detected' ? n : { ...n, read_at: n.read_at ?? new Date().toISOString() }
     ))
   }, [userId])
 
   function handleNotifClick(notif: StaffNotification) {
-    if (!notif.read_at && notif.type !== 'conversation_escalated') markAsRead(notif.id)
+    if (!notif.read_at && notif.type !== 'conversation_escalated' && notif.type !== 'crisis_detected') markAsRead(notif.id)
     if (notif.navigate_to) router.push(notif.navigate_to)
     setIsOpen(false)
   }
@@ -205,32 +207,29 @@ export function NotificationBell() {
             ) : (
               notifications.slice(0, 10).map((notif) => {
                 const isUnread = !notif.read_at
+                const isCrisis = notif.type === 'crisis_detected'
                 return (
                   <button
                     key={notif.id}
                     onClick={() => handleNotifClick(notif)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '10px',
-                      width: '100%',
+                      display: 'flex', alignItems: 'flex-start', gap: '10px', width: '100%',
                       padding: '12px 16px',
-                      borderBottom: '1px solid var(--v2-border-soft)',
-                      background: isUnread ? 'var(--v2-primary-tint)' : 'transparent',
+                      background: isCrisis ? '#fef2f2' : (isUnread ? 'var(--v2-primary-tint)' : 'transparent'),
                       border: 'none',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      fontFamily: 'var(--font-manrope), sans-serif',
-                      transition: 'background 0.1s',
+                      borderBottom: '1px solid var(--v2-border-soft)',
+                      borderLeft: isCrisis ? '4px solid #dc2626' : 'none',
+                      cursor: 'pointer', textAlign: 'left',
+                      fontFamily: 'var(--font-manrope), sans-serif', transition: 'background 0.1s',
                     }}
-                    onMouseEnter={(e) => { if (!isUnread) e.currentTarget.style.background = 'var(--v2-bg-soft)' }}
-                    onMouseLeave={(e) => { if (!isUnread) e.currentTarget.style.background = 'transparent' }}
+                    onMouseEnter={(e) => { if (!isUnread && !isCrisis) e.currentTarget.style.background = 'var(--v2-bg-soft)' }}
+                    onMouseLeave={(e) => { if (!isUnread && !isCrisis) e.currentTarget.style.background = 'transparent' }}
                   >
                     <span style={{ fontSize: '18px', flexShrink: 0, marginTop: '2px' }}>
                       {TYPE_EMOJI[notif.type] ?? '📋'}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ fontSize: '13px', fontWeight: isUnread ? 700 : 500, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <p style={{ fontSize: '13px', fontWeight: isCrisis ? 800 : (isUnread ? 700 : 500), color: isCrisis ? '#dc2626' : 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {notif.title}
                       </p>
                       {notif.body && (

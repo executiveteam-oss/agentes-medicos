@@ -22,6 +22,9 @@ const crisisPos = [
   'quiero matarme',
   'me voy a matar',
   'quiero quitarme la vida',
+  'me voy a quitar la vida',               // perifrástico (review I1)
+  'quitarse la vida',                      // infinitivo reflexivo (review I1)
+  'me quiero quitar la vida',              // perifrástico con querer (review I1)
   'ya no quiero vivir',
   'no quiero seguir viviendo',
   'no le veo sentido a la vida',

@@ -1113,10 +1113,12 @@ async function handleCrisis(
   // 3. Alerta 🆘 SIEMPRE (rompe idempotencia).
   await notifyCrisis({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, patientMessage })
 
-  // 4. Audit (sin el texto sensible del paciente).
+  // 4. Audit (sin el texto sensible del paciente, pero SÍ con el target para
+  //    que la traza legal identifique la conversación afectada).
   try {
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinic.id, action: 'crisis_detected', actor_type: 'system',
+      target_type: 'conversation', target_id: conversation.id,
       details: { urgency: 'emergency' },
     })
   } catch { /* no crítico */ }

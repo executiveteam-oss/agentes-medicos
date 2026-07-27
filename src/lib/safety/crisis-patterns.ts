@@ -30,7 +30,10 @@ const CRISIS_PATTERNS: { re: RegExp; label: string }[] = [
   { re: /\b(suicid|suisid)/, label: 'suicidio' },
   { re: new RegExp(`\\b(matarme|me mato|me voy a matar|me quiero matar|quiero matarme)\\b(?! de )`), label: 'matarse' },
   { re: new RegExp(`\\b(me )?(quiero|quisiera) morir(me)?\\b${IDIOM_TAIL}`), label: 'quiero morir' },
-  { re: /\b(quitarme la vida|acabar con mi vida|terminar con mi vida|acabar con todo)\b/, label: 'quitarse la vida' },
+  // "quitar(se) la vida": cubre enclítico (quitarme/quitarse) Y perifrástico
+  // ("me voy a quitar la vida", "me quiero quitar la vida"). Sin el suffix
+  // enclítico opcional se escapaban declaraciones inequívocas (review I1).
+  { re: /\b(quitar(me|se|te|le|nos)?\s+la\s+vida|acabar con mi vida|terminar con mi vida|acabar con todo)\b/, label: 'quitarse la vida' },
   { re: /\b(no quiero vivir|no quiero seguir viviendo|ya no quiero vivir|no vale la pena vivir|no le veo sentido a (la vida|nada|vivir))\b/, label: 'no quiero vivir' },
   { re: /\b(mejor muerto|estaria mejor muerto|prefiero estar muerto|estarian mejor sin mi)\b/, label: 'mejor muerto' },
   { re: /\b(hacerme dano|lastimarme|autolesi|cortarme (las venas|los brazos))/, label: 'autolesion' },

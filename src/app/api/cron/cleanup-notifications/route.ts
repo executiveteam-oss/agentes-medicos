@@ -18,6 +18,9 @@ export async function GET(request: NextRequest) {
     .from('staff_notifications')
     .delete({ count: 'exact' })
     .lt('created_at', thirtyDaysAgo)
+    // Las alertas de CRISIS nunca se borran por cron (registro de seguridad),
+    // sin importar leída o antigüedad.
+    .neq('type', 'crisis_detected')
     // No borrar escalaciones NO resueltas: la alerta persiste hasta que
     // alguien atienda, sin importar la antigüedad. Se borran las notifs de
     // cita viejas y las escalaciones YA resueltas (read_at no nulo).

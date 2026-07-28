@@ -56,9 +56,59 @@ const HUMAN_REQUEST_PATTERNS: { re: RegExp; label: string }[] = [
   { re: /\bescal(ame|enme|arme)\b/, label: 'escalar reflexivo' },
 ]
 
+// Solicitudes sobre DATOS PERSONALES (ARCO / habeas data / política de datos).
+// Determinista, corre en Capa 0 como el pedido de humano. Cualquier match
+// ESCALA al canal humano — el bot NUNCA cumple la solicitud solo (no borra, no
+// exporta, no rectifica). La política de datos vigente de la clínica designa
+// este mismo WhatsApp como canal oficial ARCO, con término legal de respuesta
+// → un falso NEGATIVO = la clínica incumple su propia política. Ante ambigüedad,
+// sobre-detectar (mismo principio que crisis). Ver spec Capa 0.
+const DATA_RIGHTS_PATTERNS: { re: RegExp; label: string }[] = [
+  // Eliminación / borrado — el sustantivo de datos va pegado al verbo (con a lo
+  // sumo 2 determinantes), para NO capturar "eliminar mi cita" (cita ≠ datos).
+  { re: /\b(eliminar|eliminen|elimine|elimina|borrar|borren|borre|borra)( (mis|mi|toda|todos|todo|los|la|su|sus)){0,2} (datos|dato|informacion|registro|registros|historial|historia)\b/, label: 'eliminar datos' },
+  { re: /\b(borren|eliminen) todo lo mio\b/, label: 'baja datos' },
+  { re: /\bno quiero estar en (su|la) base de datos\b/, label: 'baja base' },
+  // Oposición al almacenamiento / tratamiento
+  { re: /\bno quiero que (me )?(guarden|almacenen|tengan|usen|traten|conserven|registren)( mi| mis| la)? (datos|dato|informacion)\b/, label: 'no almacenar' },
+  { re: /\b(me opongo al tratamiento|no autorizo (el tratamiento|que (usen|guarden|traten))|ya no autorizo)\b/, label: 'oposicion' },
+  // Acceso ("¿qué datos tienen míos?", "quiero saber qué información tienen")
+  { re: /\bque (datos|dato|informacion) (tienen|guardan|almacenan|manejan)\b/, label: 'acceso' },
+  { re: /\b(quiero saber|quisiera saber|puedo saber|me pueden decir) que (datos|dato|informacion)\b/, label: 'acceso saber' },
+  { re: /\b(acceder a|consultar) mis datos( personales)?\b/, label: 'acceso mis datos' },
+  // Origen del dato ("¿quién les dio mi número?", "¿de dónde sacaron mis datos?")
+  // — es la forma más común de expresar preocupación por datos; es acceso ARCO.
+  { re: /\b(quien les (dio|paso)|quien le (dio|paso)|de donde (sacaron|obtuvieron|consiguieron|tienen)|como (consiguieron|obtuvieron|sacaron|tienen))( \w+){0,3} (mi numero|mi telefono|mi celular|mi informacion|mis datos|mi contacto)\b/, label: 'origen del dato' },
+  // Rectificación ("corregir/actualizar mis datos" — NO "confirmar mis datos")
+  { re: /\b(corregir|rectificar|actualizar|cambiar) mis datos( personales)?\b/, label: 'rectificacion' },
+  // Revocación de consentimiento
+  { re: /\b(revocar|retirar|retiro|revoco) (mi|el) (autorizacion|consentimiento)\b/, label: 'revocacion' },
+  // Política / ARCO / habeas data / protección de datos ("política" anclada a
+  // privacidad/datos — NO "política de cancelación").
+  { re: /\bpolitica de (privacidad|tratamiento|datos|proteccion de datos)\b/, label: 'politica' },
+  { re: /\b(derecho arco|derechos arco|habeas data)\b/, label: 'arco' },
+  { re: /\btratamiento de (mis )?datos personales\b/, label: 'tratamiento datos' },
+  { re: /\bproteccion de (mis )?datos( personales)?\b/, label: 'proteccion datos' },
+  { re: /\bprivacidad\b/, label: 'privacidad' },
+  // Amenaza de queja/denuncia ante la SIC — el caso de MAYOR riesgo legal.
+  // Escala siempre; sobre-detectar acá es barato (una amenaza siempre amerita
+  // que la vea un humano) y no hacerlo es el peor escenario.
+  { re: /\b(los voy a denunciar|voy a denunciar|los denuncio|voy a poner una (queja|denuncia)|poner una (queja|denuncia)|una queja (ante|en) (la )?(sic|superintendencia)|ante la (sic|superintendencia)|voy a (la )?superintendencia|a la superintendencia)\b/, label: 'denuncia/SIC' },
+  { re: /\b(esto )?(viola|violan|estan violando) (mis |los )?datos( personales)?\b/, label: 'violacion datos' },
+  { re: /\bes una violacion (de |a )(mis )?datos( personales)?\b/, label: 'violacion datos' },
+]
+
 export function detectCrisis(text: string): { matched: boolean; pattern?: string } {
   const n = normalizeForSafety(text)
   for (const { re, label } of CRISIS_PATTERNS) {
+    if (re.test(n)) return { matched: true, pattern: label }
+  }
+  return { matched: false }
+}
+
+export function detectDataRightsRequest(text: string): { matched: boolean; pattern?: string } {
+  const n = normalizeForSafety(text)
+  for (const { re, label } of DATA_RIGHTS_PATTERNS) {
     if (re.test(n)) return { matched: true, pattern: label }
   }
   return { matched: false }

@@ -29,9 +29,10 @@ import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
-import { notifyStaffOfEscalation, notifyCrisis, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
-import { detectCrisis, detectHumanRequest } from '@/lib/safety/crisis-patterns'
+import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
+import { detectCrisis, detectHumanRequest, detectDataRightsRequest } from '@/lib/safety/crisis-patterns'
 import { buildContainmentMessage, DEFAULT_CRISIS_CONFIG, type CrisisConfig } from '@/lib/safety/crisis-config'
+import { buildDataRightsAck } from '@/lib/safety/data-rights-config'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
 import {
   detectHallucinatedAppointmentConfirmation,
@@ -467,15 +468,19 @@ async function processWebhook(body: unknown): Promise<void> {
       // 14.5. CAPA 0 DE SEGURIDAD — determinista, corre ANTES de la regla 15
       //       (escalada) y del gate de consentimiento (paso 16). No depende del LLM.
       const crisisCfg: CrisisConfig = waConfig.crisis ?? DEFAULT_CRISIS_CONFIG
-      if (crisisCfg.detection_enabled) {
-        if (detectCrisis(sanitizedText).matched) {
-          await handleCrisis(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
-          return
-        }
-        if (detectHumanRequest(sanitizedText).matched) {
-          await handleHumanRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
-          return
-        }
+      if (crisisCfg.detection_enabled && detectCrisis(sanitizedText).matched) {
+        await handleCrisis(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
+        return
+      }
+      // Solicitudes sobre datos personales (ARCO): SIEMPRE activo — obligación
+      // legal, no comparte el kill-switch de crisis. Precedencia: crisis > datos > humano.
+      if (detectDataRightsRequest(sanitizedText).matched) {
+        await handleDataRightsRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds)
+        return
+      }
+      if (crisisCfg.detection_enabled && detectHumanRequest(sanitizedText).matched) {
+        await handleHumanRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
+        return
       }
 
       // 15. Si la conversación está escalada → no responder (un humano se encarga)
@@ -1124,6 +1129,47 @@ async function handleCrisis(
   } catch { /* no crítico */ }
 
   console.log(`[CAPA0][CRISIS] manejada. conv ${conversation.id}`)
+}
+
+/**
+ * Maneja una solicitud sobre DATOS PERSONALES (ARCO) detectada por la Capa 0.
+ * El bot NUNCA cumple la solicitud (no borra/exporta/rectifica): acusa recibo,
+ * escala, y alerta al staff 🔐 (que responde dentro del término legal). El acuse
+ * se envía siempre (es seguro, no promete resultado). Nunca lanza.
+ */
+async function handleDataRightsRequest(
+  clinic: Clinic,
+  patient: { id: string; name: string | null },
+  conversation: { id: string; status: string },
+  patientPhone: string,
+  patientMessage: string,
+  clinicCreds: ClinicWhatsAppCredentials | null,
+): Promise<void> {
+  // 1. Acuse a la paciente.
+  const ack = buildDataRightsAck(clinic.name)
+  await saveMessage(conversation.id, 'agent', ack)
+  await sendWhatsAppMessage(patientPhone, ack, clinicCreds)
+
+  // 2. Escalar (si no lo estaba).
+  if (conversation.status !== 'escalated') {
+    await supabaseAdmin
+      .from('conversations')
+      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'data_rights_request' } })
+      .eq('id', conversation.id)
+  }
+
+  // 3. Alerta 🔐 SIEMPRE (rompe idempotencia; created_at arranca el término legal).
+  await notifyDataRightsRequest({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, patientMessage })
+
+  // 4. Audit con target (traza legal — sin guardar el texto sensible).
+  try {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinic.id, action: 'data_rights_request', actor_type: 'system',
+      target_type: 'conversation', target_id: conversation.id,
+    })
+  } catch { /* no crítico */ }
+
+  console.log(`[CAPA0][DATOS] solicitud ARCO manejada. conv ${conversation.id}`)
 }
 
 /**

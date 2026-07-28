@@ -35,6 +35,10 @@
     {
       "path": "/api/cron/survey-post-consulta",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/document-retention",
+      "schedule": "30 3 * * *"
     }
   ]
 }

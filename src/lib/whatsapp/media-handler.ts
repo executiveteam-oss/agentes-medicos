@@ -191,6 +191,25 @@ export async function uploadMediaToStorage(params: {
   return { ok: true, storagePath: path }
 }
 
+/**
+ * Borra objetos del bucket privado whatsapp-media por su path.
+ *
+ * ⚠️ Los objetos de Storage NO cascadean al borrar la fila de conversation_media
+ * — hay que borrarlos EXPLÍCITAMENTE o quedan huérfanos ocupando espacio con
+ * documentos clínicos. El cron de retención llama a esto ANTES de borrar las
+ * filas, y solo borra las filas si esto salió OK. Si la llamada falla, ok=false
+ * → el cron NO borra las filas y reintenta la próxima corrida (nunca queda una
+ * fila sin su archivo, ni un archivo sin su fila).
+ */
+export async function removeMediaFromStorage(
+  paths: string[],
+): Promise<{ ok: true; removedCount: number } | { ok: false; error: string }> {
+  if (paths.length === 0) return { ok: true, removedCount: 0 }
+  const { data, error } = await supabaseAdmin.storage.from('whatsapp-media').remove(paths)
+  if (error) return { ok: false, error: error.message }
+  return { ok: true, removedCount: data?.length ?? 0 }
+}
+
 function mimeTypeToExtension(mimeType: string): string {
   const map: Record<string, string> = {
     'image/jpeg': 'jpg',

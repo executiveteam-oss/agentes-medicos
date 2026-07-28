@@ -125,6 +125,40 @@ export async function notifyCrisis(params: {
 }
 
 /**
+ * Alerta de SOLICITUD ARCO (datos personales). Rompe idempotencia como crisis:
+ * SIEMPRE inserta (fan-out a todo el staff no-Doctor), aunque ya haya otra
+ * escalación viva. body = el mensaje real del paciente (truncado). El created_at
+ * arranca el reloj del término legal de respuesta. Nunca lanza.
+ */
+export async function notifyDataRightsRequest(params: {
+  clinicId: string
+  conversationId: string
+  patientName: string | null
+  patientMessage: string
+}): Promise<void> {
+  const { clinicId, conversationId, patientName, patientMessage } = params
+  try {
+    const displayName = patientName?.trim() || 'Paciente nuevo'
+    const body = patientMessage.trim().length > MAX_BODY_CRISIS
+      ? patientMessage.trim().slice(0, MAX_BODY_CRISIS) + '...'
+      : patientMessage.trim()
+    await createStaffNotification(
+      clinicId,
+      {
+        type: 'data_rights_request',
+        title: `🔐 DATOS (ARCO) — ${displayName}`,
+        body,
+        metadata: { data_rights: true },
+        navigateTo: `/dashboard/conversations/${conversationId}`,
+      },
+      conversationId,
+    )
+  } catch (err) {
+    console.error('[CAPA0] notifyDataRightsRequest falló (no crítico):', err)
+  }
+}
+
+/**
  * Fix de la "zona muerta": ante un mensaje nuevo a una conversación ya escalada,
  * refresca las alertas de escalación vivas (body al último mensaje + refreshed_at)
  * para que re-suban en la campana. Si NO hay ninguna viva (fue atendida pero la

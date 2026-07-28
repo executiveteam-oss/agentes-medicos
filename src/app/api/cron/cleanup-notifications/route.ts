@@ -21,6 +21,8 @@ export async function GET(request: NextRequest) {
     // Las alertas de CRISIS nunca se borran por cron (registro de seguridad),
     // sin importar leída o antigüedad.
     .neq('type', 'crisis_detected')
+    // Las solicitudes ARCO tampoco: son traza legal con término de respuesta.
+    .neq('type', 'data_rights_request')
     // No borrar escalaciones NO resueltas: la alerta persiste hasta que
     // alguien atienda, sin importar la antigüedad. Se borran las notifs de
     // cita viejas y las escalaciones YA resueltas (read_at no nulo).

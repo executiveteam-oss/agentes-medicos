@@ -94,10 +94,17 @@ interface SystemPromptParams {
  * Claude recibe esto como contexto antes de cada mensaje del paciente
  */
 // Ancla para partir el prompt en dos para prompt caching (ver appointment-agent.ts).
-// Todo lo ANTERIOR a esta línea es estable (instrucciones + catálogo + reglas) e
-// idéntico entre pacientes y llamadas → se cachea. Desde esta línea en adelante
-// es volátil (fecha/hora actual + datos del paciente) → NO se cachea.
-// Si se edita el texto "FECHA Y HORA ACTUAL:" del template, actualizar acá también.
+// Todo lo ANTERIOR a esta línea es estable (instrucciones + catálogo + reglas +
+// TODO el flujo de agendamiento) e idéntico entre pacientes y llamadas → se cachea.
+// Desde esta línea en adelante es SOLO lo genuinamente dinámico: fecha/hora actual
+// + datos del paciente (teléfono, nombre, sección PACIENTE RECURRENTE) → NO se cachea.
+//
+// ⚠️ INVARIANTE: el bloque dinámico (FECHA Y HORA ACTUAL + DATOS DEL PACIENTE) va
+// al FINAL del template a propósito, para que el anchor aísle solo eso (~0.6% del
+// prompt) y todo lo estático (incluido el flujo) quede cacheado (~99%). Si se agrega
+// contenido ESTÁTICO nuevo, ponerlo ANTES de "FECHA Y HORA ACTUAL:"; si es DINÁMICO
+// (varía por paciente/llamada), ponerlo DESPUÉS. Y NUNCA usar el texto literal
+// "\nFECHA Y HORA ACTUAL:" en otra parte del template (rompería el indexOf del split).
 export const PROMPT_CACHE_SPLIT_ANCHOR = '\nFECHA Y HORA ACTUAL:'
 
 export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt }: SystemPromptParams): string {
@@ -826,21 +833,14 @@ POLÍTICA DE CANCELACIÓN DE LA CLÍNICA:
 ${clinic.cancellation_policy}
 Cuando un paciente quiera cancelar, informa esta política con amabilidad antes de proceder con la cancelación.
 ` : ''}
-ZONA HORARIA: America/Bogota (UTC-5). NO existe horario de verano en Colombia.
-FECHA Y HORA ACTUAL: ${currentDateTime}
+ZONA HORARIA: America/Bogota (UTC-5). NO existe horario de verano en Colombia. La fecha y hora actual está al FINAL de este prompt.
 
 REGLA CRÍTICA — FECHAS RELATIVAS:
 "Mañana" SIEMPRE = hoy + 1 día. "Pasado mañana" = hoy + 2. NUNCA interpretes "mañana" relativo a otra fecha mencionada antes en la conversación.
-Antes de llamar check_availability con una fecha relativa, calcula mentalmente:
-"Hoy es ${currentDateTime}. Por lo tanto mañana = [fecha+1]."
+Antes de llamar check_availability con una fecha relativa, calcula mentalmente a partir de la fecha actual (al final del prompt): "Hoy es esa fecha; por lo tanto mañana = [esa fecha + 1]."
 Si acabas de hablar del viernes y el paciente dice "mañana" pero mañana NO es viernes, usa la fecha real de mañana sin asumir que se refiere al viernes.
-
-DATOS DEL PACIENTE ACTUAL:
-- Teléfono WhatsApp: ${patientPhone} — usa ESTE valor en patient_phone al llamar create_appointment, NO le pidas el teléfono al paciente
-- Nombre de perfil: ${patientName} — úsalo como referencia, confirma el nombre completo real durante el agendamiento
-${buildExistingPatientSection(existingPatient)}
 DATOS REQUERIDOS PARA AGENDAR:
-Revisa lo que YA tienes del paciente (sección PACIENTE RECURRENTE arriba) y pide SOLO lo que falta.
+Revisa lo que YA tienes del paciente (sección PACIENTE RECURRENTE al final de este prompt) y pide SOLO lo que falta.
 
 Datos a recolectar (TODOS en un solo mensaje):
 1. Nombre completo
@@ -1042,7 +1042,14 @@ SIEMPRE escribe así:
 ✓ "Tenemos al Dr. Juan y al Dr. Carlos. ¿Con cuál prefieres?"
 ✓ "En la mañana tengo a las 8 o a las 9. ¿Cuál te queda mejor?"
 ✓ Texto plano conversacional, sin asteriscos, sin bullets, sin negrilla.
-Si necesitas enumerar opciones, escribe en prosa: "Tenemos consulta general, control prenatal y ecografía. ¿Cuál necesitas?"`
+Si necesitas enumerar opciones, escribe en prosa: "Tenemos consulta general, control prenatal y ecografía. ¿Cuál necesitas?"
+
+FECHA Y HORA ACTUAL: ${currentDateTime}
+
+DATOS DEL PACIENTE ACTUAL:
+- Teléfono WhatsApp: ${patientPhone} — usa ESTE valor en patient_phone al llamar create_appointment, NO le pidas el teléfono al paciente
+- Nombre de perfil: ${patientName} — úsalo como referencia, confirma el nombre completo real durante el agendamiento
+${buildExistingPatientSection(existingPatient)}`
 }
 
 /**

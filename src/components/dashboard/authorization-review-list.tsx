@@ -19,10 +19,12 @@ import {
   rejectAuthorization,
   markMediaReviewed,
   markMediaApproved,
+  approveAndReturnToAgent,
   getConversationTail,
   type PendingAuthorization,
 } from '@/app/actions/authorization-review'
 import { REJECT_REASONS } from '@/lib/rules/reject-reasons'
+import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
 import { AppointmentFormModal } from '@/components/dashboard/appointment-form-modal'
 
 interface DoctorOption {
@@ -117,6 +119,29 @@ function AuthorizationCard({
     })
   }
 
+  // Guía determinista: ¿la conversación menciona un servicio con regla
+  // escalate_human? Mismo matcher de Capa 0, corrido sobre el chat. Si sí,
+  // el agente NO puede agendarlo (la capa B lo bloquea) → guiar a "Agendar yo".
+  const ruledService = useMemo(() => {
+    if (!convMsgs) return null
+    for (const msg of convMsgs) {
+      const d = detectEscalateService(msg.content)
+      if (d.matched) return d.label ?? 'ese procedimiento'
+    }
+    return null
+  }, [convMsgs])
+
+  function handleApproveAgent(): void {
+    startMark(async () => {
+      const r = await approveAndReturnToAgent(item.media_id)
+      if (!r.ok) { setError(r.error ?? 'Error'); return }
+      setDoneNote(r.windowClosed
+        ? '✓ Aprobada. La ventana de 24h está cerrada — el agente no pudo avisar todavía; contacta a la paciente o espera el template.'
+        : '✓ Aprobada. El agente le está ofreciendo horarios a la paciente.')
+      setReviewState('done')
+    })
+  }
+
   if (reviewState === 'done') {
     return (
       <div className="card-v2" style={{ padding: '16px', opacity: 0.7 }}>
@@ -204,25 +229,61 @@ function AuthorizationCard({
       </div>
 
       {/* Acciones */}
+      {isAuthorization && ruledService && (
+        <div style={{ marginBottom: '8px', padding: '8px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', fontSize: '12px', color: '#92400e' }}>
+          ⚠ Esta conversación menciona <strong>{ruledService}</strong>, que requiere agendamiento manual. Agéndala tú — el agente no puede agendar ese servicio.
+        </div>
+      )}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         {isAuthorization && (
-          <>
-            <button
-              onClick={() => setModalOpen(true)}
-              disabled={reviewState !== 'idle' || isMarking}
-              className="btn-v2-primary"
-              style={{ fontSize: '12px', padding: '6px 14px' }}
-            >
-              ✓ Aprobar y agendar
-            </button>
-            <button
-              onClick={() => setReviewState('rejecting')}
-              disabled={reviewState !== 'idle' || isMarking}
-              style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-red)', cursor: 'pointer' }}
-            >
-              ✗ Rechazar
-            </button>
-          </>
+          ruledService ? (
+            <>
+              {/* Servicio con regla → "Agendar yo" primario; el agente deshabilitado */}
+              <button
+                onClick={() => setModalOpen(true)}
+                disabled={reviewState !== 'idle' || isMarking}
+                className="btn-v2-primary"
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+              >
+                🗓 Agendar yo
+              </button>
+              <button
+                disabled
+                title="El agente no puede agendar este servicio (requiere validación humana)"
+                style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-text-muted)', cursor: 'not-allowed', opacity: 0.55 }}
+              >
+                🤖 El agente agenda (no disponible)
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Sin regla → el agente agenda (primario); "Agendar yo" secundario */}
+              <button
+                onClick={handleApproveAgent}
+                disabled={reviewState !== 'idle' || isMarking}
+                className="btn-v2-primary"
+                style={{ fontSize: '12px', padding: '6px 14px' }}
+              >
+                {isMarking ? 'Aprobando…' : '🤖 Aprobar — el agente agenda'}
+              </button>
+              <button
+                onClick={() => setModalOpen(true)}
+                disabled={reviewState !== 'idle' || isMarking}
+                style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-text)', cursor: 'pointer' }}
+              >
+                🗓 Agendar yo
+              </button>
+            </>
+          )
+        )}
+        {isAuthorization && (
+          <button
+            onClick={() => setReviewState('rejecting')}
+            disabled={reviewState !== 'idle' || isMarking}
+            style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-red)', cursor: 'pointer' }}
+          >
+            ✗ Rechazar
+          </button>
         )}
         <button
           onClick={handleMarkReviewed}

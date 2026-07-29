@@ -396,6 +396,89 @@ export async function markMediaApproved(mediaId: string): Promise<{ ok: boolean;
 }
 
 /**
+ * #2b — Aprobar y DEVOLVER AL AGENTE: marca la media aprobada, desescala la
+ * conversación (status=active) y le manda a la paciente un mensaje del agente
+ * ofreciéndole agendar. El agente retoma por su flujo normal (check_availability
+ * + create_appointment) en el próximo turno.
+ *
+ * TRABA conocida (Algia hoy): si el servicio tiene regla escalate_human, la capa
+ * B del executor bloquea create_appointment → el agente re-escala. Por eso la UI
+ * guía con el matcher determinista hacia "Agendar yo" en esos casos. Acá NO
+ * podemos saber el servicio (sin authorization_requests), así que confiamos en la
+ * guía de la UI.
+ *
+ * Ventana 24h: <24h → mensaje libre; >24h → NO se manda (template
+ * autorizacion_aprobada pendiente de Meta) y se mantiene escalada para el staff.
+ */
+export async function approveAndReturnToAgent(
+  mediaId: string,
+): Promise<{ ok: boolean; error?: string; noticeSent?: boolean; windowClosed?: boolean }> {
+  let clinicId: string
+  try { clinicId = await checkAuthorizationReviewPermission() }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
+
+  const session = await getUserSession()
+  if (!session) return { ok: false, error: 'No autenticado' }
+
+  const { data: media } = await supabaseAdmin
+    .from('conversation_media')
+    .select('id, clinic_id, conversation_id, reviewed_at')
+    .eq('id', mediaId)
+    .single()
+  if (!media || (media as { clinic_id: string }).clinic_id !== clinicId) {
+    return { ok: false, error: 'Archivo no encontrado o no pertenece a esta clínica' }
+  }
+  const m = media as { id: string; clinic_id: string; conversation_id: string; reviewed_at: string | null }
+  if (m.reviewed_at) return { ok: false, error: 'Este archivo ya fue revisado' }
+
+  const { data: conv } = await supabaseAdmin
+    .from('conversations')
+    .select('whatsapp_phone, last_message_at')
+    .eq('id', m.conversation_id)
+    .single()
+  const phone = (conv as { whatsapp_phone: string | null } | null)?.whatsapp_phone ?? null
+  const lastMsgAt = (conv as { last_message_at: string | null } | null)?.last_message_at ?? null
+  const windowOpen = !!lastMsgAt && (Date.now() - new Date(lastMsgAt).getTime()) < WINDOW_24H_MS
+
+  // Marcar aprobada (siempre)
+  await supabaseAdmin
+    .from('conversation_media')
+    .update({ reviewed_by: session.clinicUserId, reviewed_at: new Date().toISOString(), review_decision: 'approved' })
+    .eq('id', mediaId)
+
+  const patientMsg = '¡Tu autorización quedó aprobada! ¿Qué día te queda bien para agendar tu cita?'
+  let noticeSent = false
+  if (windowOpen && phone) {
+    try {
+      await sendWhatsAppMessage(phone, patientMsg, await getClinicCreds(clinicId))
+      await supabaseAdmin.from('messages').insert({
+        conversation_id: m.conversation_id, role: 'agent', content: patientMsg,
+      })
+      // Desescalar SOLO si pudimos avisar: el agente retoma en el próximo turno.
+      await supabaseAdmin.from('conversations').update({ status: 'active' }).eq('id', m.conversation_id)
+      noticeSent = true
+    } catch (err) {
+      console.error('[approveAndReturnToAgent] no se pudo avisar:', err)
+    }
+  }
+  // Ventana cerrada / falla: queda aprobada pero la conversación sigue escalada
+  // (staff coordina) hasta que el template autorizacion_aprobada esté aprobado.
+
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: clinicId,
+    action: 'authorization_approved',
+    actor_type: 'staff',
+    actor_id: session.clinicUserId,
+    target_type: 'conversation_media',
+    target_id: mediaId,
+    details: { via: 'return_to_agent', notice_sent: noticeSent, window_open: windowOpen },
+  })
+
+  revalidatePath('/dashboard/conversations/autorizaciones')
+  return { ok: true, noticeSent, windowClosed: !noticeSent }
+}
+
+/**
  * Últimos N mensajes de la conversación, para dar contexto al revisar el
  * documento (la secretaria ve qué se habló). Slice chico: sin persistir
  * servicio/convenio, el chat ES el contexto.

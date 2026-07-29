@@ -22,6 +22,11 @@ export const anthropic = new Anthropic({
 // El thinking se desactiva en el call site (appointment-agent.ts) para no
 // gastar tokens de razonamiento ni arriesgar truncar la respuesta corta.
 export const CLAUDE_CONFIG = {
-  model: 'claude-sonnet-5',              // Sonnet 5: rápido y bueno para conversaciones
+  // Haiku 4.5 (decisión 2026-07-29 tras A/B riguroso): ~4× más barato que Sonnet 5,
+  // completa reservas, no inventa servicios. Sus huecos (escalación de servicios
+  // ruleados, hedge en bordes, slips de tono) se cerraron con: escalación
+  // determinista pre-LLM (escalate-service-matcher), regla anti-hedge, Dr./Dra.
+  // explícito por médico. Ver A/B en scripts/battery-*.md.
+  model: 'claude-haiku-4-5-20251001',
   maxTokens: 1024,                       // Respuestas cortas para WhatsApp
 } as const

@@ -83,13 +83,12 @@ const DATA_RIGHTS_PATTERNS: { re: RegExp; label: string }[] = [
   { re: /\b(corregir|rectificar|actualizar|cambiar) mis datos( personales)?\b/, label: 'rectificacion' },
   // Revocación de consentimiento
   { re: /\b(revocar|retirar|retiro|revoco) (mi|el) (autorizacion|consentimiento)\b/, label: 'revocacion' },
-  // Política / ARCO / habeas data / protección de datos ("política" anclada a
-  // privacidad/datos — NO "política de cancelación").
-  { re: /\bpolitica de (privacidad|tratamiento|datos|proteccion de datos)\b/, label: 'politica' },
+  // ARCO / habeas data / protección de datos — EJERCICIO de derechos → escalan.
+  // NOTA: "privacidad" y "política de privacidad/tratamiento/datos" NO están acá
+  // — son CONSULTAS de política (informativas), las maneja detectPrivacyPolicyQuery.
   { re: /\b(derecho arco|derechos arco|habeas data)\b/, label: 'arco' },
   { re: /\btratamiento de (mis )?datos personales\b/, label: 'tratamiento datos' },
   { re: /\bproteccion de (mis )?datos( personales)?\b/, label: 'proteccion datos' },
-  { re: /\bprivacidad\b/, label: 'privacidad' },
   // Amenaza de queja/denuncia ante la SIC — el caso de MAYOR riesgo legal.
   // Escala siempre; sobre-detectar acá es barato (una amenaza siempre amerita
   // que la vea un humano) y no hacerlo es el peor escenario.
@@ -101,6 +100,27 @@ const DATA_RIGHTS_PATTERNS: { re: RegExp; label: string }[] = [
 export function detectCrisis(text: string): { matched: boolean; pattern?: string } {
   const n = normalizeForSafety(text)
   for (const { re, label } of CRISIS_PATTERNS) {
+    if (re.test(n)) return { matched: true, pattern: label }
+  }
+  return { matched: false }
+}
+
+// ============================================================
+// CONSULTA de política de privacidad (informativa, NO ejercicio de derecho).
+// "privacidad", "política de privacidad", "política de tratamiento de datos".
+// Separada de detectDataRightsRequest a propósito: si la clínica tiene URL de
+// política configurada → se responde con el link (SIN escalar); si no → cae al
+// flujo de derechos (acuse + escalación). El EJERCICIO de un derecho (eliminar,
+// acceder, rectificar, etc.) NUNCA pasa por acá — ese escala siempre.
+// ============================================================
+const PRIVACY_POLICY_PATTERNS: { re: RegExp; label: string }[] = [
+  { re: /\bpolitica de (privacidad|tratamiento|datos|proteccion de datos)\b/, label: 'politica' },
+  { re: /\bprivacidad\b/, label: 'privacidad' },
+]
+
+export function detectPrivacyPolicyQuery(text: string): { matched: boolean; pattern?: string } {
+  const n = normalizeForSafety(text)
+  for (const { re, label } of PRIVACY_POLICY_PATTERNS) {
     if (re.test(n)) return { matched: true, pattern: label }
   }
   return { matched: false }

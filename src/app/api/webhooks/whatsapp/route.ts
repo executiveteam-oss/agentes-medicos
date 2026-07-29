@@ -30,8 +30,9 @@ import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
-import { detectCrisis, detectHumanRequest, detectDataRightsRequest } from '@/lib/safety/crisis-patterns'
+import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery } from '@/lib/safety/crisis-patterns'
 import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
+import { buildPrivacyNotice } from '@/lib/legal/privacy-notice'
 import { buildContainmentMessage, DEFAULT_CRISIS_CONFIG, type CrisisConfig } from '@/lib/safety/crisis-config'
 import { buildDataRightsAck } from '@/lib/safety/data-rights-config'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
@@ -473,10 +474,23 @@ async function processWebhook(body: unknown): Promise<void> {
         await handleCrisis(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
         return
       }
-      // Solicitudes sobre datos personales (ARCO): SIEMPRE activo — obligación
-      // legal, no comparte el kill-switch de crisis. Precedencia: crisis > datos > humano.
+      // Ejercicio de un DERECHO sobre datos (ARCO): SIEMPRE activo — obligación
+      // legal. Corre ANTES de la consulta de política, así "quiero eliminar mis
+      // datos y ver la política" escala (ante duda, escalar). Precedencia:
+      // crisis > derecho ARCO > consulta de política > servicio ruleado > humano.
       if (detectDataRightsRequest(sanitizedText).matched) {
         await handleDataRightsRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds)
+        return
+      }
+      // CONSULTA de política de privacidad (informativa, no es ejercicio de derecho).
+      // Si la clínica tiene URL configurada → link (sin escalar). Si NO → cae al
+      // flujo de derechos (acuse + escalación) — nunca un link roto ni medio mensaje.
+      if (detectPrivacyPolicyQuery(sanitizedText).matched) {
+        if (clinic.privacy_policy_url) {
+          await handlePrivacyPolicyLink(clinic, conversation, message.from, clinic.privacy_policy_url, clinicCreds)
+        } else {
+          await handleDataRightsRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds)
+        }
         return
       }
       // Servicio con regla escalate_human (colposcopia, DIU, biopsia, posquirúrgico,
@@ -1180,6 +1194,26 @@ async function handleEscalateService(
 }
 
 /**
+ * Responde una CONSULTA de política de privacidad con el link configurado de la
+ * clínica. Informativo — NO escala. Deja una línea ofreciendo el canal para
+ * ejercer derechos (eso sí escala, por el otro handler). Nunca lanza.
+ */
+async function handlePrivacyPolicyLink(
+  clinic: Clinic,
+  conversation: { id: string },
+  patientPhone: string,
+  url: string,
+  clinicCreds: ClinicWhatsAppCredentials | null,
+): Promise<void> {
+  const msg =
+    `Acá podés ver la política de tratamiento de datos de ${clinic.name}: ${url}\n\n` +
+    `Si querés ejercer un derecho sobre tus datos (acceder, corregir, eliminar, revocar), avisame y una persona del equipo te contacta. 🔐`
+  await saveMessage(conversation.id, 'agent', msg)
+  await sendWhatsAppMessage(patientPhone, msg, clinicCreds)
+  console.log(`[CAPA0][POLITICA] link enviado. conv ${conversation.id}`)
+}
+
+/**
  * Maneja una solicitud sobre DATOS PERSONALES (ARCO) detectada por la Capa 0.
  * El bot NUNCA cumple la solicitud (no borra/exporta/rectifica): acusa recibo,
  * escala, y alerta al staff 🔐 (que responde dentro del término legal). El acuse
@@ -1264,12 +1298,9 @@ async function handleNewPatient(
   conversationId: string,
   clinicCreds?: ClinicWhatsAppCredentials | null
 ): Promise<void> {
-  // Aviso de privacidad (obligatorio por Ley 1581)
-  const privacyNotice =
-    `📋 Antes de continuar, te informo que ${clinic.name} tratará tus datos personales ` +
-    `según la Ley 1581 de 2012. Al continuar esta conversación, autorizas el tratamiento ` +
-    `de tus datos para agendar y gestionar tus citas. Si deseas conocer nuestra política ` +
-    `completa o ejercer tus derechos, escribe "privacidad".`
+  // Aviso de privacidad (obligatorio por Ley 1581). Fuente única de verdad en
+  // buildPrivacyNotice — la pantalla de config legal lee la MISMA, sin drift.
+  const privacyNotice = buildPrivacyNotice(clinic.name)
 
   await sendWhatsAppMessage(whatsappFrom, privacyNotice, clinicCreds)
   await saveMessage(conversationId, 'agent', privacyNotice)

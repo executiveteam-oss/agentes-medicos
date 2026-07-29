@@ -160,6 +160,7 @@ export interface Clinic {
   onboarded_at: string | null              // Null = no ha completado el wizard (migración 00007)
   cancellation_policy: string | null       // Política de cancelación (migración 00048)
   clinic_info: string | null               // Info adicional para contexto del agente (migración 00058)
+  privacy_policy_url: string | null        // URL de la política de privacidad de la clínica (migración 00087)
   created_at: string
   updated_at: string
 }

@@ -1,4 +1,4 @@
-import { detectDataRightsRequest, detectCrisis } from '../src/lib/safety/crisis-patterns'
+import { detectDataRightsRequest, detectCrisis, detectPrivacyPolicyQuery } from '../src/lib/safety/crisis-patterns'
 
 let passed = 0, failed = 0
 function assert(label: string, ok: boolean, detail?: string) {
@@ -51,16 +51,29 @@ const rectRevoc = [
 ]
 for (const t of rectRevoc) assert(`RECT/REVOC+ "${t}"`, detectDataRightsRequest(t).matched, 'no disparó')
 
-// --- POSITIVOS: política / ARCO / habeas data / la palabra "privacidad" ---
-const politica = [
-  'cual es la politica de privacidad',
-  'quiero ver la politica de tratamiento de datos',
+// --- POSITIVOS de DERECHO (ARCO/habeas/protección → escalan) ---
+const derechos = [
   'quiero ejercer mis derechos arco',
   'habeas data',
-  'privacidad',                                   // la promesa del aviso actual
   'proteccion de mis datos personales',
 ]
-for (const t of politica) assert(`POLITICA+ "${t}"`, detectDataRightsRequest(t).matched, 'no disparó')
+for (const t of derechos) assert(`DERECHO+ "${t}"`, detectDataRightsRequest(t).matched, 'no disparó')
+
+// --- CONSULTA de política: matchea detectPrivacyPolicyQuery, NO detectDataRightsRequest ---
+const consultaPolitica = [
+  'cual es la politica de privacidad',
+  'quiero ver la politica de tratamiento de datos',
+  'privacidad',                                   // la promesa del aviso
+  'me pasas la politica de datos',
+]
+for (const t of consultaPolitica) {
+  assert(`POLITICA-query+ "${t}"`, detectPrivacyPolicyQuery(t).matched, 'no matchea policy-query')
+  assert(`POLITICA-query NO es derecho "${t}"`, !detectDataRightsRequest(t).matched, 'no debería escalar como derecho')
+}
+// El EJERCICIO de derecho NO es consulta de política (sigue escalando):
+for (const t of ['quiero eliminar mis datos', 'que datos tienen mios']) {
+  assert(`derecho NO es policy-query "${t}"`, !detectPrivacyPolicyQuery(t).matched, 'un derecho no debe caer en policy-query')
+}
 
 // --- POSITIVOS: origen del dato (acceso — "¿de dónde sacaron mi info?") ---
 const origen = [

@@ -8,11 +8,26 @@ import { getUserSession } from '@/lib/session'
 import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
+import { supabaseAdmin } from '@/lib/supabase/admin'
+import { buildPrivacyNotice } from '@/lib/legal/privacy-notice'
+import { PrivacyPolicyUrlForm } from '@/components/dashboard/privacy-policy-url-form'
 
 export default async function LegalSettingsPage() {
   const session = await getUserSession()
   if (!session) redirect('/login')
   if (isDoctorRole(session)) redirect('/dashboard/settings/clinic')
+
+  // Cargar la clínica para mostrar el aviso REAL (mismo que envía el agente) +
+  // la URL de política configurada. Sin esto, la pantalla mostraba un texto
+  // divergente del que el código realmente manda.
+  const { data: clinic } = await supabaseAdmin
+    .from('clinics')
+    .select('name, privacy_policy_url')
+    .eq('id', session.clinicId)
+    .single()
+  const clinicName = clinic?.name ?? 'tu clínica'
+  const realNotice = buildPrivacyNotice(clinicName)
+  const canWriteSettings = session.permissions.settings?.write ?? false
 
   return (
     <div className="space-y-6">
@@ -81,12 +96,13 @@ export default async function LegalSettingsPage() {
           según lo exige la Ley 1581/2012.
         </p>
 
-        <div className="bg-slate-50 rounded-lg px-4 py-3">
-          <p className="text-xs text-slate-600 italic">
-            &quot;Antes de continuar, te informo que tus datos personales serán tratados conforme a la
-            Ley 1581 de 2012 para la gestión de tu cita. Al escribirnos, aceptas nuestra política
-            de privacidad. Si deseas conocerla, escribe &apos;privacidad&apos;.&quot;
-          </p>
+        <p className="text-xs text-slate-500 mb-2">Texto exacto que envía el agente hoy:</p>
+        <div className="bg-slate-50 rounded-lg px-4 py-3 mb-5">
+          <p className="text-xs text-slate-600 italic whitespace-pre-line">{realNotice}</p>
+        </div>
+
+        <div className="pt-4 border-t border-slate-100">
+          <PrivacyPolicyUrlForm initialUrl={clinic?.privacy_policy_url ?? null} canWrite={canWriteSettings} />
         </div>
       </div>
     </div>

@@ -59,7 +59,7 @@ export default async function ConversationDetailPage({ params }: Props) {
   // Load messages
   const { data: messages } = await supabaseAdmin
     .from('messages')
-    .select('id, role, content, message_type, created_at')
+    .select('id, role, content, message_type, created_at, sender_name')
     .eq('conversation_id', id)
     .order('created_at', { ascending: true })
     .limit(500)
@@ -114,6 +114,7 @@ export default async function ConversationDetailPage({ params }: Props) {
     content: m.content as string,
     message_type: m.message_type as string,
     created_at: m.created_at as string,
+    sender_name: (m.sender_name as string | null) ?? null,
   }))
 
   const canWrite = session.permissions.conversations?.write ?? false

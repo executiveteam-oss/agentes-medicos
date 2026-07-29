@@ -22,6 +22,7 @@ interface Message {
   content: string
   message_type: string
   created_at: string
+  sender_name?: string | null   // quién envió (solo staff); NULL en históricos → "Equipo"
 }
 
 interface ConversationInfo {
@@ -111,6 +112,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
             content: newMsg.content as string,
             message_type: (newMsg.message_type as string) ?? 'text',
             created_at: newMsg.created_at as string,
+            sender_name: (newMsg.sender_name as string | null) ?? null,
           }
           // Avoid duplicates (optimistic messages)
           setMessages((prev) => {
@@ -149,6 +151,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
       content: text,
       message_type: 'text',
       created_at: new Date().toISOString(),
+      sender_name: staffName,   // lo envío yo → mi nombre
     }
     setMessages((prev) => [...prev, optimisticMsg])
     setNewMessage('')
@@ -364,7 +367,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
                             textAlign: isRight ? 'right' : 'left',
                             color: msg.role === 'agent' ? 'var(--v2-primary)' : msg.role === 'staff' ? 'var(--v2-pink)' : 'var(--v2-text-subtle)',
                           }}>
-                            {msg.role === 'agent' ? '🤖 Omu' : msg.role === 'staff' ? staffName : 'Paciente'}
+                            {msg.role === 'agent' ? '🤖 Omu' : msg.role === 'staff' ? (msg.sender_name ? msg.sender_name.split(' ')[0] : 'Equipo') : 'Paciente'}
                           </p>
                         )}
                         <div

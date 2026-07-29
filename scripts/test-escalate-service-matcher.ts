@@ -21,6 +21,11 @@ const pos = [
   'me van a colocar un dispositivo intrauterino',
   'quiero que me retiren el diu',
   'sacar el diu',
+  'me van a hacer una ablacion por histerocopia',  // typo sin 's' → broaden histero(s)?copia
+  'necesito una ecografia de mapeo',               // punto 3
+  'quiero una citologia',                          // punto 6 (opción B escalate)
+  'eso lo hacen con sedacion?',                    // punto 9 transversal
+  'la cirugia es con anestesia?',                  // punto 9 transversal
 ]
 for (const t of pos) assert(`ESCALA+ "${t}"`, detectEscalateService(t).matched, 'no disparó')
 
@@ -61,7 +66,9 @@ const neg = [
 ]
 for (const t of neg) assert(`NEG- "${t}"`, !detectEscalateService(t).matched, 'FALSO POSITIVO')
 
-// --- COBERTURA: los 6 procedimientos ruleados reales de Algia están cubiertos ---
+// --- COBERTURA: todos los procedimientos ruleados reales de Algia están cubiertos ---
+// Incluye los nombres nuevos que se rulean en esta tanda (familia histeroscopia
+// completa, mapeo, citología) — el cron de cobertura debe seguir en 0 huecos.
 const realRuledNames = [
   'BIOPSIA DE ENDOMETRIO Y LESION ENDOMETRIAL POR HISTEROSCOPIA +',
   'COLPOSCOPIA',
@@ -71,6 +78,13 @@ const realRuledNames = [
   'INSERCION DE DISPOSITIVO INTRAUTERINO ANTICONCEPTIVO SIN DISPOSITIVO',
   'Retiro de DIU',
   'VULVOSCOPIA',
+  'ABLACION ENDOMETRIAL POR HISTEROCOPIA',                          // typo real del CT
+  'HISTEROSCOPIA DIAGNOSTICA',
+  'LIBERACION DE ADHERENCIAS INTRALUMINALES DE UTERO POR HISTEROSCOPIA',
+  'PAQ HISTEROSCOPIA CON O SIN BIOPSIA AMBULATORIA SOD',
+  'RESECCIÓN DE POLIPO ENDOMETRIAL POR HISTEROSCOPIA',
+  'ECOGRAFIA DE MAPEO PELVICO',
+  'ESTUDIO DE COLORACION BASICA EN CITOLOGIA VAGINAL TUMORAL Y/O FUNCIONAL',
 ]
 const uncoveredNow = findUncoveredEscalateServices(realRuledNames)
 assert('cobertura: 0 servicios ruleados de Algia sin cubrir', uncoveredNow.length === 0, `descubiertos: ${uncoveredNow.join(' | ')}`)

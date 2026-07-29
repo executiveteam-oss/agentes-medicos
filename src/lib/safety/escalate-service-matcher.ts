@@ -30,9 +30,18 @@ import { normalizeForSafety } from './crisis-patterns'
 export const ESCALATE_SERVICE_KEYWORDS: { re: RegExp; label: string; key: string }[] = [
   { re: /\bcolposcopia\b/, label: 'colposcopia', key: 'colposcopia' },
   { re: /\bvulvoscopia\b/, label: 'vulvoscopia', key: 'vulvoscopia' },
-  { re: /\b(biopsia|histeroscopia)\b/, label: 'ese procedimiento', key: 'biopsia_histeroscopia' },
+  // `histero(s)?copia` tolera el typo "histerocopia" (sin la 's') — así se llama
+  // el CT de ablación en Algia. Sin esto, el cron de cobertura marcaría ese
+  // servicio ruleado como descubierto.
+  { re: /\b(biopsia|histero(s)?copia)\b/, label: 'ese procedimiento', key: 'biopsia_histeroscopia' },
+  { re: /\bmapeo\b/, label: 'la ecografía de mapeo', key: 'mapeo' },
+  { re: /\bcitologia\b/, label: 'la citología', key: 'citologia' },
   { re: /\b(pos ?quirurgico|post ?quirurgico)\b/, label: 'el control posquirúrgico', key: 'posquirurgico' },
   { re: /\b(diu|dispositivo intrauterino)\b/, label: 'el procedimiento de DIU', key: 'diu' },
+  // Sedación es una condición TRANSVERSAL (cualquier servicio bajo sedación va a
+  // humano), no un procedimiento puntual. La keyword atrapa el pedido sin depender
+  // de qué CT sea. Sobre-detección tolerada igual que el resto de la capa.
+  { re: /\b(sedacion|anestesia|sedado|sedada)\b/, label: 'el servicio con sedación', key: 'sedacion' },
 ]
 
 /**

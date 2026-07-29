@@ -40,6 +40,8 @@ interface AppointmentFormModalProps {
   onClose: () => void
   doctors: DoctorOption[]
   initialData?: InitialData
+  /** Pre-selecciona la paciente en una cita NUEVA (ej. aprobar autorización). */
+  prefillPatient?: { id: string; name: string }
   minBookingAdvanceHours?: number
   onSaved: () => void
 }
@@ -53,6 +55,7 @@ export function AppointmentFormModal({
   onClose,
   doctors,
   initialData,
+  prefillPatient,
   minBookingAdvanceHours,
   onSaved,
 }: AppointmentFormModalProps) {
@@ -107,9 +110,9 @@ export function AppointmentFormModal({
       setEpsName(initialData.eps_name || '')
       setDesiredAt(initialData.desired_at ?? '')
     } else {
-      // Reset para creación nueva
-      setPatientId('')
-      setPatientName('')
+      // Reset para creación nueva (con paciente pre-seleccionada si viene)
+      setPatientId(prefillPatient?.id ?? '')
+      setPatientName(prefillPatient?.name ?? '')
       setDoctorId(doctors.length === 1 ? doctors[0].id : '')
       setDate('')
       setTime('')
@@ -123,7 +126,7 @@ export function AppointmentFormModal({
     }
     setError('')
     setFieldErrors({})
-  }, [initialData, isOpen, doctors])
+  }, [initialData, isOpen, doctors, prefillPatient])
 
   // Cerrar con Escape
   useEffect(() => {

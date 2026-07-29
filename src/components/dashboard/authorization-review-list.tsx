@@ -1,45 +1,73 @@
 'use client'
 
 // ============================================================
-// AuthorizationReviewList — Bloque 4
+// AuthorizationReviewList — Bloque 4 (slice chico, 2026-07-29)
 //
-// Lista de autorizaciones pendientes con preview inline del archivo
-// (imagen visible / PDF embed) + botones Aprobar/Rechazar.
+// Bandeja de archivos recibidos. Por tarjeta:
+//  - Preview inline del documento (img/PDF) + link.
+//  - Panel de CONVERSACIÓN (últimos N mensajes) para dar contexto al juzgar.
+//  - Aprobar y agendar → AppointmentFormModal (selectores reales, sin UUIDs).
+//  - Rechazar → motivo predefinido (texto amable a la paciente) + libre.
 //
-// Cada acceso al archivo genera una URL firmada con TTL 10 min Y
-// queda registrado en audit_log (cada acceso, no resumido).
+// NO incluye (rediseño completo, spec 2026-07-27): tabla authorization_requests,
+// historial de intentos, "devolver al agente", navegación/remoción optimista.
 // ============================================================
 
-import { useState, useTransition, useEffect } from 'react'
+import { useState, useTransition, useEffect, useMemo } from 'react'
 import {
   getAuthorizationFileUrl,
-  approveAuthorizationAndCreateAppointment,
   rejectAuthorization,
   markMediaReviewed,
+  markMediaApproved,
+  getConversationTail,
   type PendingAuthorization,
 } from '@/app/actions/authorization-review'
+import { REJECT_REASONS } from '@/lib/rules/reject-reasons'
+import { AppointmentFormModal } from '@/components/dashboard/appointment-form-modal'
+
+interface DoctorOption {
+  id: string
+  name: string
+  specialty: string | null
+}
 
 export function AuthorizationReviewList({
   items,
+  doctors,
+  minBookingAdvanceHours,
 }: {
   items: PendingAuthorization[]
+  doctors: DoctorOption[]
+  minBookingAdvanceHours?: number
 }): React.JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {items.map((item) => (
-        <AuthorizationCard key={item.media_id} item={item} />
+        <AuthorizationCard key={item.media_id} item={item} doctors={doctors} minBookingAdvanceHours={minBookingAdvanceHours} />
       ))}
     </div>
   )
 }
 
-function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.Element {
+function AuthorizationCard({
+  item,
+  doctors,
+  minBookingAdvanceHours,
+}: {
+  item: PendingAuthorization
+  doctors: DoctorOption[]
+  minBookingAdvanceHours?: number
+}): React.JSX.Element {
   const [fileUrl, setFileUrl] = useState<string | null>(null)
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [reviewState, setReviewState] = useState<'idle' | 'approving' | 'rejecting' | 'done'>('idle')
+  const [reviewState, setReviewState] = useState<'idle' | 'rejecting' | 'done'>('idle')
+  const [doneNote, setDoneNote] = useState<string | null>(null)
   const [isMarking, startMark] = useTransition()
+  const [modalOpen, setModalOpen] = useState(false)
+  const [convMsgs, setConvMsgs] = useState<{ role: string; content: string; created_at: string }[] | null>(null)
 
+  // URL firmada del documento
   useEffect(() => {
     let mounted = true
     setLoadingUrl(true)
@@ -49,32 +77,51 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
       else setError(r.error ?? 'Error cargando archivo')
       setLoadingUrl(false)
     }).catch((e) => {
-      if (mounted) {
-        setError(String(e))
-        setLoadingUrl(false)
-      }
+      if (mounted) { setError(String(e)); setLoadingUrl(false) }
     })
     return () => { mounted = false }
   }, [item.media_id])
 
+  // Contexto: últimos mensajes de la conversación
+  useEffect(() => {
+    let mounted = true
+    getConversationTail(item.conversation_id).then((r) => {
+      if (mounted && r.ok) setConvMsgs(r.messages ?? [])
+    }).catch(() => { /* no crítico */ })
+    return () => { mounted = false }
+  }, [item.conversation_id])
+
   const isImage = item.mime_type?.startsWith('image/') ?? false
   const isPdf = item.mime_type === 'application/pdf'
   const isAuthorization = item.context === 'authorization'
+  const prefillPatient = useMemo(
+    () => (item.patient_id ? { id: item.patient_id, name: item.patient_name ?? '' } : undefined),
+    [item.patient_id, item.patient_name],
+  )
 
   function handleMarkReviewed(): void {
     setError(null)
     startMark(async () => {
       const r = await markMediaReviewed(item.media_id)
       if (!r.ok) { setError(r.error ?? 'Error'); return }
+      setDoneNote(null)
+      setReviewState('done')
+    })
+  }
+
+  function handleApprovedAndScheduled(): void {
+    startMark(async () => {
+      await markMediaApproved(item.media_id)
+      setDoneNote('✓ Aprobada y cita agendada.')
       setReviewState('done')
     })
   }
 
   if (reviewState === 'done') {
     return (
-      <div className="card-v2" style={{ padding: '16px', opacity: 0.6 }}>
+      <div className="card-v2" style={{ padding: '16px', opacity: 0.7 }}>
         <p style={{ fontSize: '13px', color: 'var(--v2-text-muted)' }}>
-          ✓ Revisado — se actualizará la lista al recargar la página.
+          {doneNote ?? '✓ Revisado'} — se actualizará la lista al recargar la página.
         </p>
       </div>
     )
@@ -95,11 +142,6 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
             <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>
               {item.patient_phone}
             </div>
-            {item.conversation_escalation_reason && (
-              <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '4px', fontStyle: 'italic' }}>
-                {item.conversation_escalation_reason}
-              </div>
-            )}
           </div>
           <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)' }}>
             Recibido: {new Date(item.created_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}
@@ -107,52 +149,66 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
         </div>
       </div>
 
-      {/* Preview del archivo */}
-      <div style={{ marginBottom: '12px' }}>
-        <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '6px' }}>
-          📎 {item.filename ?? (isPdf ? 'documento.pdf' : 'imagen')} ({item.mime_type})
-          {item.size_bytes && ` — ${Math.round(item.size_bytes / 1024)}KB`}
+      {/* Cuerpo: documento + conversación lado a lado (apila en pantallas chicas) */}
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '12px' }}>
+        {/* Documento */}
+        <div style={{ flex: '1 1 320px', minWidth: 0 }}>
+          <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '6px' }}>
+            📎 {item.filename ?? (isPdf ? 'documento.pdf' : 'imagen')} ({item.mime_type})
+            {item.size_bytes && ` — ${Math.round(item.size_bytes / 1024)}KB`}
+          </div>
+          {loadingUrl && <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Cargando archivo…</div>}
+          {error && <div style={{ fontSize: '12px', color: 'var(--v2-red)' }}>Error: {error}</div>}
+          {fileUrl && isImage && (
+            <>
+              <img src={fileUrl} alt="Archivo recibido" style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '6px', border: '1px solid var(--v2-border-soft)', display: 'block' }} />
+              <div style={{ marginTop: '6px' }}>
+                <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: 'var(--v2-primary)' }}>Abrir en pestaña nueva ↗</a>
+              </div>
+            </>
+          )}
+          {fileUrl && isPdf && (
+            <>
+              <embed src={fileUrl} type="application/pdf" style={{ width: '100%', height: '450px', borderRadius: '6px', border: '1px solid var(--v2-border-soft)' }} />
+              <div style={{ marginTop: '6px' }}>
+                <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: 'var(--v2-primary)' }}>Abrir en pestaña nueva ↗</a>
+              </div>
+            </>
+          )}
+          {fileUrl && !isImage && !isPdf && (
+            <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: 'var(--v2-primary)' }}>Descargar archivo ↗</a>
+          )}
         </div>
-        {loadingUrl && <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Cargando archivo…</div>}
-        {error && <div style={{ fontSize: '12px', color: 'var(--v2-red)' }}>Error: {error}</div>}
-        {fileUrl && isImage && (
-          <>
-            <img
-              src={fileUrl}
-              alt="Archivo recibido"
-              style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '6px', border: '1px solid var(--v2-border-soft)', display: 'block' }}
-            />
-            <div style={{ marginTop: '6px' }}>
-              <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: 'var(--v2-primary)' }}>
-                Abrir en pestaña nueva ↗
-              </a>
-            </div>
-          </>
-        )}
-        {fileUrl && isPdf && (
-          <>
-            <embed src={fileUrl} type="application/pdf" style={{ width: '100%', height: '450px', borderRadius: '6px', border: '1px solid var(--v2-border-soft)' }} />
-            <div style={{ marginTop: '6px' }}>
-              <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: 'var(--v2-primary)' }}>
-                Abrir en pestaña nueva ↗
-              </a>
-            </div>
-          </>
-        )}
-        {fileUrl && !isImage && !isPdf && (
-          <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: 'var(--v2-primary)' }}>
-            Descargar archivo ↗
-          </a>
-        )}
+
+        {/* Conversación (contexto para juzgar) */}
+        <div style={{ flex: '1 1 280px', minWidth: 0 }}>
+          <div style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '6px' }}>💬 Conversación</div>
+          <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', padding: '8px', background: 'var(--v2-bg-soft)' }}>
+            {convMsgs === null && <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Cargando…</div>}
+            {convMsgs !== null && convMsgs.length === 0 && <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Sin mensajes.</div>}
+            {convMsgs?.map((msg, i) => {
+              const fromPatient = msg.role === 'patient'
+              return (
+                <div key={i} style={{ marginBottom: '8px', textAlign: fromPatient ? 'left' : 'right' }}>
+                  <div style={{ fontSize: '9px', color: 'var(--v2-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                    {fromPatient ? 'Paciente' : (msg.role === 'staff' ? 'Equipo' : 'Asistente')}
+                  </div>
+                  <div style={{ fontSize: '12px', display: 'inline-block', maxWidth: '90%', padding: '5px 8px', borderRadius: '6px', background: fromPatient ? 'var(--v2-bg)' : 'var(--v2-primary-soft, #eef2ff)', textAlign: 'left', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {msg.content}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
-      {/* Acciones — Aprobar/Rechazar solo para autorizaciones; Marcar revisado
-          para cualquier archivo (documentos generales solo se ven y se sacan). */}
+      {/* Acciones */}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         {isAuthorization && (
           <>
             <button
-              onClick={() => setReviewState('approving')}
+              onClick={() => setModalOpen(true)}
               disabled={reviewState !== 'idle' || isMarking}
               className="btn-v2-primary"
               style={{ fontSize: '12px', padding: '6px 14px' }}
@@ -162,15 +218,7 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
             <button
               onClick={() => setReviewState('rejecting')}
               disabled={reviewState !== 'idle' || isMarking}
-              style={{
-                fontSize: '12px',
-                padding: '6px 14px',
-                background: 'none',
-                border: '1px solid var(--v2-border-soft)',
-                borderRadius: '6px',
-                color: 'var(--v2-red)',
-                cursor: 'pointer',
-              }}
+              style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-red)', cursor: 'pointer' }}
             >
               ✗ Rechazar
             </button>
@@ -179,127 +227,29 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
         <button
           onClick={handleMarkReviewed}
           disabled={reviewState !== 'idle' || isMarking}
-          style={{
-            fontSize: '12px',
-            padding: '6px 14px',
-            background: 'none',
-            border: '1px solid var(--v2-border-soft)',
-            borderRadius: '6px',
-            color: 'var(--v2-text-muted)',
-            cursor: 'pointer',
-          }}
+          style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-text-muted)', cursor: 'pointer' }}
         >
-          {isMarking ? 'Marcando…' : '✓ Marcar como revisado'}
+          {isMarking ? 'Guardando…' : '✓ Marcar como revisado'}
         </button>
       </div>
 
-      {reviewState === 'approving' && (
-        <ApproveForm
-          mediaId={item.media_id}
-          patientId={null}
-          onDone={() => setReviewState('done')}
-          onCancel={() => setReviewState('idle')}
-          conversationId={item.conversation_id}
-        />
-      )}
       {reviewState === 'rejecting' && (
         <RejectForm
           mediaId={item.media_id}
-          onDone={() => setReviewState('done')}
+          onDone={(note) => { setDoneNote(note); setReviewState('done') }}
           onCancel={() => setReviewState('idle')}
         />
       )}
+
+      <AppointmentFormModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        doctors={doctors}
+        prefillPatient={prefillPatient}
+        minBookingAdvanceHours={minBookingAdvanceHours}
+        onSaved={handleApprovedAndScheduled}
+      />
     </div>
-  )
-}
-
-function ApproveForm({
-  mediaId,
-  conversationId,
-  onDone,
-  onCancel,
-}: {
-  mediaId: string
-  patientId: string | null
-  conversationId: string
-  onDone: () => void
-  onCancel: () => void
-}): React.JSX.Element {
-  const [doctorId, setDoctorId] = useState('')
-  const [ctId, setCtId] = useState('')
-  const [startsAt, setStartsAt] = useState('')
-  const [duration, setDuration] = useState('30')
-  const [patientId, setPatientId] = useState('')
-  const [notes, setNotes] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [isPending, startTransition] = useTransition()
-
-  function handleSubmit(e: React.FormEvent): void {
-    e.preventDefault()
-    setError(null)
-    if (!doctorId || !ctId || !startsAt || !patientId) {
-      setError('Faltan datos requeridos')
-      return
-    }
-    startTransition(async () => {
-      const r = await approveAuthorizationAndCreateAppointment({
-        mediaId,
-        doctorId,
-        consultationTypeId: ctId,
-        startsAt: new Date(startsAt).toISOString(),
-        durationMinutes: parseInt(duration, 10),
-        patientId,
-        reviewNotes: notes,
-      })
-      if (!r.ok) { setError(r.error ?? 'Error'); return }
-      onDone()
-    })
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      style={{ marginTop: '12px', padding: '12px', background: 'var(--v2-bg-soft)', borderRadius: '6px' }}
-    >
-      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px' }}>Aprobar y crear cita</div>
-      <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '12px' }}>
-        Confirmá los datos de la cita. Conversación: {conversationId.slice(0, 8)}…
-      </p>
-
-      <FormField label="Patient ID (UUID)">
-        <input value={patientId} onChange={(e) => setPatientId(e.target.value)} placeholder="UUID del paciente" style={inputStyle} />
-      </FormField>
-      <FormField label="Doctor ID">
-        <input value={doctorId} onChange={(e) => setDoctorId(e.target.value)} placeholder="UUID del doctor" style={inputStyle} />
-      </FormField>
-      <FormField label="Tipo de consulta ID">
-        <input value={ctId} onChange={(e) => setCtId(e.target.value)} placeholder="UUID del CT" style={inputStyle} />
-      </FormField>
-      <FormField label="Inicio (datetime local)">
-        <input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} style={inputStyle} />
-      </FormField>
-      <FormField label="Duración (min)">
-        <input type="number" min={5} max={240} value={duration} onChange={(e) => setDuration(e.target.value)} style={inputStyle} />
-      </FormField>
-      <FormField label="Notas (opcional)">
-        <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} style={inputStyle} />
-      </FormField>
-
-      {error && <div style={{ fontSize: '11px', color: 'var(--v2-red)', marginBottom: '8px' }}>{error}</div>}
-
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <button type="submit" disabled={isPending} className="btn-v2-primary" style={{ fontSize: '12px', padding: '5px 12px' }}>
-          {isPending ? 'Creando…' : 'Crear cita'}
-        </button>
-        <button type="button" onClick={onCancel} disabled={isPending} style={{ fontSize: '12px', padding: '5px 12px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', cursor: 'pointer' }}>
-          Cancelar
-        </button>
-      </div>
-
-      <p style={{ fontSize: '10px', color: 'var(--v2-text-muted)', marginTop: '8px' }}>
-        ⚠ UI de v1 — los IDs se ingresan a mano. En siguiente iteración: dropdowns de paciente, doctor y CT desde la conversación.
-      </p>
-    </form>
   )
 }
 
@@ -309,38 +259,56 @@ function RejectForm({
   onCancel,
 }: {
   mediaId: string
-  onDone: () => void
+  onDone: (note: string) => void
   onCancel: () => void
 }): React.JSX.Element {
-  const [notes, setNotes] = useState('')
+  const [reasonKey, setReasonKey] = useState<string>('')
+  const [freeText, setFreeText] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+
+  const isOtra = reasonKey === 'otra'
 
   function handleSubmit(e: React.FormEvent): void {
     e.preventDefault()
     setError(null)
-    if (notes.trim().length < 10) {
-      setError('Motivo del rechazo es obligatorio (mínimo 10 caracteres)')
-      return
-    }
+    if (!reasonKey) { setError('Selecciona un motivo'); return }
+    if (isOtra && freeText.trim().length < 10) { setError('Para "Otra", escribe el motivo (mínimo 10 caracteres)'); return }
     startTransition(async () => {
-      const r = await rejectAuthorization({ mediaId, reviewNotes: notes.trim() })
+      const r = await rejectAuthorization({ mediaId, reasonKey, freeText: freeText.trim() || undefined })
       if (!r.ok) { setError(r.error ?? 'Error'); return }
-      onDone()
+      onDone(r.windowClosed
+        ? '✗ Rechazada. La ventana de 24h está cerrada — el aviso automático no se envió; contacta a la paciente manualmente.'
+        : '✗ Rechazada y aviso enviado a la paciente.')
     })
   }
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      style={{ marginTop: '12px', padding: '12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}
-    >
-      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: '#991b1b' }}>Rechazar autorización</div>
-      <FormField label="Motivo (obligatorio, mínimo 10 caracteres)">
-        <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ej: La autorización no está direccionada a la clínica" style={inputStyle} />
-      </FormField>
-      {error && <div style={{ fontSize: '11px', color: 'var(--v2-red)', marginBottom: '8px' }}>{error}</div>}
-      <div style={{ display: 'flex', gap: '8px' }}>
+    <form onSubmit={handleSubmit} style={{ marginTop: '12px', padding: '12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: '#991b1b' }}>Rechazar — se avisa a la paciente</div>
+
+      <label style={{ display: 'block', fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '3px' }}>Motivo</label>
+      <select value={reasonKey} onChange={(e) => setReasonKey(e.target.value)} style={{ width: '100%', padding: '5px 8px', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', fontSize: '12px', marginBottom: '8px' }}>
+        <option value="">Seleccionar motivo…</option>
+        {REJECT_REASONS.map((r) => (
+          <option key={r.key} value={r.key}>{r.label}</option>
+        ))}
+      </select>
+
+      <label style={{ display: 'block', fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '3px' }}>
+        {isOtra ? 'Mensaje a la paciente (obligatorio)' : 'Nota interna (opcional, no se envía)'}
+      </label>
+      <textarea
+        rows={2}
+        value={freeText}
+        onChange={(e) => setFreeText(e.target.value)}
+        placeholder={isOtra ? 'Escribe el mensaje que verá la paciente…' : 'Nota para el equipo…'}
+        style={{ width: '100%', padding: '5px 8px', border: '1px solid var(--v2-border-soft)', borderRadius: '4px', fontSize: '12px', fontFamily: 'inherit' }}
+      />
+
+      {error && <div style={{ fontSize: '11px', color: 'var(--v2-red)', margin: '8px 0' }}>{error}</div>}
+
+      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
         <button type="submit" disabled={isPending} style={{ fontSize: '12px', padding: '5px 12px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
           {isPending ? 'Rechazando…' : 'Confirmar rechazo'}
         </button>
@@ -350,22 +318,4 @@ function RejectForm({
       </div>
     </form>
   )
-}
-
-function FormField({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div style={{ marginBottom: '8px' }}>
-      <label style={{ display: 'block', fontSize: '11px', color: 'var(--v2-text-muted)', marginBottom: '3px' }}>{label}</label>
-      {children}
-    </div>
-  )
-}
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '5px 8px',
-  border: '1px solid var(--v2-border-soft)',
-  borderRadius: '4px',
-  fontSize: '12px',
-  fontFamily: 'inherit',
 }

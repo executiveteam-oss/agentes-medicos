@@ -308,7 +308,7 @@ async function processWebhook(body: unknown): Promise<void> {
           const mediaPayload = message.type === 'image' ? message.image : message.document
           if (!mediaPayload?.id) {
             console.error('[Webhook] media sin id', message.type)
-            await sendWhatsAppMessage(message.from, '📎 No pude descargar tu archivo. ¿Podés enviarlo de nuevo?', clinicCreds)
+            await sendWhatsAppMessage(message.from, '📎 No pude descargar tu archivo. ¿Puedes enviarlo de nuevo?', clinicCreds)
             return
           }
 
@@ -318,12 +318,12 @@ async function processWebhook(body: unknown): Promise<void> {
             await sendWhatsAppMessage(
               message.from,
               download.errorCode === 'media_expired'
-                ? '📎 Tu archivo ya no está disponible. ¿Podés enviarlo de nuevo?'
+                ? '📎 Tu archivo ya no está disponible. ¿Puedes enviarlo de nuevo?'
                 : download.errorCode === 'size_exceeded'
-                ? '📎 Tu archivo es muy grande (máximo 25MB). ¿Podés mandarlo más liviano?'
+                ? '📎 Tu archivo es muy grande (máximo 25MB). ¿Puedes enviarlo más liviano?'
                 : download.errorCode === 'mime_not_allowed'
-                ? '📎 Necesito el archivo como JPG, PNG o PDF. ¿Podés cambiar el formato?'
-                : '📎 No pude descargar tu archivo. ¿Podés enviarlo de nuevo?',
+                ? '📎 Necesito el archivo como JPG, PNG o PDF. ¿Puedes cambiar el formato?'
+                : '📎 No pude descargar tu archivo. ¿Puedes enviarlo de nuevo?',
               clinicCreds,
             )
             return
@@ -1206,8 +1206,8 @@ async function handlePrivacyPolicyLink(
   clinicCreds: ClinicWhatsAppCredentials | null,
 ): Promise<void> {
   const msg =
-    `Acá podés ver la política de tratamiento de datos de ${clinic.name}: ${url}\n\n` +
-    `Si querés ejercer un derecho sobre tus datos (acceder, corregir, eliminar, revocar), avisame y una persona del equipo te contacta. 🔐`
+    `Aquí puedes ver la política de tratamiento de datos de ${clinic.name}: ${url}\n\n` +
+    `Si quieres ejercer un derecho sobre tus datos (acceder, corregir, eliminar, revocar), avísame y una persona del equipo te contacta. 🔐`
   await saveMessage(conversation.id, 'agent', msg)
   await sendWhatsAppMessage(patientPhone, msg, clinicCreds)
   console.log(`[CAPA0][POLITICA] link enviado. conv ${conversation.id}`)

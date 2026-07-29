@@ -10,7 +10,7 @@
 
 import { getUserSession } from '@/lib/session'
 import { redirect } from 'next/navigation'
-import { listPendingAuthorizations } from '@/app/actions/authorization-review'
+import { listPendingAuthorizations, getClinicDoctorsForReview } from '@/app/actions/authorization-review'
 import { AuthorizationReviewList } from '@/components/dashboard/authorization-review-list'
 
 export const dynamic = 'force-dynamic'
@@ -38,6 +38,7 @@ export default async function AuthorizationsInboxPage(): Promise<React.JSX.Eleme
 
   const r = await listPendingAuthorizations()
   const items = r.ok ? (r.items ?? []) : []
+  const doctors = await getClinicDoctorsForReview()
 
   return (
     <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
@@ -70,7 +71,7 @@ export default async function AuthorizationsInboxPage(): Promise<React.JSX.Eleme
       )}
 
       {r.ok && items.length > 0 && (
-        <AuthorizationReviewList items={items} />
+        <AuthorizationReviewList items={items} doctors={doctors} />
       )}
     </div>
   )

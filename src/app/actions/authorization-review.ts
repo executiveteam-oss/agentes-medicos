@@ -17,11 +17,16 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkAuthorizationReviewPermission, extractActionError } from '@/lib/actions-helpers'
 import { getUserSession } from '@/lib/session'
 import { generateSignedMediaUrl } from '@/lib/whatsapp/media-handler'
+import { getClinicCreds, sendWhatsAppMessage } from '@/lib/whatsapp/client'
+import { buildRejectPatientMessage, isRejectReasonKey, type RejectReasonKey } from '@/lib/rules/reject-reasons'
 import { revalidatePath } from 'next/cache'
+
+const WINDOW_24H_MS = 24 * 60 * 60 * 1000
 
 export interface PendingAuthorization {
   media_id: string
   conversation_id: string
+  patient_id: string | null
   patient_phone: string
   patient_name: string | null
   whatsapp_media_id: string | null
@@ -65,7 +70,7 @@ export async function listPendingAuthorizations(): Promise<{
       conversations:conversation_id (
         whatsapp_phone,
         context,
-        patients:patient_id ( name )
+        patients:patient_id ( id, name )
       )
     `)
     .eq('clinic_id', clinicId)
@@ -74,7 +79,7 @@ export async function listPendingAuthorizations(): Promise<{
 
   if (error) return { ok: false, error: 'Error consultando archivos recibidos' }
 
-  type ConvRow = { whatsapp_phone: string; context: Record<string, unknown> | null; patients?: { name: string } | { name: string }[] | null }
+  type ConvRow = { whatsapp_phone: string; context: Record<string, unknown> | null; patients?: { id: string; name: string } | { id: string; name: string }[] | null }
   const items: PendingAuthorization[] = (data ?? []).map((row) => {
     const r = row as unknown as {
       id: string
@@ -94,6 +99,7 @@ export async function listPendingAuthorizations(): Promise<{
     return {
       media_id: r.id,
       conversation_id: r.conversation_id,
+      patient_id: patient?.id ?? null,
       patient_phone: conv?.whatsapp_phone ?? '',
       patient_name: patient?.name ?? null,
       whatsapp_media_id: r.whatsapp_media_id,
@@ -253,8 +259,9 @@ export async function approveAuthorizationAndCreateAppointment(params: {
  */
 export async function rejectAuthorization(params: {
   mediaId: string
-  reviewNotes: string
-}): Promise<{ ok: boolean; error?: string }> {
+  reasonKey: string
+  freeText?: string
+}): Promise<{ ok: boolean; error?: string; noticeSent?: boolean; windowClosed?: boolean }> {
   let clinicId: string
   try { clinicId = await checkAuthorizationReviewPermission() }
   catch (err) { return { ok: false, error: extractActionError(err) } }
@@ -262,8 +269,13 @@ export async function rejectAuthorization(params: {
   const session = await getUserSession()
   if (!session) return { ok: false, error: 'No autenticado' }
 
-  if (!params.reviewNotes || params.reviewNotes.trim().length < 10) {
-    return { ok: false, error: 'Motivo del rechazo requerido (mínimo 10 caracteres)' }
+  if (!isRejectReasonKey(params.reasonKey)) {
+    return { ok: false, error: 'Motivo de rechazo inválido' }
+  }
+  const reasonKey: RejectReasonKey = params.reasonKey
+  const freeText = params.freeText?.trim() ?? ''
+  if (reasonKey === 'otra' && freeText.length < 10) {
+    return { ok: false, error: 'Para "Otra", escribe el motivo (mínimo 10 caracteres)' }
   }
 
   const { data: media } = await supabaseAdmin
@@ -275,26 +287,52 @@ export async function rejectAuthorization(params: {
     return { ok: false, error: 'Archivo no encontrado o no pertenece a esta clínica' }
   }
   const m = media as { id: string; clinic_id: string; conversation_id: string; reviewed_at: string | null }
-  if (m.reviewed_at) return { ok: false, error: 'Esta autorización ya fue revisada' }
+  if (m.reviewed_at) return { ok: false, error: 'Este archivo ya fue revisado' }
 
+  // Datos para el aviso a la paciente
+  const { data: conv } = await supabaseAdmin
+    .from('conversations')
+    .select('whatsapp_phone, last_message_at')
+    .eq('id', m.conversation_id)
+    .single()
+  const { data: clinicRow } = await supabaseAdmin
+    .from('clinics').select('name').eq('id', clinicId).single()
+  const clinicName = (clinicRow as { name: string } | null)?.name ?? 'la clínica'
+  const phone = (conv as { whatsapp_phone: string | null } | null)?.whatsapp_phone ?? null
+  const lastMsgAt = (conv as { last_message_at: string | null } | null)?.last_message_at ?? null
+
+  const internalNotes = `[${reasonKey}]${freeText ? ' ' + freeText : ''}`
+  const patientMsg = buildRejectPatientMessage(reasonKey, { clinicName, freeText })
+
+  // Marcar rechazado (el motivo INTERNO va en review_notes, nunca crudo a la paciente)
   await supabaseAdmin
     .from('conversation_media')
     .update({
       reviewed_by: session.clinicUserId,
       reviewed_at: new Date().toISOString(),
       review_decision: 'rejected',
-      review_notes: params.reviewNotes.trim(),
+      review_notes: internalNotes,
     })
     .eq('id', params.mediaId)
 
-  // Mantener la conversación escalada para que el staff coordine con el paciente
-  await supabaseAdmin
-    .from('conversations')
-    .update({
-      context: { escalation_reason: `Autorización rechazada: ${params.reviewNotes.trim()}` },
-      last_message_at: new Date().toISOString(),
-    })
-    .eq('id', m.conversation_id)
+  // Ventana de 24h: aprox por last_message_at (Meta es la verdad final; si en
+  // realidad está cerrada, el envío falla y lo capturamos → noticeSent=false).
+  const windowOpen = !!lastMsgAt && (Date.now() - new Date(lastMsgAt).getTime()) < WINDOW_24H_MS
+  let noticeSent = false
+  if (windowOpen && phone && patientMsg) {
+    try {
+      await sendWhatsAppMessage(phone, patientMsg, await getClinicCreds(clinicId))
+      await supabaseAdmin.from('messages').insert({
+        conversation_id: m.conversation_id, role: 'agent', content: patientMsg,
+      })
+      noticeSent = true
+    } catch (err) {
+      console.error('[rejectAuthorization] no se pudo enviar aviso libre:', err)
+    }
+  }
+  // Fuera de 24h (o falla): NO se manda template todavía — no está aprobado por
+  // Meta. Se cablea sendWhatsAppTemplate('autorizacion_ajuste') cuando aprueben.
+  // Mientras, la secretaria ve windowClosed y avisa manual.
 
   await supabaseAdmin.from('audit_log').insert({
     clinic_id: clinicId,
@@ -303,11 +341,104 @@ export async function rejectAuthorization(params: {
     actor_id: session.clinicUserId,
     target_type: 'conversation_media',
     target_id: params.mediaId,
-    details: { reason: params.reviewNotes.trim() },
+    details: { reason_key: reasonKey, notes: internalNotes, notice_sent: noticeSent, window_open: windowOpen },
   })
 
-  revalidatePath('/dashboard/conversaciones')
+  revalidatePath('/dashboard/conversations/autorizaciones')
+  return { ok: true, noticeSent, windowClosed: !noticeSent }
+}
+
+/**
+ * Marca un archivo de autorización como APROBADO (sin crear la cita — la cita
+ * se crea con el AppointmentFormModal por el flujo normal). Idempotente.
+ * En el slice chico NO se linkea authorization_media_id a la cita (eso lo
+ * resuelve el rediseño completo con authorization_requests).
+ */
+export async function markMediaApproved(mediaId: string): Promise<{ ok: boolean; error?: string }> {
+  let clinicId: string
+  try { clinicId = await checkAuthorizationReviewPermission() }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
+
+  const session = await getUserSession()
+  if (!session) return { ok: false, error: 'No autenticado' }
+
+  const { data: media } = await supabaseAdmin
+    .from('conversation_media')
+    .select('id, clinic_id, reviewed_at')
+    .eq('id', mediaId)
+    .single()
+  if (!media || (media as { clinic_id: string }).clinic_id !== clinicId) {
+    return { ok: false, error: 'Archivo no encontrado o no pertenece a esta clínica' }
+  }
+  if ((media as { reviewed_at: string | null }).reviewed_at) return { ok: true }
+
+  await supabaseAdmin
+    .from('conversation_media')
+    .update({
+      reviewed_by: session.clinicUserId,
+      reviewed_at: new Date().toISOString(),
+      review_decision: 'approved',
+    })
+    .eq('id', mediaId)
+
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: clinicId,
+    action: 'authorization_approved',
+    actor_type: 'staff',
+    actor_id: session.clinicUserId,
+    target_type: 'conversation_media',
+    target_id: mediaId,
+    details: {},
+  })
+
+  revalidatePath('/dashboard/conversations/autorizaciones')
   return { ok: true }
+}
+
+/**
+ * Últimos N mensajes de la conversación, para dar contexto al revisar el
+ * documento (la secretaria ve qué se habló). Slice chico: sin persistir
+ * servicio/convenio, el chat ES el contexto.
+ */
+export async function getConversationTail(
+  conversationId: string,
+  limit = 15,
+): Promise<{ ok: boolean; error?: string; messages?: { role: string; content: string; created_at: string }[] }> {
+  let clinicId: string
+  try { clinicId = await checkAuthorizationReviewPermission() }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
+
+  const { data: conv } = await supabaseAdmin
+    .from('conversations').select('id, clinic_id').eq('id', conversationId).single()
+  if (!conv || (conv as { clinic_id: string }).clinic_id !== clinicId) {
+    return { ok: false, error: 'Conversación no encontrada' }
+  }
+
+  const { data } = await supabaseAdmin
+    .from('messages')
+    .select('role, content, created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  const messages = ((data ?? []) as { role: string; content: string; created_at: string }[]).reverse()
+  return { ok: true, messages }
+}
+
+/** Médicos activos de la clínica, para el selector del modal de agendado. */
+export async function getClinicDoctorsForReview(): Promise<{ id: string; name: string; specialty: string | null }[]> {
+  let clinicId: string
+  try { clinicId = await checkAuthorizationReviewPermission() }
+  catch { return [] }
+
+  const { data } = await supabaseAdmin
+    .from('doctors')
+    .select('id, name, specialty')
+    .eq('clinic_id', clinicId)
+    .eq('is_active', true)
+    .order('name', { ascending: true })
+
+  return (data ?? []) as { id: string; name: string; specialty: string | null }[]
 }
 
 /**

@@ -1,6 +1,14 @@
 # Claim de conversaciones (coordinación del equipo) — Design Spec
 
-> **Estado:** ESPECIFICADO, NO construido. Decisión de construir pendiente de saber si el equipo de Algia trabaja en la MISMA oficina (se coordina hablando) o en TURNOS/remoto separados (necesita el claim en el sistema). Con 4 personas en la misma oficina, se maneja con convención.
+> # ⛔ SUPERSEDED (2026-07-29)
+> **Este spec quedó OBSOLETO. NO es el vigente.** Lo reemplaza
+> **[`2026-07-29-equipo-claim-especialidades-design.md`](./2026-07-29-equipo-claim-especialidades-design.md)**,
+> que extiende el claim (toggle/modo blando-duro/vencimiento configurables +
+> escape "tomar de todos modos" auditado) y lo empaqueta con la feature de
+> especialidades. Leé ESE. Este queda solo como registro histórico del núcleo
+> mínimo original.
+
+> **Estado (histórico):** ESPECIFICADO, NO construido. Decisión de construir pendiente de saber si el equipo de Algia trabaja en la MISMA oficina (se coordina hablando) o en TURNOS/remoto separados (necesita el claim en el sistema). Con 4 personas en la misma oficina, se maneja con convención.
 
 > **Fecha:** 2026-07-29 · **Depende de:** la atribución de mensajes (feature B, ya construido — `messages.sender_name`), que resuelve el "quién respondió qué" del histórico.
 

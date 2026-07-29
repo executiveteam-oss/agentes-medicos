@@ -8,6 +8,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { revalidatePath } from 'next/cache'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
+import { getUserSession } from '@/lib/session'
 import { resolveEscalationNotifications } from '@/lib/notifications/escalation-notify'
 import type { ConversationStatus } from '@/types/database'
 
@@ -171,6 +172,9 @@ export async function sendStaffMessage(
 ): Promise<{ ok: boolean; error?: string; message?: MessageItem }> {
   try {
     const clinicId = await checkWritePermission('conversations')
+    // Quién responde — para atribuir el mensaje (display) + el audit (registro
+    // legal). Sin esto, el chat mostraba el nombre del que MIRA, no del que envió.
+    const session = await getUserSession()
 
     if (!content.trim()) return { ok: false, error: 'El mensaje no puede estar vacío' }
 
@@ -210,9 +214,10 @@ export async function sendStaffMessage(
         content: content.trim(),
         whatsapp_message_id: waMessageId,
         message_type: 'text',
+        sender_name: session?.fullName ?? null,
         metadata: {},
       })
-      .select('id, role, content, message_type, created_at')
+      .select('id, role, content, message_type, created_at, sender_name')
       .single()
 
     if (msgError) return { ok: false, error: 'Mensaje enviado pero error guardando en DB' }
@@ -231,9 +236,10 @@ export async function sendStaffMessage(
       clinic_id: clinicId,
       action: 'staff_message_sent',
       actor_type: 'staff',
+      actor_id: session?.clinicUserId ?? null,
       target_type: 'conversation',
       target_id: conversationId,
-      details: {},
+      details: { sender_name: session?.fullName ?? null },
     })
 
     revalidatePath(`/dashboard/conversations/${conversationId}`)

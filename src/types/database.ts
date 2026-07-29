@@ -267,6 +267,7 @@ export interface Doctor {
   phone: string | null
   email: string | null
   is_active: boolean
+  gender: 'M' | 'F' | null                 // Para el tratamiento Dr./Dra. en el prompt (migración 00085)
   working_hours: WorkingHours | null       // null = usa horarios de la clínica
   agenda_closed: boolean                   // Agenda cerrada temporalmente (migración 00026)
   agenda_closed_reason: string | null      // Motivo del cierre (migración 00026)

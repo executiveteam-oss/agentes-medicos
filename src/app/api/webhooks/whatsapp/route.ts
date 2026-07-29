@@ -31,6 +31,7 @@ import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
 import { detectCrisis, detectHumanRequest, detectDataRightsRequest } from '@/lib/safety/crisis-patterns'
+import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
 import { buildContainmentMessage, DEFAULT_CRISIS_CONFIG, type CrisisConfig } from '@/lib/safety/crisis-config'
 import { buildDataRightsAck } from '@/lib/safety/data-rights-config'
 import { whatsappWebhookSchema } from '@/lib/validators/whatsapp'
@@ -476,6 +477,16 @@ async function processWebhook(body: unknown): Promise<void> {
       // legal, no comparte el kill-switch de crisis. Precedencia: crisis > datos > humano.
       if (detectDataRightsRequest(sanitizedText).matched) {
         await handleDataRightsRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds)
+        return
+      }
+      // Servicio con regla escalate_human (colposcopia, DIU, biopsia, posquirúrgico,
+      // vulvoscopia): escala ANTES de que el LLM redacte, para que NUNCA prometa
+      // agendar un servicio que la clínica reservó para validación humana.
+      // Determinista, model-independent — tapa el hueco de que el modelo no lea la
+      // marca 🚨 del prompt (capa A). El executor sigue como backstop (capa B).
+      const escSvc = detectEscalateService(sanitizedText)
+      if (escSvc.matched) {
+        await handleEscalateService(clinic, patient, conversation, message.from, escSvc.label ?? 'ese servicio', clinicCreds)
         return
       }
       if (crisisCfg.detection_enabled && detectHumanRequest(sanitizedText).matched) {
@@ -1129,6 +1140,43 @@ async function handleCrisis(
   } catch { /* no crítico */ }
 
   console.log(`[CAPA0][CRISIS] manejada. conv ${conversation.id}`)
+}
+
+/**
+ * Maneja un servicio con regla escalate_human detectado por keyword ANTES del
+ * LLM. Manda un mensaje fijo de "un asesor confirma antes de agendar" + escala +
+ * avisa. El LLM nunca corre → nunca promete agendar. Nunca lanza.
+ */
+async function handleEscalateService(
+  clinic: Clinic,
+  patient: { id: string; name: string | null },
+  conversation: { id: string; status: string },
+  patientPhone: string,
+  serviceLabel: string,
+  clinicCreds: ClinicWhatsAppCredentials | null,
+): Promise<void> {
+  const msg = `Para ${serviceLabel}, un asesor del consultorio confirma los detalles contigo antes de agendar. Ya les avisé y te contactan pronto. 🙂`
+  await saveMessage(conversation.id, 'agent', msg)
+  await sendWhatsAppMessage(patientPhone, msg, clinicCreds)
+
+  if (conversation.status !== 'escalated') {
+    await supabaseAdmin
+      .from('conversations')
+      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'servicio_escalate_human' } })
+      .eq('id', conversation.id)
+    await notifyStaffOfEscalation({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, reason: `Servicio que requiere validación humana: ${serviceLabel}` })
+  } else {
+    await refreshEscalationNotifications({ conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name, latestMessage: `Servicio que requiere validación humana: ${serviceLabel}` })
+  }
+
+  try {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinic.id, action: 'escalate_service_deterministic', actor_type: 'system',
+      target_type: 'conversation', target_id: conversation.id, details: { service: serviceLabel },
+    })
+  } catch { /* no crítico */ }
+
+  console.log(`[CAPA0][ESCALATE-SVC] "${serviceLabel}" escalado determinista. conv ${conversation.id}`)
 }
 
 /**

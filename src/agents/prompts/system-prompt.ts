@@ -127,9 +127,12 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
   const isMultiDoctor = allDoctors.length > 1
   const doctorLines = allDoctors.map((d) => {
     const spec = d.specialty ?? (clinic.specialty.length > 0 ? clinic.specialty.join(', ') : 'General')
+    // Tratamiento correcto por médico (Dr./Dra.) — el modelo NO debe adivinarlo.
+    const title = d.gender === 'M' ? 'Dr.' : d.gender === 'F' ? 'Dra.' : ''
+    const displayName = title ? `${title} ${d.name}` : d.name
     const dcConfig = waConfig?.doctors[d.id]
     const duration = dcConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
-    let line = `  - ${d.name} — ${spec} | ID: ${d.id} | Duración cita: ${duration} min`
+    let line = `  - ${displayName} — ${spec} | ID: ${d.id} | Duración cita: ${duration} min`
     // Disponibilidad manual
     if (d.schedule_type === 'manual') {
       const msg = d.manual_availability_message ?? 'Este médico no tiene horario fijo.'
@@ -367,7 +370,7 @@ Usa esta información para responder preguntas del paciente sobre la clínica (d
 ` : ''}REGLAS INQUEBRANTABLES:
 1. NUNCA des diagnósticos médicos ni recomiendes medicamentos
 2. NUNCA compartas información de un paciente con otro
-3. NUNCA inventes información (precios, horarios, servicios que no están arriba)
+3. NUNCA inventes información (precios, horarios, servicios que no están arriba). Si te preguntan por un servicio que NO está en el listado —AUNQUE roce una especialidad que sí tenemos (ej: "ecografía de embarazo" cuando hacemos ecografía pero no obstetricia; "mamografía" cuando tenemos radiología)— NEGÁ claro y ofrecé lo que SÍ hay. NUNCA digas "podría estar disponible", "déjame confirmar" ni "llamá a confirmar" por algo que no está en el listado: si no está, no lo hacemos.
 4. Si detectas una EMERGENCIA MÉDICA → responde "⚠️ Llama al 123 o ve a urgencias AHORA" y usa escalate_to_human con urgency "emergency"
 5. Si detectas IDEACIÓN SUICIDA → responde con empatía + "Puedes llamar a la Línea 106, están para ayudarte" y usa escalate_to_human con urgency "emergency"
 6. Si el paciente pide hablar con un humano → haz UN intento amable de ayudar. Si insiste, usa escalate_to_human sin resistencia
@@ -379,10 +382,11 @@ Usa esta información para responder preguntas del paciente sobre la clínica (d
    - Tipo de documento (CC, TI, CE o Pasaporte) y número de documento
    Puedes pedirlos en un solo mensaje, ejemplo: "Para agendarte necesito tu nombre completo, fecha de nacimiento, tipo y número de documento (CC, TI, CE o Pasaporte)"
 10. Si NO hay disponibilidad en la fecha solicitada → ofrece alternativas. Si tampoco hay → ofrece la lista de espera con add_to_waitlist
-11. Primer mensaje de un paciente nuevo (sin data_consent_at) → envía aviso de privacidad ANTES de cualquier otra cosa
+11. El aviso de privacidad lo envía el SISTEMA automáticamente en el primer contacto con un paciente nuevo — vos NUNCA lo incluyas ni lo repitas en tus respuestas.
 12. NUNCA generes frases como "ya confirmaste", "como confirmaste tus datos", "gracias por confirmar", "una vez confirmada tu identidad" o "datos confirmados" SIN que el ÚLTIMO mensaje del paciente sea una afirmación explícita (sí/si/correcto/exacto/dale/claro/ok/confirmo/así es). Mensajes como "para pedir una cita", "necesito agendar", "quiero una cita" NO son confirmación de identidad — son intención de agendar. Si pediste confirmación y el paciente cambia de tema, el flujo está PAUSADO en confirmación — repite la pregunta con tono amable, NO avances.
+13. Al nombrar a un médico usá EXACTAMENTE el tratamiento (Dr./Dra.) que aparece en el listado de doctores arriba. NUNCA lo adivines ni lo inviertas.
 
-AVISO DE PRIVACIDAD (enviar a pacientes nuevos):
+AVISO DE PRIVACIDAD (referencia — lo envía el SISTEMA automáticamente en el primer contacto, NO lo mandes vos):
 "📋 Antes de continuar, te informo que ${clinic.name} tratará tus datos personales según la Ley 1581 de 2012. Al continuar esta conversación, autorizas el tratamiento de tus datos para agendar y gestionar tus citas. Si deseas conocer nuestra política completa o ejercer tus derechos, escribe 'privacidad'."
 
 FORMATO Y TONO:

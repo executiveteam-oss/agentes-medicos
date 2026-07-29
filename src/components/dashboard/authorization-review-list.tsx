@@ -15,6 +15,7 @@ import {
   getAuthorizationFileUrl,
   approveAuthorizationAndCreateAppointment,
   rejectAuthorization,
+  markMediaReviewed,
   type PendingAuthorization,
 } from '@/app/actions/authorization-review'
 
@@ -37,6 +38,7 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
   const [loadingUrl, setLoadingUrl] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reviewState, setReviewState] = useState<'idle' | 'approving' | 'rejecting' | 'done'>('idle')
+  const [isMarking, startMark] = useTransition()
 
   useEffect(() => {
     let mounted = true
@@ -57,6 +59,16 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
 
   const isImage = item.mime_type?.startsWith('image/') ?? false
   const isPdf = item.mime_type === 'application/pdf'
+  const isAuthorization = item.context === 'authorization'
+
+  function handleMarkReviewed(): void {
+    setError(null)
+    startMark(async () => {
+      const r = await markMediaReviewed(item.media_id)
+      if (!r.ok) { setError(r.error ?? 'Error'); return }
+      setReviewState('done')
+    })
+  }
 
   if (reviewState === 'done') {
     return (
@@ -74,6 +86,9 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
       <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--v2-border-soft)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: '4px', color: isAuthorization ? 'var(--v2-primary)' : 'var(--v2-text-muted)' }}>
+              {isAuthorization ? '🛡 Autorización' : '📎 Documento'}
+            </div>
             <div style={{ fontSize: '14px', fontWeight: 600 }}>
               {item.patient_name ?? 'Paciente sin nombre'}
             </div>
@@ -124,30 +139,50 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
         )}
       </div>
 
-      {/* Botones */}
-      <div style={{ display: 'flex', gap: '8px' }}>
+      {/* Acciones — Aprobar/Rechazar solo para autorizaciones; Marcar revisado
+          para cualquier archivo (documentos generales solo se ven y se sacan). */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        {isAuthorization && (
+          <>
+            <button
+              onClick={() => setReviewState('approving')}
+              disabled={reviewState !== 'idle' || isMarking}
+              className="btn-v2-primary"
+              style={{ fontSize: '12px', padding: '6px 14px' }}
+            >
+              ✓ Aprobar y agendar
+            </button>
+            <button
+              onClick={() => setReviewState('rejecting')}
+              disabled={reviewState !== 'idle' || isMarking}
+              style={{
+                fontSize: '12px',
+                padding: '6px 14px',
+                background: 'none',
+                border: '1px solid var(--v2-border-soft)',
+                borderRadius: '6px',
+                color: 'var(--v2-red)',
+                cursor: 'pointer',
+              }}
+            >
+              ✗ Rechazar
+            </button>
+          </>
+        )}
         <button
-          onClick={() => setReviewState('approving')}
-          disabled={reviewState !== 'idle'}
-          className="btn-v2-primary"
-          style={{ fontSize: '12px', padding: '6px 14px' }}
-        >
-          ✓ Aprobar y agendar
-        </button>
-        <button
-          onClick={() => setReviewState('rejecting')}
-          disabled={reviewState !== 'idle'}
+          onClick={handleMarkReviewed}
+          disabled={reviewState !== 'idle' || isMarking}
           style={{
             fontSize: '12px',
             padding: '6px 14px',
             background: 'none',
             border: '1px solid var(--v2-border-soft)',
             borderRadius: '6px',
-            color: 'var(--v2-red)',
+            color: 'var(--v2-text-muted)',
             cursor: 'pointer',
           }}
         >
-          ✗ Rechazar
+          {isMarking ? 'Marcando…' : '✓ Marcar como revisado'}
         </button>
       </div>
 

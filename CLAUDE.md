@@ -721,9 +721,35 @@ clínicos (autorizaciones direccionadas con datos sensibles).
 4. Auditoría: cada uso del token (sendMessage, downloadMedia) ya queda en
    logs de aplicación. Asegurarse de no loggear el token mismo.
 
-**Cuándo arreglar**: NO bloquea el piloto Algia, pero es prioridad ALTA para
-post-piloto. La activación del bloque 4 con pacientes reales debería ir
-JUNTO con esta encriptación — no como dos pasos separados.
+**🟡 RIESGO ACEPTADO — decisión del 2026-07-29 (activación de recepción de
+archivos, Bloque 4)**: se prendió `media_reception_enabled=true` para Algia
+CON el token todavía en texto plano. Razón de la aceptación: el token **ya
+manejaba datos clínicos con el flag apagado** (el canal de WhatsApp de la
+clínica ya está bajo ese token; enviar mensajes, leer historial via API);
+prender el flag **agranda la exposición** (ahora también descarga documentos
+direccionados) **pero no la crea**. Encriptar hoy no era realista (requiere
+setup de Vault/KMS + rotación) y el bloqueante legal real (poder borrar en 15
+días hábiles) se cubrió con el runbook manual probado
+(`docs/RUNBOOK_BORRADO_ARCO.md`). El riesgo se acepta para el piloto **con
+fecha comprometida de mitigación abajo**, no como "fast-follow" indefinido.
+
+**Cuándo arreglar — FECHA COMPROMETIDA**: el trabajo de encriptación arranca la
+**semana del lunes 2026-08-10** (≤ 2 semanas post-activación). Alcance mínimo de
+esa tanda: (1) encriptar `clinics.whatsapp_access_token`, `whatsapp_app_secret`,
+`whatsapp_verify_token` con Vault/KMS; (2) rotar el token de Algia (invalida
+cualquier copia exfiltrada durante la ventana del piloto). La rotación via OAuth
+refresh (punto 3 de mitigación) puede quedar para después; lo urgente es
+encriptar + rotar una vez.
+
+**Condición de acceso a la DB (verificación 2026-07-29)**: organización Supabase
+única `executivelonco` (plan pro). **La lista de miembros NO es enumerable via
+las tools de MCP** — hay que revisarla en el dashboard (Organization → Team).
+Superficies del `service_role` key (acceso total, bypass RLS) a revisar: (a)
+env var en Vercel prod, (b) miembros del team de Vercel, (c) **3 copias locales
+en la máquina de dev**: `.env.production.local`, `.env.local`,
+`.env.local.prod-backup` ← este backup de credenciales prod conviene revisar/
+borrar si no se usa. Si el acceso es más amplio de lo esperado, revisar antes de
+seguir con el piloto.
 
 **Mismo problema también en `sync_integrations.credentials`** (anotado en
 sección iSalud Sync Agent abajo) — esos credenciales de iSalud también

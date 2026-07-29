@@ -43,11 +43,12 @@ export default async function AuthorizationsInboxPage(): Promise<React.JSX.Eleme
     <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
       <div style={{ marginBottom: '16px' }}>
         <h1 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '4px' }}>
-          🛡 Autorizaciones pendientes
+          📎 Archivos recibidos
         </h1>
         <p style={{ fontSize: '13px', color: 'var(--v2-text-muted)' }}>
-          Archivos de autorización direccionada que los pacientes enviaron por WhatsApp.
-          Revisalos y decidí: aprobás (creás cita) o rechazás (notificás al paciente).
+          Archivos que los pacientes enviaron por WhatsApp (autorizaciones, órdenes,
+          documentos). Abrí cada uno para verlo. Las autorizaciones podés aprobarlas
+          (creás cita) o rechazarlas; el resto, marcalo como revisado cuando lo gestiones.
           {items.length > 0 && <span> Hay <strong>{items.length}</strong> pendientes.</span>}
         </p>
       </div>
@@ -61,9 +62,9 @@ export default async function AuthorizationsInboxPage(): Promise<React.JSX.Eleme
       {r.ok && items.length === 0 && (
         <div className="card-v2" style={{ padding: '32px', textAlign: 'center' }}>
           <p style={{ fontSize: '32px', marginBottom: '8px' }}>✓</p>
-          <p style={{ fontSize: '14px', fontWeight: 600 }}>No hay autorizaciones pendientes</p>
+          <p style={{ fontSize: '14px', fontWeight: 600 }}>No hay archivos pendientes</p>
           <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginTop: '4px' }}>
-            Cuando un paciente envíe una autorización por WhatsApp aparecerá acá.
+            Cuando un paciente envíe un archivo por WhatsApp aparecerá acá.
           </p>
         </div>
       )}

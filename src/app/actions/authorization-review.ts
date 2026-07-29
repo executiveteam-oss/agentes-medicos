@@ -30,6 +30,7 @@ export interface PendingAuthorization {
   size_bytes: number | null
   created_at: string
   conversation_escalation_reason: string | null
+  context: string | null   // 'authorization' | 'document_general' | 'other' | null
 }
 
 /**
@@ -45,11 +46,17 @@ export async function listPendingAuthorizations(): Promise<{
   try { clinicId = await checkAuthorizationReviewPermission() }
   catch (err) { return { ok: false, error: extractActionError(err) } }
 
+  // Bandeja GENERAL de archivos recibidos: todo lo NO revisado (autorizaciones
+  // Y documentos generales). El contexto se etiqueta en la UI. La clasificación
+  // 'authorization' (via última frase del agente) es heurística; sin este
+  // ensanche, un archivo que llega tras un pedido del staff (no del agente)
+  // quedaría como 'document_general' e invisible. Ver docs Bloque 4.
   const { data, error } = await supabaseAdmin
     .from('conversation_media')
     .select(`
       id,
       conversation_id,
+      context,
       whatsapp_media_id,
       mime_type,
       filename,
@@ -62,17 +69,17 @@ export async function listPendingAuthorizations(): Promise<{
       )
     `)
     .eq('clinic_id', clinicId)
-    .eq('context', 'authorization')
     .is('reviewed_at', null)
     .order('created_at', { ascending: true })
 
-  if (error) return { ok: false, error: 'Error consultando autorizaciones pendientes' }
+  if (error) return { ok: false, error: 'Error consultando archivos recibidos' }
 
   type ConvRow = { whatsapp_phone: string; context: Record<string, unknown> | null; patients?: { name: string } | { name: string }[] | null }
   const items: PendingAuthorization[] = (data ?? []).map((row) => {
     const r = row as unknown as {
       id: string
       conversation_id: string
+      context: string | null
       whatsapp_media_id: string | null
       mime_type: string | null
       filename: string | null
@@ -95,6 +102,7 @@ export async function listPendingAuthorizations(): Promise<{
       size_bytes: r.size_bytes,
       created_at: r.created_at,
       conversation_escalation_reason: (conv?.context as Record<string, unknown> | null)?.escalation_reason as string | null ?? null,
+      context: r.context,
     }
   })
 
@@ -299,5 +307,54 @@ export async function rejectAuthorization(params: {
   })
 
   revalidatePath('/dashboard/conversaciones')
+  return { ok: true }
+}
+
+/**
+ * Marca un archivo como revisado SIN decisión de aprobación/rechazo.
+ * Para documentos generales (context != 'authorization') que la secretaria
+ * solo necesita VER y luego sacar de la bandeja. No crea cita ni notifica al
+ * paciente — es el "ya lo vi y lo gestioné" del flujo mínimo. Idempotente.
+ */
+export async function markMediaReviewed(
+  mediaId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  let clinicId: string
+  try { clinicId = await checkAuthorizationReviewPermission() }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
+
+  const session = await getUserSession()
+  if (!session) return { ok: false, error: 'No autenticado' }
+
+  const { data: media } = await supabaseAdmin
+    .from('conversation_media')
+    .select('id, clinic_id, reviewed_at')
+    .eq('id', mediaId)
+    .single()
+  if (!media || (media as { clinic_id: string }).clinic_id !== clinicId) {
+    return { ok: false, error: 'Archivo no encontrado o no pertenece a esta clínica' }
+  }
+  if ((media as { reviewed_at: string | null }).reviewed_at) return { ok: true } // ya revisado
+
+  await supabaseAdmin
+    .from('conversation_media')
+    .update({
+      reviewed_by: session.clinicUserId,
+      reviewed_at: new Date().toISOString(),
+      review_decision: null,
+    })
+    .eq('id', mediaId)
+
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: clinicId,
+    action: 'media_marked_reviewed',
+    actor_type: 'staff',
+    actor_id: session.clinicUserId,
+    target_type: 'conversation_media',
+    target_id: mediaId,
+    details: {},
+  })
+
+  revalidatePath('/dashboard/conversations/autorizaciones')
   return { ok: true }
 }

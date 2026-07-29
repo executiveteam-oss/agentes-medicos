@@ -116,11 +116,18 @@ function AuthorizationCard({ item }: { item: PendingAuthorization }): React.JSX.
         {loadingUrl && <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Cargando archivo…</div>}
         {error && <div style={{ fontSize: '12px', color: 'var(--v2-red)' }}>Error: {error}</div>}
         {fileUrl && isImage && (
-          <img
-            src={fileUrl}
-            alt="Autorización"
-            style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '6px', border: '1px solid var(--v2-border-soft)' }}
-          />
+          <>
+            <img
+              src={fileUrl}
+              alt="Archivo recibido"
+              style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '6px', border: '1px solid var(--v2-border-soft)', display: 'block' }}
+            />
+            <div style={{ marginTop: '6px' }}>
+              <a href={fileUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: '12px', color: 'var(--v2-primary)' }}>
+                Abrir en pestaña nueva ↗
+              </a>
+            </div>
+          </>
         )}
         {fileUrl && isPdf && (
           <>

@@ -110,6 +110,9 @@ export const PROMPT_CACHE_SPLIT_ANCHOR = '\nFECHA Y HORA ACTUAL:'
 export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
+  // Mismo formato ISO que los timestamps del historial, para que el modelo
+  // pueda restar "ahora" contra la marca de cada mensaje.
+  const currentDateTimeIso = format(now, 'yyyy-MM-dd HH:mm')
 
   // Formatear horarios para que Claude los entienda
   const workingHoursText = formatWorkingHours(clinic)
@@ -1042,7 +1045,8 @@ SIEMPRE escribe así:
 ✓ Texto plano conversacional, sin asteriscos, sin bullets, sin negrilla.
 Si necesitas enumerar opciones, escribe en prosa: "Tenemos consulta general, control prenatal y ecografía. ¿Cuál necesitas?"
 
-FECHA Y HORA ACTUAL: ${currentDateTime}
+FECHA Y HORA ACTUAL: ${currentDateTime} [${currentDateTimeIso}]
+(El valor entre corchetes usa el mismo formato que precede a cada mensaje del paciente en el historial, para que puedas calcular cuánto tiempo pasó. Ese corchete es metadata interna: NUNCA lo copies ni lo incluyas en tus respuestas al paciente.)
 
 DATOS DEL PACIENTE ACTUAL:
 - Teléfono WhatsApp: ${patientPhone} — usa ESTE valor en patient_phone al llamar create_appointment, NO le pidas el teléfono al paciente

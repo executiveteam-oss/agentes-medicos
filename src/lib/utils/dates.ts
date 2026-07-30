@@ -19,6 +19,24 @@ export function nowColombia(): Date {
 }
 
 /**
+ * Timestamp absoluto compacto en hora Colombia, para el CONTEXTO del modelo
+ * (NO para el paciente). Formato ISO: "2026-07-30 13:43".
+ *
+ * Se usa para prefijar cada mensaje del historial y también la línea de
+ * FECHA Y HORA ACTUAL del prompt, de modo que el modelo pueda restar dos
+ * valores del MISMO formato y percibir el tiempo transcurrido. Absoluto
+ * (no "hace X") para que un mismo mensaje se renderice idéntico en todos
+ * los turnos.
+ *
+ * @param utcDate - Fecha en formato ISO 8601 (como viene de la DB)
+ */
+export function formatTimestampColombia(utcDate: string): string {
+  const date = parseISO(utcDate)
+  if (!isValid(date)) return ''
+  return format(toZonedTime(date, TIMEZONE), 'yyyy-MM-dd HH:mm')
+}
+
+/**
  * Convierte una fecha UTC a hora colombiana para mostrar al paciente
  * Formato: "martes 15 de febrero de 2026, 2:00 PM"
  *

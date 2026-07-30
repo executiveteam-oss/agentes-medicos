@@ -16,6 +16,7 @@ import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt, PROMPT_CACHE_SPLIT_ANCHOR } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { formatTimestampColombia } from '@/lib/utils/dates'
 import type { Clinic, ConsultationType, Doctor, Message, WhatsAppConfig } from '@/types/database'
 import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 
@@ -312,15 +313,23 @@ function buildMessageHistory(messages: Message[]): MessageParam[] {
   for (const msg of recentMessages) {
     const role: 'user' | 'assistant' = msg.role === 'patient' ? 'user' : 'assistant'
 
+    // Prefijo de timestamp absoluto (hora Colombia) SOLO en los mensajes del
+    // paciente. Así el modelo percibe el tiempo transcurrido sin ver nunca un
+    // corchete en sus PROPIOS turnos → no tiene el patrón para copiarlo y
+    // mandarle la metadata al paciente (riesgo de eco). Las marcas del paciente
+    // + la hora actual del prompt bastan para calcular el gap.
+    const ts = msg.role === 'patient' ? formatTimestampColombia(msg.created_at) : ''
+    const line = ts ? `[${ts}] ${msg.content}` : msg.content
+
     // Claude no permite dos mensajes seguidos del mismo rol
     // Si hay dos seguidos, los concatenamos
     const lastMessage = history[history.length - 1]
     if (lastMessage && lastMessage.role === role && typeof lastMessage.content === 'string') {
-      lastMessage.content += '\n' + msg.content
+      lastMessage.content += '\n' + line
     } else {
       history.push({
         role,
-        content: msg.content,
+        content: line,
       })
     }
   }

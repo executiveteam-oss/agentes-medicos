@@ -313,12 +313,12 @@ function buildMessageHistory(messages: Message[]): MessageParam[] {
   for (const msg of recentMessages) {
     const role: 'user' | 'assistant' = msg.role === 'patient' ? 'user' : 'assistant'
 
-    // Prefijo de timestamp absoluto (hora Colombia) SOLO en los mensajes del
-    // paciente. Así el modelo percibe el tiempo transcurrido sin ver nunca un
-    // corchete en sus PROPIOS turnos → no tiene el patrón para copiarlo y
-    // mandarle la metadata al paciente (riesgo de eco). Las marcas del paciente
-    // + la hora actual del prompt bastan para calcular el gap.
-    const ts = msg.role === 'patient' ? formatTimestampColombia(msg.created_at) : ''
+    // Prefijo de timestamp absoluto (hora Colombia) en TODOS los mensajes
+    // (paciente Y agente). El agente necesita ver la fecha de sus PROPIAS
+    // afirmaciones pasadas —ej. una confirmación de cita— para no re-ofrecerlas
+    // como vigentes. El riesgo de eco del corchete lo cubre la cláusula del
+    // system prompt (es metadata interna, nunca va en las respuestas).
+    const ts = formatTimestampColombia(msg.created_at)
     const line = ts ? `[${ts}] ${msg.content}` : msg.content
 
     // Claude no permite dos mensajes seguidos del mismo rol

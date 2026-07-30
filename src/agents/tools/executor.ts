@@ -16,6 +16,7 @@ import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
+import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart } from '@/lib/calendar/schedule-check'
 import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
 import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, WorkingBlock } from '@/types/database'
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
@@ -967,6 +968,120 @@ async function createAppointment(
     }
   }
 
+  // Backstop de fecha/horario (SOLO camino agente): la cita debe ser FUTURA y
+  // caber completa en una franja del médico. Defense in depth — el LLM no
+  // debería llegar acá con una fecha mala, pero si lo hace, se bloquea y queda
+  // auditado (llm_attempted_anyway).
+  {
+    const { data: schedDoctor } = await supabaseAdmin
+      .from('doctors')
+      .select('name, working_hours, agenda_closed')
+      .eq('id', doctorId)
+      .eq('clinic_id', clinicId)
+      .single()
+    const patientPhone = (input.patient_phone as string) ?? null
+
+    // (1) Futuro
+    if (!isFutureStart(startsAt, new Date())) {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'create_appointment_blocked_by_schedule',
+        actor_type: 'agent',
+        target_type: 'doctor',
+        target_id: doctorId,
+        details: { outcome: 'in_the_past', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, llm_attempted_anyway: true, patient_phone: patientPhone },
+      })
+      return {
+        success: false,
+        error: 'BLOCKED_BY_SCHEDULE',
+        data: {
+          outcome: 'in_the_past',
+          message_for_patient: 'Esa fecha ya pasó. ¿Querés que busque un horario disponible próximamente?',
+          instruction_for_llm: 'La fecha/hora pedida ya pasó. NO agendes. Ofrecé buscar disponibilidad futura con check_availability.',
+        },
+      }
+    }
+
+    const startZoned = toZonedTime(parseISO(startsAt), TIMEZONE)
+    const endZoned = toZonedTime(parseISO(endsAt), TIMEZONE)
+    const dayKey = dayKeyFromIndex(startZoned.getDay())
+    const startHHMM = format(startZoned, 'HH:mm')
+    const endHHMM = format(endZoned, 'HH:mm')
+    const dateStr = format(startZoned, 'yyyy-MM-dd')
+
+    // (2) Agenda cerrada del médico (mismo criterio que check_availability)
+    if (schedDoctor?.agenda_closed) {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'create_appointment_blocked_by_schedule',
+        actor_type: 'agent',
+        target_type: 'doctor',
+        target_id: doctorId,
+        details: { outcome: 'agenda_closed', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, llm_attempted_anyway: true, patient_phone: patientPhone },
+      })
+      return {
+        success: false,
+        error: 'BLOCKED_BY_SCHEDULE',
+        data: {
+          outcome: 'agenda_closed',
+          message_for_patient: 'La agenda de ese médico está cerrada en este momento. ¿Buscamos con otro médico?',
+          instruction_for_llm: 'La agenda del médico está cerrada. NO agendes con él. Ofrecé otro médico de la misma especialidad o avisá que no hay agenda.',
+        },
+      }
+    }
+
+    // (3) Fecha bloqueada (doctor-específica o de toda la clínica)
+    const { data: blockedRows } = await supabaseAdmin
+      .from('blocked_dates')
+      .select('id, doctor_id, reason')
+      .eq('clinic_id', clinicId)
+      .lte('start_date', dateStr)
+      .gte('end_date', dateStr)
+      .or(`doctor_id.eq.${doctorId},doctor_id.is.null`)
+      .limit(1)
+    if (blockedRows && blockedRows.length > 0) {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'create_appointment_blocked_by_schedule',
+        actor_type: 'agent',
+        target_type: 'doctor',
+        target_id: doctorId,
+        details: { outcome: 'blocked_date', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, date: dateStr, blocked_by: blockedRows[0].doctor_id ? 'doctor' : 'clinic', reason: blockedRows[0].reason ?? null, llm_attempted_anyway: true, patient_phone: patientPhone },
+      })
+      return {
+        success: false,
+        error: 'BLOCKED_BY_SCHEDULE',
+        data: {
+          outcome: 'blocked_date',
+          message_for_patient: 'Ese día no hay atención. ¿Buscamos otra fecha?',
+          instruction_for_llm: 'Ese día está bloqueado (no hay atención). NO agendes ahí. Usá check_availability para ofrecer otra fecha.',
+        },
+      }
+    }
+
+    // (4) Cabe completa en la franja del médico
+    const daySched = getDoctorDaySchedule(schedDoctor?.working_hours ?? null, dayKey)
+    if (!isRangeWithinSchedule(startHHMM, endHHMM, daySched)) {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'create_appointment_blocked_by_schedule',
+        actor_type: 'agent',
+        target_type: 'doctor',
+        target_id: doctorId,
+        details: { outcome: 'out_of_schedule', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, ends_at: endsAt, day: dayKey, start_hhmm: startHHMM, end_hhmm: endHHMM, day_active: daySched.active, blocks: daySched.blocks, llm_attempted_anyway: true, patient_phone: patientPhone },
+      })
+      return {
+        success: false,
+        error: 'BLOCKED_BY_SCHEDULE',
+        data: {
+          outcome: 'out_of_schedule',
+          message_for_patient: 'Ese horario no está dentro de la agenda del médico. ¿Buscamos otro?',
+          instruction_for_llm: 'El horario cae fuera de la franja del médico o la cita no entra completa. NO agendes. Usá check_availability para ofrecer horarios válidos.',
+        },
+      }
+    }
+  }
+
   // Buscar o crear paciente
   let { data: patient } = await supabaseAdmin
     .from('patients')
@@ -1251,6 +1366,29 @@ async function cancelAppointment(
     return { success: false, error: 'Esta cita ya está cancelada' }
   }
 
+  // Backstop de fecha: no se cancela una cita ya pasada. Cancelar dispara
+  // notifyWaitlist + syncCancelToHis + sync de Sheets (efectos hacia afuera);
+  // sobre un cupo que ya ocurrió no tienen sentido.
+  if (!isFutureStart(appointment.starts_at, new Date())) {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'cancel_appointment_blocked_past',
+      actor_type: 'agent',
+      target_type: 'appointment',
+      target_id: appointmentId,
+      details: { starts_at: appointment.starts_at, llm_attempted_anyway: true },
+    })
+    return {
+      success: false,
+      error: 'BLOCKED_PAST_APPOINTMENT',
+      data: {
+        outcome: 'in_the_past',
+        message_for_patient: 'Esa cita ya pasó, no hay nada que cancelar. ¿Querés agendar una nueva?',
+        instruction_for_llm: 'La cita ya ocurrió (fecha pasada). NO la canceles. Si el paciente quiere, ofrecé agendar una nueva con check_availability.',
+      },
+    }
+  }
+
   // Increment calendar_sequence for .ics cancel
   const cancelSeq = ((appointment.calendar_sequence as number) ?? 0) + 1
 
@@ -1335,6 +1473,49 @@ async function rescheduleAppointment(
 
   if (!appointment) {
     return { success: false, error: 'Cita no encontrada' }
+  }
+
+  // Backstop de fecha: ni la cita original ni la nueva pueden estar en el pasado.
+  {
+    const nowR = new Date()
+    if (!isFutureStart(appointment.starts_at, nowR)) {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'reschedule_appointment_blocked_past',
+        actor_type: 'agent',
+        target_type: 'appointment',
+        target_id: appointmentId,
+        details: { which: 'original', original_starts_at: appointment.starts_at, llm_attempted_anyway: true },
+      })
+      return {
+        success: false,
+        error: 'BLOCKED_PAST_APPOINTMENT',
+        data: {
+          outcome: 'original_in_the_past',
+          message_for_patient: 'Esa cita ya pasó, así que no se puede reagendar. ¿Querés que agende una nueva?',
+          instruction_for_llm: 'La cita original ya ocurrió (fecha pasada). NO la reagendes. Ofrecé agendar una nueva con check_availability + create_appointment.',
+        },
+      }
+    }
+    if (!isFutureStart(newStartsAt, nowR)) {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'reschedule_appointment_blocked_past',
+        actor_type: 'agent',
+        target_type: 'appointment',
+        target_id: appointmentId,
+        details: { which: 'new', new_starts_at: newStartsAt, llm_attempted_anyway: true },
+      })
+      return {
+        success: false,
+        error: 'BLOCKED_PAST_APPOINTMENT',
+        data: {
+          outcome: 'new_in_the_past',
+          message_for_patient: 'Esa fecha ya pasó. ¿Buscamos un horario disponible próximamente?',
+          instruction_for_llm: 'El nuevo horario pedido ya pasó. NO reagendes ahí. Usá check_availability para ofrecer horarios futuros.',
+        },
+      }
+    }
   }
 
   // Calcular duración: tipo de consulta > config doctor > default clínica

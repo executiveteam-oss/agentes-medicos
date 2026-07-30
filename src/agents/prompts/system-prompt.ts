@@ -161,7 +161,10 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
     if (bookableTypes.length > 0) {
       line += '\n    Tipos de consulta agendables por WhatsApp:'
       for (const ct of bookableTypes) {
-        const priceStr = ct.price ? ` — ${formatCOP(ct.price)}` : ''
+        // A (2026-07-30): el precio SOLO se inyecta para CTs particulares (eps_name null).
+        // Las tarifas de convenio son confidenciales (contrato IPS-EPS) — NUNCA deben estar
+        // en el contexto del LLM, o Haiku las repite. Estructural, no depende del prompt.
+        const priceStr = (ct.price && !ct.eps_name) ? ` — ${formatCOP(ct.price)}` : ''
         const prepStr = ct.requires_preparation ? ' ⚠️ requiere preparación' : ''
         const docsStr = ct.requires_documents ? ' 📄 requiere documentos' : ''
         const reasonStr = ct.requires_free_text_reason ? ' ✏️ pedir motivo' : ''

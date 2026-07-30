@@ -10,6 +10,7 @@ import { revalidatePath } from 'next/cache'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
 import { getUserSession } from '@/lib/session'
 import { resolveEscalationNotifications } from '@/lib/notifications/escalation-notify'
+import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
 import type { ConversationStatus } from '@/types/database'
 
 // ---- Tipos ----
@@ -175,13 +176,14 @@ export async function sendStaffMessage(
     // Quién responde — para atribuir el mensaje (display) + el audit (registro
     // legal). Sin esto, el chat mostraba el nombre del que MIRA, no del que envió.
     const session = await getUserSession()
+    if (!session) return { ok: false, error: 'Error de permisos o sesión' }
 
     if (!content.trim()) return { ok: false, error: 'El mensaje no puede estar vacío' }
 
-    // Obtener datos de la conversación y credenciales de la clínica
+    // Obtener datos de la conversación (incluye claim) y credenciales de la clínica
     const { data: conv, error: convError } = await supabaseAdmin
       .from('conversations')
-      .select('id, whatsapp_phone, clinic_id')
+      .select('id, whatsapp_phone, clinic_id, claimed_by, claimed_by_name, claimed_at')
       .eq('id', conversationId)
       .eq('clinic_id', clinicId)
       .single()
@@ -191,9 +193,28 @@ export async function sendStaffMessage(
     // Credenciales WhatsApp de la clínica
     const { data: clinic } = await supabaseAdmin
       .from('clinics')
-      .select('whatsapp_phone_id, whatsapp_access_token')
+      .select('whatsapp_phone_id, whatsapp_access_token, feature_config')
       .eq('id', clinicId)
       .single()
+
+    // Guardia de claim (modo duro) — evita doble-respuesta si el textarea del
+    // cliente quedó habilitado por una condición de carrera con la propagación
+    // realtime. En soft/disabled/mine/free NO cambia el comportamiento existente.
+    const claimConfig = parseClaimConfig(clinic?.feature_config)
+    if (claimConfig.enabled && claimConfig.mode === 'hard') {
+      const cs = resolveClaimState(
+        { claimed_by: conv.claimed_by, claimed_by_name: conv.claimed_by_name, claimed_at: conv.claimed_at },
+        session.clinicUserId,
+        claimConfig.expiryMinutes,
+        Date.now()
+      )
+      if (cs.state === 'others') {
+        return {
+          ok: false,
+          error: `Otra persona (${cs.byName}) está atendiendo esta conversación. Usa "Tomar de todos modos" para responder.`,
+        }
+      }
+    }
 
     const clinicCreds = clinic?.whatsapp_phone_id && clinic?.whatsapp_access_token
       ? { phoneNumberId: clinic.whatsapp_phone_id, accessToken: clinic.whatsapp_access_token }

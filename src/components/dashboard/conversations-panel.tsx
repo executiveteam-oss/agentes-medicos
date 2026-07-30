@@ -23,6 +23,7 @@ interface ConversationEntry {
   last_message_preview: string
   last_message_role: string
   message_count: number
+  claimed_active_label: string | null
 }
 
 interface Props {
@@ -263,6 +264,24 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
                       {entry.last_message_role === 'agent' && '🤖 '}
                       {entry.last_message_preview || 'Sin mensajes'}
                     </p>
+                    {entry.claimed_active_label !== null && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          marginTop: '4px',
+                          fontSize: '10.5px',
+                          fontWeight: 600,
+                          padding: '1px 8px',
+                          borderRadius: '999px',
+                          background: entry.claimed_active_label === 'tú' ? 'var(--v2-green-soft)' : 'var(--v2-primary-tint)',
+                          color: entry.claimed_active_label === 'tú' ? 'var(--v2-green-deep)' : 'var(--v2-primary)',
+                        }}
+                      >
+                        {entry.claimed_active_label === 'tú' ? '🙋 La atiendes tú' : `🙋 Tomada por ${entry.claimed_active_label}`}
+                      </span>
+                    )}
                   </div>
 
                   {/* Right */}

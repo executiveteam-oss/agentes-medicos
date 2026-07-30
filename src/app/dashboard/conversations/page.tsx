@@ -10,6 +10,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ConversationsPanel } from '@/components/dashboard/conversations-panel'
 import { AlertTriangle, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
+import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,11 +30,21 @@ export default async function ConversationsPage() {
     )
   }
 
+  // Claim de conversaciones (Pieza A) — config de la clínica para resolver
+  // el estado de claim de cada entry server-side (así el vencimiento ya
+  // viene aplicado y el cliente no recomputa el reloj).
+  const { data: clinicRow } = await supabaseAdmin
+    .from('clinics')
+    .select('feature_config')
+    .eq('id', session.clinicId)
+    .maybeSingle()
+  const claimConfig = parseClaimConfig((clinicRow as { feature_config: unknown } | null)?.feature_config)
+
   // ---- Single optimized query: conversations + patient + last message ----
   const { data: conversations } = await supabaseAdmin
     .from('conversations')
     .select(`
-      id, status, last_message_at, whatsapp_phone,
+      id, status, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
       patients(id, name, phone, eps, no_show_count, total_appointments),
       messages(id, content, role, created_at)
     `)
@@ -49,6 +60,20 @@ export default async function ConversationsPage() {
     const lastMsg = msgs?.[0] ?? null
     const msgCount = msgs?.length ?? 0
 
+    const cs = resolveClaimState(
+      {
+        claimed_by: conv.claimed_by as string | null,
+        claimed_by_name: conv.claimed_by_name as string | null,
+        claimed_at: conv.claimed_at as string | null,
+      },
+      session.clinicUserId,
+      claimConfig.expiryMinutes,
+      Date.now()
+    )
+    const claimed_active_label = !claimConfig.enabled
+      ? null
+      : (cs.state === 'others' ? cs.byName : (cs.state === 'mine' ? 'tú' : null))
+
     return {
       id: conv.id as string,
       patient_id: patient?.id ?? null,
@@ -62,6 +87,7 @@ export default async function ConversationsPage() {
         : '',
       last_message_role: lastMsg?.role ?? '',
       message_count: msgCount,
+      claimed_active_label,
     }
   })
 

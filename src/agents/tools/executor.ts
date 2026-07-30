@@ -16,7 +16,6 @@ import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
-import { getDoctorDaySchedule, isStartWithinSchedule, dayKeyFromIndex } from '@/lib/calendar/schedule-check'
 import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
 import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, WorkingBlock } from '@/types/database'
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
@@ -965,54 +964,6 @@ async function createAppointment(
     return {
       success: false,
       error: 'SLOT_JUST_TAKEN — Ese horario se acaba de ocupar por otra persona mientras el paciente esperaba. DEBES: (1) disculparte: "Disculpa, ese horario se acaba de ocupar mientras hablábamos" (2) usar check_availability para buscar alternativas cercanas (3) ofrecer 2-3 opciones nuevas. NUNCA actúes como si nunca hubieras propuesto el horario original.',
-    }
-  }
-
-  // GUARD DE HORARIO — backstop duro (camino del AGENTE). La hora pedida DEBE
-  // caer dentro del working_hours DEL MÉDICO de la cita. Mismo patrón que las
-  // reglas: bloquear + loguear con llm_attempted_anyway. Se ubica ANTES de crear
-  // el paciente → un slot fuera de horario no deja rastro de datos personales.
-  // El modal manual de la secretaria (src/app/actions/appointments.ts) NO pasa
-  // por acá: ella tiene autoridad para agendar fuera de horario.
-  {
-    const { data: schedDoctor } = await supabaseAdmin
-      .from('doctors')
-      .select('name, working_hours')
-      .eq('id', doctorId)
-      .eq('clinic_id', clinicId)
-      .single()
-    const startZoned = toZonedTime(parseISO(startsAt), TIMEZONE)
-    const dayKey = dayKeyFromIndex(startZoned.getDay())
-    const startHHMM = format(startZoned, 'HH:mm')
-    const daySched = getDoctorDaySchedule(schedDoctor?.working_hours ?? null, dayKey)
-    if (!isStartWithinSchedule(startHHMM, daySched)) {
-      await supabaseAdmin.from('audit_log').insert({
-        clinic_id: clinicId,
-        action: 'create_appointment_blocked_by_schedule',
-        actor_type: 'agent',
-        target_type: 'doctor',
-        target_id: doctorId,
-        details: {
-          doctor_name: schedDoctor?.name ?? null,
-          starts_at: startsAt,
-          day: dayKey,
-          start_hhmm: startHHMM,
-          day_active: daySched.active,
-          blocks: daySched.blocks,
-          llm_attempted_anyway: true,
-          patient_phone: patientPhone,
-        },
-      })
-      return {
-        success: false,
-        error: 'BLOCKED_BY_SCHEDULE',
-        data: {
-          outcome: 'out_of_schedule',
-          doctor_name: schedDoctor?.name ?? null,
-          message_for_patient: 'Ese horario no está disponible con el médico. Dame un momento y te ofrezco los horarios reales disponibles.',
-          instruction_for_llm: 'NO se agendó: el horario cae FUERA del horario de atención del médico. Usá check_availability para obtener los horarios reales y ofrecé 2-3 alternativas. NO reintentes create_appointment con el mismo horario.',
-        },
-      }
     }
   }
 

@@ -32,11 +32,13 @@ export async function updateClaimConfig(config: ClaimConfig): Promise<{ ok: bool
       return { ok: false, error: 'Vencimiento inválido' }
     }
 
-    const { data: clinic } = await supabaseAdmin
+    const { data: clinic, error: readErr } = await supabaseAdmin
       .from('clinics')
       .select('feature_config')
       .eq('id', clinicId)
       .single()
+
+    if (readErr) return { ok: false, error: 'Error leyendo la configuración' }
 
     const fc = ((clinic as { feature_config: Record<string, unknown> | null } | null)?.feature_config) ?? {}
     const prevClaim = (fc.claim && typeof fc.claim === 'object') ? (fc.claim as Record<string, unknown>) : {}

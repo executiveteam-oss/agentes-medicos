@@ -42,7 +42,7 @@ export function ClaimConfigForm({ initial }: Props) {
         <h2 className="text-sm font-semibold text-slate-900">Coordinación</h2>
       </div>
       <p className="text-slate-400 text-xs mb-4">
-        Evitá que dos personas del equipo respondan la misma conversación al mismo tiempo.
+        Evita que dos personas del equipo respondan la misma conversación al mismo tiempo.
       </p>
 
       {/* Toggle enabled */}

@@ -111,7 +111,7 @@ async function checkAvailability(
   // Verificar si el doctor tiene agenda cerrada o disponibilidad manual
   const { data: targetDoctor } = await supabaseAdmin
     .from('doctors')
-    .select('agenda_closed, agenda_closed_reason, agenda_closed_until, name, schedule_type, manual_availability_message')
+    .select('agenda_closed, agenda_closed_reason, agenda_closed_until, name, schedule_type, manual_availability_message, working_hours')
     .eq('id', doctorId)
     .eq('clinic_id', clinicId)
     .single()
@@ -259,9 +259,11 @@ async function checkAvailability(
   let isDayActive = false
   let dayBlocks: WorkingBlock[] = []
 
-  // 1) doctor.working_hours per-day (formato nuevo o viejo, ambos normalizados)
-  if (doctor.working_hours) {
-    const docHours = normalizeWorkingHours(doctor.working_hours)
+  // 1) working_hours del médico PEDIDO (targetDoctor por doctorId), NO del `doctor`
+  // param (que es el principal de la clínica). Fix: antes devolvía el horario de
+  // otro médico para cualquier no-principal.
+  if (targetDoctor?.working_hours) {
+    const docHours = normalizeWorkingHours(targetDoctor.working_hours)
     const dayCfg = docHours[dayKey]
     if (dayCfg.active && dayCfg.blocks.length > 0) {
       isDayActive = true

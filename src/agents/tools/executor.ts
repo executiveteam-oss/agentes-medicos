@@ -16,6 +16,7 @@ import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
+import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
 import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, WorkingBlock } from '@/types/database'
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -79,6 +80,9 @@ export async function executeTool(
 
       case 'check_eps_convenio':
         return await checkEpsConvenio(input, clinicId)
+
+      case 'get_consultation_price':
+        return await getConsultationPrice(input, clinicId)
 
       default:
         return { success: false, error: `Tool "${toolName}" no reconocida` }
@@ -1723,6 +1727,48 @@ async function checkEpsConvenio(
         : `No se encontró convenio con "${epsName}". Informa al paciente y ofrece agendar como particular.`,
     },
   }
+}
+
+// ============================================================
+// GET CONSULTATION PRICE — La regla de precio vive en price-tool-logic,
+// este tool solo lee el consultation_type y delega la decisión (B1).
+// NUNCA calcula ni expone un precio por su cuenta.
+// ============================================================
+async function getConsultationPrice(
+  input: Record<string, unknown>,
+  clinicId: string
+): Promise<ToolResult> {
+  const ctId = (input.consultation_type_id as string | undefined)?.trim()
+  if (!ctId) {
+    return {
+      success: true,
+      data: {
+        action: 'ask_mode',
+        message: 'Para decirte el valor necesito saber cómo vas a pagar: ¿particular, EPS o medicina prepagada?',
+      },
+    }
+  }
+
+  const { data: ct } = await supabaseAdmin
+    .from('consultation_types')
+    .select('name, price, eps_name')
+    .eq('id', ctId)
+    .eq('clinic_id', clinicId)
+    .maybeSingle()
+
+  if (!ct) {
+    return {
+      success: true,
+      data: {
+        action: 'no_particular_price',
+        message: 'Ese valor lo confirma el equipo del consultorio; ¿quieres que te agende?',
+      },
+    }
+  }
+
+  const mode = normalizePaymentMode(input.modo_pago as string | undefined)
+  const decision = decidePriceResponse(ct as PriceCtInput, mode)
+  return { success: true, data: { action: decision.action, message: decision.message } }
 }
 
 // ============================================================

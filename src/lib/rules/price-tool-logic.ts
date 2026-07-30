@@ -36,9 +36,12 @@ export function decidePriceResponse(ct: PriceCtInput, mode: PaymentMode): PriceD
   if (mode === 'unknown') return { action: 'ask_mode', message: MSG_ASK }
   if (mode === 'eps') return { action: 'convenio_copago_eps', message: MSG_EPS }
   if (mode === 'prepagada') return { action: 'convenio_copago_prepagada', message: MSG_PREPAGADA }
-  // mode === 'particular'
-  // Segunda red: si el CT es de convenio, NUNCA devolver su tarifa aunque digan particular.
-  if (ct.eps_name != null) return { action: 'no_particular_price', message: MSG_NO_PARTICULAR }
-  if (ct.price == null) return { action: 'no_particular_price', message: MSG_NO_PARTICULAR }
-  return { action: 'quote_particular', price: ct.price, message: `El valor particular de ${ct.name} es ${formatCOP(ct.price)}.` }
+  if (mode === 'particular') {
+    // Segunda red: si el CT es de convenio, NUNCA devolver su tarifa aunque digan particular.
+    if (ct.eps_name != null) return { action: 'no_particular_price', message: MSG_NO_PARTICULAR }
+    if (ct.price == null) return { action: 'no_particular_price', message: MSG_NO_PARTICULAR }
+    return { action: 'quote_particular', price: ct.price, message: `El valor particular de ${ct.name} es ${formatCOP(ct.price)}.` }
+  }
+  // FINAL default: cualquier otro valor (garbage mode) nunca debe citar un precio particular
+  return { action: 'ask_mode', message: MSG_ASK }
 }

@@ -1,4 +1,4 @@
-import { normalizePaymentMode, decidePriceResponse } from '../src/lib/rules/price-tool-logic'
+import { normalizePaymentMode, decidePriceResponse, type PaymentMode } from '../src/lib/rules/price-tool-logic'
 
 let pass = 0, fail = 0
 function assert(label: string, ok: boolean, detail?: string): void {
@@ -31,10 +31,10 @@ assert('unknown → ask_mode', decidePriceResponse(particularCt, 'unknown').acti
 // modo eps/prepagada → copago, NUNCA tarifa (ni siquiera si el CT tiene price)
 const eps = decidePriceResponse(convenioCt, 'eps')
 assert('eps → copago_eps', eps.action === 'convenio_copago_eps')
-assert('eps NO incluye la tarifa 250.000', !eps.message.includes('250') && eps.price === undefined)
+assert('eps NO incluye la tarifa 250.000', !eps.message.includes('250') && !('price' in eps))
 const prep = decidePriceResponse(particularCt, 'prepagada')
 assert('prepagada → copago_prepagada', prep.action === 'convenio_copago_prepagada')
-assert('prepagada NO incluye precio', prep.price === undefined && !/\d{3}/.test(prep.message.replace('plan','')))
+assert('prepagada NO incluye precio', !('price' in prep) && !/\d{3}/.test(prep.message.replace('plan','')))
 // modo particular + CT particular → precio exacto
 const q = decidePriceResponse(particularCt, 'particular')
 assert('particular + CT particular → quote_particular', q.action === 'quote_particular' && q.price === 264720)
@@ -42,9 +42,13 @@ assert('quote incluye el precio formateado', q.message.includes('264.720'))
 // SEGUNDA RED: particular pero CT es de convenio → NO da tarifa
 const guard = decidePriceResponse(convenioCt, 'particular')
 assert('particular + CT convenio → no_particular_price (defensa)', guard.action === 'no_particular_price')
-assert('esa defensa NO filtra la tarifa 250.000', !guard.message.includes('250') && guard.price === undefined)
+assert('esa defensa NO filtra la tarifa 250.000', !guard.message.includes('250') && !('price' in guard))
 // particular sin precio configurado → no_particular_price
 assert('particular + CT sin precio → no_particular_price', decidePriceResponse(particularSinPrecio, 'particular').action === 'no_particular_price')
+// FIX 1: default explícito — garbage mode NUNCA cita precio particular
+const garbageMode = decidePriceResponse(particularCt, 'basura' as unknown as PaymentMode)
+assert('garbage mode "basura" → ask_mode (nunca particular)', garbageMode.action === 'ask_mode')
+assert('garbage mode usa el mensaje seguro de preguntar', garbageMode.message === 'Para decirte el valor necesito saber cómo vas a pagar: ¿particular, EPS o medicina prepagada?')
 
 console.log(`\nResultado: ${pass} ✅ / ${fail} ❌`)
 process.exit(fail === 0 ? 0 : 1)

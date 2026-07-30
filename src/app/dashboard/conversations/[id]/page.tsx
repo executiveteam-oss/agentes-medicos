@@ -9,6 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ConversationChat } from '@/components/dashboard/conversation-chat'
 import Link from 'next/link'
 import { nowColombia } from '@/lib/utils/dates'
+import { parseClaimConfig } from '@/lib/rules/claim-logic'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +36,7 @@ export default async function ConversationDetailPage({ params }: Props) {
   // Load conversation with patient details
   const { data: conv, error } = await supabaseAdmin
     .from('conversations')
-    .select('id, status, escalated_to, escalated_at, created_at, whatsapp_phone, patient_id, patients(id, name, phone, eps, no_show_count, total_appointments, document_type, document_number, date_of_birth, created_at)')
+    .select('id, status, escalated_to, escalated_at, created_at, whatsapp_phone, patient_id, claimed_by, claimed_by_name, claimed_at, patients(id, name, phone, eps, no_show_count, total_appointments, document_type, document_number, date_of_birth, created_at)')
     .eq('id', id)
     .eq('clinic_id', session.clinicId)
     .single()
@@ -120,6 +121,13 @@ export default async function ConversationDetailPage({ params }: Props) {
   const canWrite = session.permissions.conversations?.write ?? false
   const staffName = session.fullName.split(' ')[0] ?? session.fullName
 
+  const { data: clinicRow } = await supabaseAdmin
+    .from('clinics')
+    .select('feature_config')
+    .eq('id', session.clinicId)
+    .single()
+  const claimConfig = parseClaimConfig((clinicRow as { feature_config: unknown } | null)?.feature_config)
+
   return (
     <div style={{ height: 'calc(100vh - 56px)', display: 'flex', flexDirection: 'column' }}>
       <ConversationChat
@@ -128,6 +136,13 @@ export default async function ConversationDetailPage({ params }: Props) {
         canWrite={canWrite}
         staffName={staffName}
         nextAppointment={nextAppointment}
+        claimConfig={claimConfig}
+        claim={{
+          claimed_by: conv.claimed_by as string | null,
+          claimed_by_name: conv.claimed_by_name as string | null,
+          claimed_at: conv.claimed_at as string | null,
+        }}
+        myClinicUserId={session.clinicUserId}
       />
     </div>
   )

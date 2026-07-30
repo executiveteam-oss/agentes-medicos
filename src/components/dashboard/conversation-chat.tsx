@@ -8,11 +8,13 @@ import { useState, useRef, useEffect, useTransition } from 'react'
 import { formatPhone } from '@/lib/utils/dates'
 import { getInitials } from '@/lib/utils/ui-helpers'
 import { sendStaffMessage, updateConversationStatus, reopenConversation } from '@/app/actions/conversations'
+import { claimConversation, releaseConversation, overrideClaim } from '@/app/actions/claim'
+import { resolveClaimState, type ClaimConfig, type ClaimRow } from '@/lib/rules/claim-logic'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
-import { ChevronLeft, Send, Info, MoreVertical, Image, FileText, Mic, User, Calendar, AlertTriangle, X } from 'lucide-react'
+import { ChevronLeft, Send, Info, MoreVertical, Image, FileText, Mic, User, Calendar, AlertTriangle, X, Lock, Unlock } from 'lucide-react'
 
 // ---- Types ----
 
@@ -56,6 +58,9 @@ interface Props {
   canWrite: boolean
   staffName: string
   nextAppointment: NextAppointment | null
+  claimConfig: ClaimConfig
+  claim: ClaimRow
+  myClinicUserId: string
 }
 
 // ---- Helpers ----
@@ -80,7 +85,7 @@ function needsDateSep(current: string, previous: string | null): boolean {
 
 // ---- Main Component ----
 
-export function ConversationChat({ conversation, initialMessages, canWrite, staffName, nextAppointment }: Props) {
+export function ConversationChat({ conversation, initialMessages, canWrite, staffName, nextAppointment, claimConfig, claim: initialClaim, myClinicUserId }: Props) {
   const [messages, setMessages] = useState(initialMessages)
   const [status, setStatus] = useState(conversation.status)
   const [newMessage, setNewMessage] = useState('')
@@ -88,6 +93,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   const [isPending, startTransition] = useTransition()
   const [showContext, setShowContext] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
+  const [claim, setClaim] = useState<ClaimRow>(initialClaim)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -95,6 +101,18 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Auto-claim al abrir la conversación (si el feature está activo)
+  useEffect(() => {
+    if (!claimConfig.enabled) return
+    claimConversation(conversation.id).then((r) => {
+      if (r.ok && r.state === 'mine') {
+        setClaim({ claimed_by: myClinicUserId, claimed_by_name: staffName, claimed_at: new Date().toISOString() })
+      }
+      // si r.state==='others' NO tomamos; el banner ya lo refleja desde props/realtime
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation.id])
 
   // Realtime: listen for new messages
   useEffect(() => {
@@ -127,8 +145,14 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `id=eq.${conversation.id}` },
         (payload) => {
-          const newStatus = (payload.new as Record<string, unknown>).status as string
+          const row = payload.new as Record<string, unknown>
+          const newStatus = row.status as string
           if (newStatus) setStatus(newStatus as typeof status)
+          setClaim({
+            claimed_by: (row.claimed_by as string | null) ?? null,
+            claimed_by_name: (row.claimed_by_name as string | null) ?? null,
+            claimed_at: (row.claimed_at as string | null) ?? null,
+          })
         }
       )
       .subscribe()
@@ -201,6 +225,33 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   const assistanceRate = conversation.patient_total_appointments > 0
     ? Math.round(((conversation.patient_total_appointments - conversation.patient_no_show_count) / conversation.patient_total_appointments) * 100)
     : 100
+
+  const claimState = resolveClaimState(claim, myClinicUserId, claimConfig.expiryMinutes, Date.now())
+  const lockedByOther = claimConfig.enabled && claimConfig.mode === 'hard' && claimState.state === 'others'
+
+  function handleReleaseClaim() {
+    startTransition(async () => {
+      const r = await releaseConversation(conversation.id)
+      if (r.ok) {
+        setClaim({ claimed_by: null, claimed_by_name: null, claimed_at: null })
+      } else {
+        showToastMsg('error' in r && r.error ? r.error : 'Error liberando la conversación')
+      }
+    })
+  }
+
+  function handleOverrideClaim() {
+    const byName = claimState.byName ?? 'Otro usuario'
+    if (!window.confirm(`${byName} tiene esta conversación tomada. ¿Entrar de todos modos?`)) return
+    startTransition(async () => {
+      const r = await overrideClaim(conversation.id)
+      if (r.ok) {
+        setClaim({ claimed_by: myClinicUserId, claimed_by_name: staffName, claimed_at: new Date().toISOString() })
+      } else {
+        showToastMsg('error' in r && r.error ? r.error : 'Error tomando la conversación')
+      }
+    })
+  }
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', fontFamily: 'var(--font-manrope), sans-serif' }}>
@@ -419,6 +470,38 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
           )}
         </div>
 
+        {/* Claim banner */}
+        {canWrite && claimConfig.enabled && claimState.state === 'mine' && (
+          <div style={{ padding: '8px 18px', background: 'var(--v2-green-soft)', borderTop: '1px solid var(--v2-border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--v2-green-deep)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Unlock size={13} /> La estás atendiendo tú
+            </span>
+            <button
+              onClick={handleReleaseClaim}
+              disabled={isPending}
+              style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-green-deep)', background: 'none', border: 'none', cursor: isPending ? 'not-allowed' : 'pointer', textDecoration: 'underline' }}
+            >
+              Liberar
+            </button>
+          </div>
+        )}
+        {canWrite && claimConfig.enabled && claimState.state === 'others' && (
+          <div style={{ padding: '8px 18px', background: 'var(--v2-amber-soft)', borderTop: '1px solid var(--v2-border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12px', color: '#b07d00', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Lock size={13} /> 🙋 {claimState.byName ?? 'Otro usuario'} está atendiendo (hace {claimState.heldMinutes ?? 0} min)
+            </span>
+            {claimConfig.mode === 'hard' && (
+              <button
+                onClick={handleOverrideClaim}
+                disabled={isPending}
+                style={{ fontSize: '11px', fontWeight: 600, color: '#b07d00', background: 'none', border: '1px solid #b07d00', borderRadius: '6px', padding: '4px 10px', cursor: isPending ? 'not-allowed' : 'pointer' }}
+              >
+                Tomar de todos modos
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Input */}
         {canWrite && (
           <div style={{ padding: '12px 18px', background: 'var(--v2-bg-card)', borderTop: '1px solid var(--v2-border-soft)', flexShrink: 0 }}>
@@ -428,18 +511,19 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Escribe un mensaje..."
+                placeholder={lockedByOther ? `${claimState.byName ?? 'Otro usuario'} está atendiendo esta conversación` : 'Escribe un mensaje...'}
                 rows={1}
+                disabled={lockedByOther}
                 className="input-v2"
                 style={{ flex: 1, resize: 'none', minHeight: '42px', maxHeight: '120px' }}
               />
               <button
                 onClick={handleSend}
-                disabled={isPending || !newMessage.trim()}
+                disabled={isPending || !newMessage.trim() || lockedByOther}
                 style={{
                   width: '42px', height: '42px', borderRadius: 'var(--v2-radius)', border: 'none',
-                  background: isPending || !newMessage.trim() ? 'var(--v2-bg-deeper)' : 'linear-gradient(135deg, var(--v2-primary), var(--v2-primary-deep))',
-                  color: '#fff', cursor: isPending || !newMessage.trim() ? 'not-allowed' : 'pointer',
+                  background: isPending || !newMessage.trim() || lockedByOther ? 'var(--v2-bg-deeper)' : 'linear-gradient(135deg, var(--v2-primary), var(--v2-primary-deep))',
+                  color: '#fff', cursor: isPending || !newMessage.trim() || lockedByOther ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   boxShadow: newMessage.trim() ? '0 2px 8px rgba(107, 91, 255, 0.3)' : 'none',
                   transition: 'all 0.15s',

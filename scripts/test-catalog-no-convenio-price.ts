@@ -1,9 +1,13 @@
 /**
- * Regresión (fix A, 2026-07-30): el catálogo del system prompt NO debe inyectar
- * la tarifa de CTs de convenio (eps_name != null) — es confidencial (contrato
- * IPS-EPS) y Haiku la repetiría. SÍ debe inyectar el precio de CTs particulares
- * (eps_name null, derecho legal Ley 1480). El NOMBRE del convenio se conserva
- * (el agente lo usa para elegir el tipo_id al agendar).
+ * Regresión (B1, 2026-07-30): el catálogo del system prompt NO debe inyectar
+ * NINGÚN precio — ni de CTs particulares ni de CTs de convenio (eps_name !=
+ * null). El único camino a un precio es el tool get_consultation_price
+ * (regla en código, Task 1/2). El NOMBRE del convenio SÍ se conserva (el
+ * agente lo usa para elegir el tipo_id al agendar).
+ *
+ * Historial: hasta B1, un fix anterior ("fix A") inyectaba el precio SOLO
+ * para CTs particulares. B1 lo saca también para esos — cero precios en el
+ * catálogo, sin excepción.
  *
  * Run: TZ=America/Bogota npx tsx scripts/test-catalog-no-convenio-price.ts
  */
@@ -70,16 +74,24 @@ const prompt = buildSystemPrompt({
 
 const lineaParticular = prompt.split('\n').find((l) => l.includes('tipo_id: ct-part')) ?? ''
 const lineaConvenio = prompt.split('\n').find((l) => l.includes('tipo_id: ct-conv')) ?? ''
+const lineasCatalogo = prompt.split('\n').filter((l) => l.includes('tipo_id:'))
 
-console.log('Fix A — tarifas de convenio fuera del catálogo\n')
+console.log('B1 — cero precios en el catálogo (ni particular ni convenio)\n')
 console.log('  particular:', lineaParticular.trim())
 console.log('  convenio  :', lineaConvenio.trim(), '\n')
 
-// Particular: SÍ precio (Ley 1480, derecho a saberlo)
-assert('particular muestra su precio ($264.720)', lineaParticular.includes('264.720'))
+// B1: NINGÚN precio en el catálogo, ni siquiera el particular (antes sí lo mostraba — fix A superado)
+assert('particular ya NO muestra su precio ($264.720)', !lineaParticular.includes('264.720'))
 // Convenio: NO precio (confidencial), en NINGUNA parte del prompt
 assert('convenio NO muestra su tarifa ($250.000) en su línea', !lineaConvenio.includes('250.000'))
 assert('la tarifa de convenio ($250.000) NO está en NINGÚN lugar del prompt', !prompt.includes('250.000'))
+assert('la tarifa particular ($264.720) NO está en NINGÚN lugar del prompt', !prompt.includes('264.720'))
+// Ninguna línea de catálogo (tipo_id:) debe traer signo de tarifa en COP ($ seguido de dígitos)
+assert(
+  'ninguna línea del catálogo de CTs contiene un precio ($ + dígitos)',
+  lineasCatalogo.every((l) => !/\$\d/.test(l)),
+  lineasCatalogo.find((l) => /\$\d/.test(l))?.trim(),
+)
 // Convenio: nombre conservado para elegir tipo_id
 assert('convenio conserva el nombre [COOMEVA...] para el tipo_id', lineaConvenio.includes('COOMEVA'))
 assert('la línea de convenio conserva su tipo_id', lineaConvenio.includes('tipo_id: ct-conv'))

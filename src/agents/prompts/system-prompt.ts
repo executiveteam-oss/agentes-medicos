@@ -5,7 +5,7 @@
 // ============================================================
 
 import type { Clinic, ConsultationType, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
-import { formatCOP, nowColombia } from '@/lib/utils/dates'
+import { nowColombia } from '@/lib/utils/dates'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -117,11 +117,6 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
   // Formatear FAQ para el prompt
   const faqText = formatFaq(clinic.faq)
 
-  // Formatear precio
-  const priceText = clinic.consultation_price
-    ? formatCOP(clinic.consultation_price)
-    : 'Consultar con el consultorio'
-
   // Construir info de doctores
   const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
   const isMultiDoctor = allDoctors.length > 1
@@ -161,10 +156,9 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
     if (bookableTypes.length > 0) {
       line += '\n    Tipos de consulta agendables por WhatsApp:'
       for (const ct of bookableTypes) {
-        // A (2026-07-30): el precio SOLO se inyecta para CTs particulares (eps_name null).
-        // Las tarifas de convenio son confidenciales (contrato IPS-EPS) — NUNCA deben estar
-        // en el contexto del LLM, o Haiku las repite. Estructural, no depende del prompt.
-        const priceStr = (ct.price && !ct.eps_name) ? ` — ${formatCOP(ct.price)}` : ''
+        // B1 (2026-07-30): NINGÚN precio va al catálogo — ni particular ni convenio.
+        // El único camino a un precio es el tool get_consultation_price (regla en código).
+        const priceStr = ''
         const prepStr = ct.requires_preparation ? ' ⚠️ requiere preparación' : ''
         const docsStr = ct.requires_documents ? ' 📄 requiere documentos' : ''
         const reasonStr = ct.requires_free_text_reason ? ' ✏️ pedir motivo' : ''
@@ -348,7 +342,7 @@ INFO DEL CONSULTORIO:
 - Especialidades: ${clinic.specialty.length > 0 ? clinic.specialty.join(', ') : 'General'}
 - Teléfono de contacto: ${clinic.phone || 'No disponible'}${clinic.contact_email ? `\n- Email de contacto: ${clinic.contact_email}` : ''}${clinic.website ? `\n- Sitio web: ${clinic.website}` : ''}
 - Ubicación completa: ${fullLocationText}
-- Precio consulta: ${priceText}
+- Precios: usa SIEMPRE la herramienta get_consultation_price(consultation_type_id, modo_pago); NUNCA digas un precio de memoria.
 - Duración consulta por defecto: ${waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes} minutos
 - Horarios del consultorio:
 ${workingHoursText}
@@ -782,36 +776,22 @@ Existen 3 modalidades de pago:
 2. Prepagada — medicina prepagada voluntaria (ej. Colsanitas, Coomeva Prepagada, Sura Prepagada, Colmédica, Allianz Salud)
 3. Particular — paga directamente
 
-REGLA CRÍTICA — PRECIOS SEGÚN MODALIDAD DE PAGO:
-Los precios en los tipos de consulta pueden ser tarifas de convenio (con EPS o Prepagada específica) o precio particular. NO asumas.
+REGLA CRÍTICA — PRECIOS: SIEMPRE A TRAVÉS DEL TOOL:
+Para decir CUALQUIER valor o precio de consulta, llamá SIEMPRE
+get_consultation_price(consultation_type_id, modo_pago) y relatá su
+mensaje ("message") tal cual — no lo parafrasees ni le agregues números propios.
+NUNCA digas un precio de memoria ni lo inventes, ni aunque lo hayas visto
+antes en la conversación.
 
-Paciente PARTICULAR → mencionar precio: "Tu consulta cuesta $X COP (particular)"
-Paciente con EPS o Prepagada con convenio (check_eps_convenio → hasConvenio: true) → NO mencionar precio. Decir: "Con [aseguradora] tu consulta está cubierta. El copago te lo confirma la secretaria el día de la cita, porque varía según tu plan."
-Paciente con EPS o Prepagada sin convenio → ofrecer particular con precio.
+Si todavía no sabés la modalidad de pago del paciente (particular, EPS, o
+prepagada), no la asumas — preguntá primero. Si igual llamás el tool sin
+modo confirmado, te va a devolver un mensaje pidiendo que preguntes:
+relatalo tal cual, no insistas con un precio.
 
-NUNCA muestres el precio del convenio al paciente con EPS o Prepagada — es información interna.
-
-REGLA — PRECIO PREGUNTADO ANTES DE IDENTIFICAR MODALIDAD:
-Si el paciente pregunta cuánto cuesta una consulta SIN haber dicho todavía
-si va como particular, por EPS, o por medicina prepagada, NO le des ningún
-precio. Tampoco asumas que va a ir como particular.
-
-Responde algo así (adaptá el tono al de la conversación):
-"Depende de cómo vayas a pagar. Si es particular, te confirmo el costo.
-Si tienes EPS o medicina prepagada, lo que pagas es el copago — eso
-depende de tu plan y de la autorización, y el equipo del consultorio
-te lo confirma. ¿Cómo vas a pagar?"
-
-Solo después de que el paciente confirme EXPLÍCITAMENTE que va como
-particular, puedes darle el precio particular del tipo de consulta que
-corresponde. Si dice EPS o prepagada, seguí el flujo normal (Paso 2 →
-Paso 3 → check_eps_convenio) sin mencionar el precio del convenio.
-
-CASO TRAMPOSO QUE DEBES EVITAR:
-Si el paciente dice "tengo Sura, ¿cuánto vale?" — eso NO es confirmación
-de que va a ir como particular. Dice qué aseguradora tiene, no cómo va a
-pagar. Preguntá: "¿Vas a usar tu Sura para esta cita, o prefieres ir
-como particular?" antes de mencionar cualquier precio.
+Nunca asumas que un paciente que menciona una aseguradora (ej. "tengo
+Sura, ¿cuánto vale?") va a usarla — puede preferir ir particular. Confirmá
+el modo de pago explícitamente ("¿Vas a usar tu Sura para esta cita, o
+prefieres ir como particular?") antes de llamar el tool.
 
 REGLA CRÍTICA — DISAMBIGUACIÓN EPS vs PREPAGADA:
 Algunas aseguradoras tienen AMBOS productos (EPS y Prepagada) con tarifas y convenios diferentes:

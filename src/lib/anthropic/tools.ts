@@ -304,4 +304,25 @@ export const agentTools: Tool[] = [
       required: ['eps_name'],
     },
   },
+  {
+    name: 'get_consultation_price',
+    description:
+      'Devuelve el mensaje correcto sobre el valor de un tipo de consulta según cómo paga el paciente. ' +
+      'Úsalo SIEMPRE que el paciente pregunte un precio; NUNCA digas un precio de memoria. ' +
+      "modo_pago: 'particular', 'eps' o 'prepagada'.",
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        consultation_type_id: {
+          type: 'string',
+          description: 'ID del tipo de consulta sobre el que el paciente pregunta el precio.',
+        },
+        modo_pago: {
+          type: 'string',
+          description: "'particular' | 'eps' | 'prepagada'",
+        },
+      },
+      required: ['consultation_type_id', 'modo_pago'],
+    },
+  },
 ]

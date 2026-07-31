@@ -42,22 +42,35 @@ assert('desempate por hora/id el mismo día',
 assert('sin aseguradora → null', deriveEntidad([row({ fecha: '2026-01-01', isalud_agenda_id: 1 })]) === null)
 assert('sin filas → null', deriveEntidad([]) === null)
 
-// --- deriveTratante: profesional de la CONSULTA más reciente (procedimiento NO define) ---
-// La fila MÁS reciente es un procedimiento (ecografía de mapeo por Dr. Radiólogo);
-// la consulta más reciente es más vieja (Dr. Villegas). Tratante = Villegas.
+// --- deriveTratante: consulta más reciente por MÉDICO ACTIVO (dos condiciones) ---
+// resolver: solo estos nombres son médicos activos; el resto (staff, radiólogo, inactivos) → null.
+const resolve = (name: string): string | null => ({
+  'Juan Diego Villegas Echeverri': 'DOC_JD',
+  'Nuevo Medico': 'DOC_NUEVO',
+  'Viejo Medico': 'DOC_VIEJO',
+}[name] ?? null)
+
+// La fila más reciente es un procedimiento (ecografía por radiólogo, no-activo);
+// la consulta más reciente es más vieja (Villegas, activo). Tratante = Villegas.
 const conProc: DerivRow[] = [
   row({ fecha: '2026-01-23', isalud_agenda_id: 100, servicio: 'CONSULTA GINECOLOGIA', profesional: 'Juan Diego Villegas Echeverri' }),
   row({ fecha: '2026-06-10', isalud_agenda_id: 200, servicio: 'ECOGRAFIA DE MAPEO', profesional: 'Otro Radiologo' }),
 ]
-assert('tratante = consulta más reciente (Villegas), ignora el procedimiento más nuevo',
-  deriveTratante(conProc) === 'Juan Diego Villegas Echeverri')
+assert('tratante = consulta de médico activo (Villegas → DOC_JD), ignora procedimiento',
+  deriveTratante(conProc, resolve) === 'DOC_JD')
 assert('sin consultas → tratante null',
-  deriveTratante([row({ fecha: '2026-06-10', isalud_agenda_id: 1, servicio: 'COLPOSCOPIA', profesional: 'X' })]) === null)
-assert('entre dos consultas gana la más reciente',
+  deriveTratante([row({ fecha: '2026-06-10', isalud_agenda_id: 1, servicio: 'COLPOSCOPIA', profesional: 'Juan Diego Villegas Echeverri' })], resolve) === null)
+assert('entre dos consultas de médicos activos gana la más reciente',
   deriveTratante([
-    row({ fecha: '2025-01-01', isalud_agenda_id: 1, servicio: 'CONSULTA', profesional: 'Viejo' }),
-    row({ fecha: '2026-01-01', isalud_agenda_id: 2, servicio: 'CONSULTA', profesional: 'Nuevo' }),
-  ]) === 'Nuevo')
+    row({ fecha: '2025-01-01', isalud_agenda_id: 1, servicio: 'CONSULTA', profesional: 'Viejo Medico' }),
+    row({ fecha: '2026-01-01', isalud_agenda_id: 2, servicio: 'CONSULTA', profesional: 'Nuevo Medico' }),
+  ], resolve) === 'DOC_NUEVO')
+// Consulta MÁS reciente por staff/no-activo → se saltea, cae a la consulta previa de médico activo.
+assert('consulta reciente por no-médico se saltea → consulta previa de médico activo',
+  deriveTratante([
+    row({ fecha: '2025-05-01', isalud_agenda_id: 1, servicio: 'CONSULTA', profesional: 'Juan Diego Villegas Echeverri' }),
+    row({ fecha: '2026-05-01', isalud_agenda_id: 2, servicio: 'CONTROL ENTREGA RESULTADOS', profesional: 'Lady Yuliana Acevedo Lopez' }),
+  ], resolve) === 'DOC_JD')
 
 console.log(`\nResultado: ${pass} ✅ / ${fail} ❌`)
 process.exit(fail === 0 ? 0 : 1)

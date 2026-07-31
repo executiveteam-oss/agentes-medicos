@@ -56,12 +56,24 @@ export function deriveEntidad(rows: DerivRow[]): string | null {
   return null
 }
 
-/** Profesional de la fila-CONSULTA más reciente. null si no hay consultas con profesional. */
-export function deriveTratante(rows: DerivRow[], catalogConsultaServices?: Set<string>): string | null {
+/**
+ * Doctor-id del tratante: la CONSULTA más reciente cuyo profesional resuelve a
+ * un médico ACTIVO (resolveDoctorId devuelve el id, o null si no es médico
+ * activo). DOS condiciones: (1) el servicio es consulta Y (2) el profesional
+ * matchea un médico activo de doctors. Así el staff administrativo / los
+ * médicos inactivos que aparecen en la columna profesional NO definen tratante,
+ * sin enumerar a nadie. Devuelve el doctor-id o null.
+ */
+export function deriveTratante(
+  rows: DerivRow[],
+  resolveDoctorId: (profesional: string) => string | null,
+  catalogConsultaServices?: Set<string>,
+): string | null {
   for (const r of sortRecentFirst(rows)) {
-    if (classifyServicio(r.servicio, r.procedimiento, catalogConsultaServices) === 'consulta' && r.profesional) {
-      return r.profesional
-    }
+    if (classifyServicio(r.servicio, r.procedimiento, catalogConsultaServices) !== 'consulta') continue
+    if (!r.profesional) continue
+    const id = resolveDoctorId(r.profesional)
+    if (id) return id
   }
   return null
 }

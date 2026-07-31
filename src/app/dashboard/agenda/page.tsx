@@ -15,9 +15,25 @@ import { format } from 'date-fns'
 
 export const dynamic = 'force-dynamic'
 
-export default async function AgendaPage() {
+// Ancla de la ventana de citas. CalendarView escribe ?date= al navegar; sin leerlo,
+// el server siempre traía el mes actual → cualquier mes hacia adelante salía vacío
+// aunque las citas existieran en appointments. Valida el formato y cae a hoy.
+function parseAnchorDate(raw: string | undefined, fallback: Date): Date {
+  if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, d] = raw.split('-').map(Number)
+    const dt = new Date(y, m - 1, d)
+    if (!Number.isNaN(dt.getTime())) return dt
+  }
+  return fallback
+}
+
+export default async function AgendaPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const now = nowColombia()
   const today = format(now, 'yyyy-MM-dd')
+
+  // La ventana se ancla en el mes que se está viendo (?date=), no en hoy.
+  const sp = await searchParams
+  const anchor = parseAnchorDate(sp?.date, now)
 
   const session = await getUserSession()
   if (!session) redirect('/login')
@@ -49,9 +65,9 @@ export default async function AgendaPage() {
     .eq('is_active', true)
     .order('name')
 
-  // Date range: month + 7 days padding for week views at edges
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  // Date range: mes del ancla + 7 días de padding para semanas en los bordes
+  const monthStart = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
+  const monthEnd = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0)
   const rangeStart = new Date(monthStart)
   rangeStart.setDate(rangeStart.getDate() - 7)
   const rangeEnd = new Date(monthEnd)

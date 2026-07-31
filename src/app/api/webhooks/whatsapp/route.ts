@@ -19,7 +19,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { sendWhatsAppMessage, markAsRead } from '@/lib/whatsapp/client'
+import { sendWhatsAppMessage, sendWhatsAppMessageWithResult, markAsRead } from '@/lib/whatsapp/client'
+import { whatsappSendErrorReason } from '@/lib/whatsapp/send-error-reason'
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
@@ -803,12 +804,24 @@ async function processWebhook(body: unknown): Promise<void> {
       }
 
       // 19. Guardar respuesta del agente en DB (versión limpia, ya sin marcador)
-      await saveMessage(conversation.id, 'agent', sendText)
+      const agentMsgId = await saveMessage(conversation.id, 'agent', sendText)
 
-      // 19. Enviar respuesta por WhatsApp
-      const sendResult = await sendWhatsAppMessage(message.from, sendText, clinicCreds)
-      if (!sendResult) {
-        console.error('[Webhook] FALLÓ el envío por WhatsApp — la respuesta se guardó en DB pero el paciente no la recibió')
+      // 19. Enviar por WhatsApp. Si falla, marcar el mensaje como NO ENTREGADO
+      // (visible para la secretaria, sin conversación fantasma) + audit con el
+      // código de Meta para poder contar cuántos fallan y por qué.
+      const sendResult = await sendWhatsAppMessageWithResult(message.from, sendText, clinicCreds)
+      if (!sendResult.ok) {
+        const reason = whatsappSendErrorReason(sendResult.errorCode)
+        console.error(`[Webhook] FALLÓ el envío por WhatsApp (code ${sendResult.errorCode ?? 'red'}): ${reason}`)
+        if (agentMsgId) {
+          await supabaseAdmin.from('messages').update({ delivery_status: 'failed', delivery_error: reason }).eq('id', agentMsgId)
+        }
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id, action: 'whatsapp_send_failed', actor_type: 'system',
+            details: { conversation_id: conversation.id, message_id: agentMsgId, meta_code: sendResult.errorCode ?? null, meta_message: sendResult.errorMessage ?? null, to: `${message.from.slice(0, 5)}***` },
+          })
+        } catch { /* no crítico */ }
       }
 
       // 19.5 Calendar invite (.ics) — send after text confirmation
@@ -1112,8 +1125,8 @@ async function saveMessage(
   role: 'patient' | 'agent' | 'staff',
   content: string,
   whatsappMessageId?: string
-): Promise<void> {
-  const { error } = await supabaseAdmin
+): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
     .from('messages')
     .insert({
       conversation_id: conversationId,
@@ -1121,10 +1134,14 @@ async function saveMessage(
       content,
       whatsapp_message_id: whatsappMessageId ?? null,
     })
+    .select('id')
+    .single()
 
   if (error) {
     console.error('[saveMessage] Error:', error)
+    return null
   }
+  return (data as { id: string }).id
 }
 
 /**

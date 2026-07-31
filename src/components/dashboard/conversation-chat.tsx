@@ -25,6 +25,8 @@ interface Message {
   message_type: string
   created_at: string
   sender_name?: string | null   // quién envió (solo staff); NULL en históricos → "Equipo"
+  delivery_status?: 'failed' | null
+  delivery_error?: string | null
 }
 
 interface ConversationInfo {
@@ -453,6 +455,11 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
                             </p>
                           )}
                           <p style={{ fontSize: '13.5px', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</p>
+                          {msg.delivery_status === 'failed' && (
+                            <p style={{ fontSize: '11px', marginTop: '4px', color: 'var(--v2-red)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              ⚠ No entregado{msg.delivery_error ? ` — ${msg.delivery_error}` : ''}
+                            </p>
+                          )}
                           <p style={{
                             fontSize: '10px', marginTop: '4px', opacity: 0.6,
                             textAlign: isRight ? 'right' : 'left',

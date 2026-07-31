@@ -469,6 +469,8 @@ El staff de Algia sigue operando en iSalud mientras transicionan. Las citas que 
 | Campo | Valor | Estado |
 |---|---|---|
 | `whatsapp_connected` | `true` (desde 2026-06-04) | ⚠ **conectado al Test Number `+1 555-137-2411` de Meta sandbox, no al productivo 3245820722** — Lady/equipo Algia migra antes del martes |
+
+> **⚠ Error `131030` = "Recipient phone number not in allowed list".** El Test Number de Meta solo puede ENVIAR a ≤5 números pre-cargados en developers.facebook.com → WhatsApp → API Setup → "To". Un número fuera de esa lista: el agente genera la respuesta, la guarda, pero el envío falla. **Ya se maneja en pantalla** (2026-07-31): el mensaje queda marcado `delivery_status='failed'` + `delivery_error` (motivo en español) visible en la conversación como "⚠ No entregado — …", y cada fallo va a `audit_log` con `action='whatsapp_send_failed'` + `meta_code`. Aplica también post-migración para 190 (token vencido), 131047 (fuera de ventana 24h), 131026 (sin WhatsApp), etc. Para contar fallos: `SELECT details->>'meta_code', count(*) FROM audit_log WHERE action='whatsapp_send_failed' GROUP BY 1`.
 | `whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token` | presentes | ✅ |
 | `escalation_contact_phone` | **NULL** | 🚨 **bloqueante** — sin esto no llegan alertas al staff |
 | `feature_config.agent` | `true` | ✅ |

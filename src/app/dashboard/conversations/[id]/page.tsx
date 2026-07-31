@@ -60,7 +60,7 @@ export default async function ConversationDetailPage({ params }: Props) {
   // Load messages
   const { data: messages } = await supabaseAdmin
     .from('messages')
-    .select('id, role, content, message_type, created_at, sender_name')
+    .select('id, role, content, message_type, created_at, sender_name, delivery_status, delivery_error')
     .eq('conversation_id', id)
     .order('created_at', { ascending: true })
     .limit(500)

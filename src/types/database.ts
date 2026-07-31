@@ -401,6 +401,8 @@ export interface Message {
   whatsapp_message_id: string | null
   message_type: string                     // text, image, audio, etc.
   metadata: Record<string, unknown>
+  delivery_status: 'failed' | null         // salientes: 'failed' si el envío a WhatsApp falló
+  delivery_error: string | null            // motivo en español (sin código)
   created_at: string
 }
 

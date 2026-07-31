@@ -33,47 +33,40 @@ function getConfig(clinicCreds?: ClinicWhatsAppCredentials | null) {
  * @param clinicCreds - Credenciales opcionales de la clínica (si no se pasan, usa env vars)
  * @returns ID del mensaje enviado o null si falló
  */
-export async function sendWhatsAppMessage(
+export interface WhatsAppSendResult {
+  ok: boolean
+  messageId?: string
+  errorCode?: number        // código de Meta (131030, 190, 131047, …) para audit
+  errorMessage?: string     // mensaje crudo de Meta
+}
+
+/** Envía y devuelve el DETALLE (código de error incluido). Usar cuando el caller
+ *  necesita saber por qué falló (ej. marcar el mensaje como no entregado). */
+export async function sendWhatsAppMessageWithResult(
   to: string,
   message: string,
   clinicCreds?: ClinicWhatsAppCredentials | null
-): Promise<string | null> {
+): Promise<WhatsAppSendResult> {
   const { phoneNumberId, accessToken } = getConfig(clinicCreds)
 
-  // Truncar si excede el límite de WhatsApp
-  const truncatedMessage = message.length > 4096
-    ? message.slice(0, 4090) + '...'
-    : message
-
+  const truncatedMessage = message.length > 4096 ? message.slice(0, 4090) + '...' : message
   const payload: WhatsAppSendTextPayload = {
-    messaging_product: 'whatsapp',
-    to,
-    type: 'text',
-    text: { body: truncatedMessage },
+    messaging_product: 'whatsapp', to, type: 'text', text: { body: truncatedMessage },
   }
 
   console.log(`[WhatsApp] Enviando mensaje a: ${to.slice(0, 5)}***`)
 
   try {
-    const response = await fetch(
-      `${WHATSAPP_API_URL}/${phoneNumberId}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      }
-    )
-
+    const response = await fetch(`${WHATSAPP_API_URL}/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
     const responseBody = await response.json()
 
     if (!response.ok) {
-      const errorCode = responseBody?.error?.code
-      const errorMessage = responseBody?.error?.message ?? 'Error desconocido'
-
-      // Logging detallado por tipo de error
+      const errorCode = responseBody?.error?.code as number | undefined
+      const errorMessage = (responseBody?.error?.message as string) ?? 'Error desconocido'
       if (errorCode === 190) {
         console.error(`[WhatsApp] TOKEN EXPIRADO (code ${errorCode}): ${errorMessage}`)
         console.error('[WhatsApp] → Regenera el token en developers.facebook.com > WhatsApp > API Setup')
@@ -87,17 +80,29 @@ export async function sendWhatsAppMessage(
         console.error(`[WhatsApp] ERROR ${response.status} (code ${errorCode}): ${errorMessage}`)
         console.error('[WhatsApp] Response completa:', JSON.stringify(responseBody))
       }
-
-      return null
+      return { ok: false, errorCode, errorMessage }
     }
 
-    const messageId = responseBody.messages?.[0]?.id ?? null
+    const messageId = responseBody.messages?.[0]?.id ?? undefined
     console.log(`[WhatsApp] Mensaje enviado OK. ID: ${messageId}`)
-    return messageId
+    return { ok: true, messageId }
   } catch (error) {
     console.error('[WhatsApp] Error de red (no se pudo conectar a Meta):', error)
-    return null
+    return { ok: false, errorMessage: error instanceof Error ? error.message : String(error) }
   }
+}
+
+/**
+ * Envía un mensaje de texto por WhatsApp. Compat: devuelve el ID o null.
+ * @returns ID del mensaje enviado o null si falló
+ */
+export async function sendWhatsAppMessage(
+  to: string,
+  message: string,
+  clinicCreds?: ClinicWhatsAppCredentials | null
+): Promise<string | null> {
+  const r = await sendWhatsAppMessageWithResult(to, message, clinicCreds)
+  return r.ok ? (r.messageId ?? null) : null
 }
 
 /**

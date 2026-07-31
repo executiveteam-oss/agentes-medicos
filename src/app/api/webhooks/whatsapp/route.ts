@@ -23,6 +23,7 @@ import { sendWhatsAppMessage, markAsRead } from '@/lib/whatsapp/client'
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
+import { insurerFromRecord } from '@/lib/utils/insurer-from-record'
 import { verifyWebhookSignature } from '@/lib/whatsapp/verify-signature'
 import { runAppointmentAgent } from '@/agents/appointment-agent'
 import { trackTokenUsage, isClinicPaused } from '@/lib/api-usage'
@@ -606,7 +607,10 @@ async function processWebhook(body: unknown): Promise<void> {
             document_type: patient.document_type,
             document_number: patient.document_number,
             date_of_birth: patient.date_of_birth,
-            eps: patient.eps,
+            // eps declarada/manual gana; si no, la entidad del histórico iSalud
+            // (guard: "PARTICULAR" del registro NUNCA se propaga → el agente
+            // pregunta la modalidad; solo el chat habilita particular).
+            eps: patient.eps ?? insurerFromRecord(patient.entidad),
             email: patient.email,
             total_appointments: patient.total_appointments ?? 0,
             no_show_count: patient.no_show_count ?? 0,

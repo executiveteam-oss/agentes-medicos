@@ -292,6 +292,10 @@ export interface Patient {
   document_number: string | null
   date_of_birth: string | null             // YYYY-MM-DD
   eps: string | null
+  entidad: string | null                  // entidad derivada del histórico iSalud (migración 00089/91)
+  entidad_source: 'isalud' | 'paciente' | 'secretaria' | null
+  entidad_updated_at: string | null
+  tratante_doctor_id: string | null       // médico tratante derivado (migración 00089)
   notes: string | null
   no_show_count: number
   total_appointments: number

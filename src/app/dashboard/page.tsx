@@ -159,7 +159,7 @@ export default async function DashboardPage() {
       status: apt.status as string,
       attendance_outcome: (raw.attendance_outcome as TodayApt['attendance_outcome']) ?? null,
       reason: (apt.reason as string) ?? null,
-      payment_type: (apt.payment_type as string) ?? 'Particular',
+      payment_type: (apt.payment_type as string) ?? '',
       free_text_reason: (raw.free_text_reason as string) ?? null,
       patient: raw.patients as TodayApt['patient'],
       doctor: raw.doctors as TodayApt['doctor'],

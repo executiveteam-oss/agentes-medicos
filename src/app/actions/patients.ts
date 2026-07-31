@@ -117,6 +117,8 @@ export interface PatientDetail {
   document_number: string | null
   date_of_birth: string | null
   eps: string | null
+  entidad: string | null
+  tratante_names: string[]
   notes: string | null
   no_show_count: number
   total_appointments: number
@@ -158,12 +160,24 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
 
   const { data: patientRaw, error } = await supabaseAdmin
     .from('patients')
-    .select('id, name, phone, email, document_type, document_number, date_of_birth, eps, notes, no_show_count, total_appointments, visit_frequency_days, created_at')
+    .select('id, name, phone, email, document_type, document_number, date_of_birth, eps, entidad, tratantes, notes, no_show_count, total_appointments, visit_frequency_days, created_at')
     .eq('id', patientId)
     .eq('clinic_id', clinicId)
     .single()
 
   if (error || !patientRaw) return null
+
+  // Resolver doctor_id → nombre para el tratante (jsonb tratantes por especialidad)
+  const { data: docRows } = await supabaseAdmin
+    .from('doctors')
+    .select('id, name')
+    .eq('clinic_id', clinicId)
+  const doctorNameById = new Map((docRows ?? []).map((d) => [d.id as string, d.name as string]))
+  const tratanteNames = [...new Set(
+    Object.values((patientRaw as { tratantes?: Record<string, { doctor_id: string }> | null }).tratantes ?? {})
+      .map((t) => doctorNameById.get(t.doctor_id))
+      .filter((n): n is string => Boolean(n)),
+  )]
 
   // Citas y conversaciones en paralelo
   const [apptRes, convRes] = await Promise.all([
@@ -206,6 +220,7 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
 
   const patient: PatientDetail = {
     ...patientRaw,
+    tratante_names: tratanteNames,
     visit_frequency_days: patientRaw.visit_frequency_days ?? null,
     last_visit_at: lastVisitAt,
     days_since_last_visit: daysSinceLastVisit,

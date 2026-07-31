@@ -20,6 +20,8 @@ interface Patient {
   name: string
   phone: string
   eps: string | null
+  entidad: string | null
+  tratante_names: string[]
   total_appointments: number
   no_show_count: number
   created_at: string
@@ -217,8 +219,13 @@ export function PatientsListV2({ initialPatients }: { initialPatients: Patient[]
                   </p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
                     <span style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-primary-soft)', color: 'var(--v2-primary)' }}>
-                      {p.eps ?? 'Particular'}
+                      {p.entidad ?? p.eps ?? 'Sin registrar'}
                     </span>
+                    {p.tratante_names.length > 0 && (
+                      <span style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-pink-soft)', color: 'var(--v2-pink)' }} title="Médico tratante">
+                        {p.tratante_names.join(', ')}
+                      </span>
+                    )}
                     {p.total_appointments >= 5 && (
                       <span style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-green-soft)', color: 'var(--v2-green-deep)' }}>Leal</span>
                     )}

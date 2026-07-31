@@ -24,6 +24,8 @@ interface PatientInfo {
   document_number: string | null
   date_of_birth: string | null
   eps: string | null
+  entidad: string | null
+  tratante_names: string[]
   notes: string | null
   no_show_count: number
   total_appointments: number
@@ -147,7 +149,10 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
               {' · '}Paciente desde {format(new Date(patient.created_at), "MMM yyyy", { locale: es })}
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
-              <span className="tag-v2 tag-v2-primary">{patient.eps ?? 'Particular'}</span>
+              <span className="tag-v2 tag-v2-primary">{patient.entidad ?? patient.eps ?? 'Sin registrar'}</span>
+              {patient.tratante_names.length > 0 && (
+                <span className="tag-v2 tag-v2-pink" title="Médico tratante">{patient.tratante_names.join(', ')}</span>
+              )}
               {patient.total_appointments >= 5 && <span className="tag-v2 tag-v2-green">Paciente leal</span>}
               {patient.no_show_count > 0 && (
                 <span className="tag-v2 tag-v2-red">{patient.no_show_count} no-show{patient.no_show_count > 1 ? 's' : ''}</span>
@@ -256,7 +261,10 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
             <SidebarCard title="Información personal">
               <InfoRow label="Documento" value={`${patient.document_type} ${patient.document_number ?? '-'}`} />
               <InfoRow label="Nacimiento" value={patient.date_of_birth ? format(new Date(patient.date_of_birth + 'T12:00:00'), "d MMM yyyy", { locale: es }) : '-'} />
-              <InfoRow label="EPS" value={patient.eps ?? 'Particular'} />
+              <InfoRow label="Entidad" value={patient.entidad ?? patient.eps ?? 'Sin registrar'} />
+              {patient.tratante_names.length > 0 && (
+                <InfoRow label="Tratante" value={patient.tratante_names.join(', ')} />
+              )}
               <InfoRow label="Email" value={patient.email ?? '-'} />
               {patient.notes && (
                 <div style={{ marginTop: '8px', padding: '8px 10px', background: 'var(--v2-bg-soft)', borderRadius: '8px' }}>
@@ -342,7 +350,7 @@ function HistoriaTab({ appointments }: { appointments: Appointment[] }) {
               </div>
               <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--v2-text)' }}>{a.reason ?? 'Consulta general'}</p>
               <p style={{ fontSize: '11.5px', color: 'var(--v2-text-muted)', marginTop: '2px' }}>
-                {a.doctor_name ?? 'Sin doctor asignado'} &middot; {a.payment_type}
+                {a.doctor_name ?? 'Sin doctor asignado'} &middot; {a.payment_type || '—'}
                 {a.documents_requested && (
                   <span> &middot; Docs: {a.documents_received ? '✅' : '⏳'}</span>
                 )}

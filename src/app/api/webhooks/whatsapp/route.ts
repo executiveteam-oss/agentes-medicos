@@ -22,6 +22,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, markAsRead } from '@/lib/whatsapp/client'
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
+import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
 import { verifyWebhookSignature } from '@/lib/whatsapp/verify-signature'
 import { runAppointmentAgent } from '@/agents/appointment-agent'
 import { trackTokenUsage, isClinicPaused } from '@/lib/api-usage'
@@ -750,18 +751,33 @@ async function processWebhook(body: unknown): Promise<void> {
         .replace(/^#{1,3}\s*/gm, '')      // ## header → header
         .replace(/`(.*?)`/g, '$1')        // `code` → code
 
-      console.log(`[Webhook] Respuesta: "${cleanText.slice(0, 100)}..."`)
+      // Strip DETERMINISTA del marcador de timestamp [YYYY-MM-DD HH:MM] por si el
+      // modelo lo copió del historial (eco). No depende de la cláusula del prompt.
+      const { text: sendText, stripped: tsStripped } = stripTimestampMarkers(cleanText)
+      if (tsStripped > 0) {
+        console.warn(`[Webhook] ⚠ ECO timestamp: removidos ${tsStripped} marcador(es) [YYYY-MM-DD HH:MM] de la respuesta`)
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'timestamp_marker_stripped',
+            actor_type: 'system',
+            details: { conversation_id: conversation.id, count: tsStripped },
+          })
+        } catch { /* no crítico */ }
+      }
+
+      console.log(`[Webhook] Respuesta: "${sendText.slice(0, 100)}..."`)
 
       // 18.1. Registrar uso de tokens
       if (agentResponse.tokenUsage) {
         await trackTokenUsage(clinic.id, agentResponse.tokenUsage.input, agentResponse.tokenUsage.output)
       }
 
-      // 19. Guardar respuesta del agente en DB (versión limpia)
-      await saveMessage(conversation.id, 'agent', cleanText)
+      // 19. Guardar respuesta del agente en DB (versión limpia, ya sin marcador)
+      await saveMessage(conversation.id, 'agent', sendText)
 
       // 19. Enviar respuesta por WhatsApp
-      const sendResult = await sendWhatsAppMessage(message.from, cleanText, clinicCreds)
+      const sendResult = await sendWhatsAppMessage(message.from, sendText, clinicCreds)
       if (!sendResult) {
         console.error('[Webhook] FALLÓ el envío por WhatsApp — la respuesta se guardó en DB pero el paciente no la recibió')
       }

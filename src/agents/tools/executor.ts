@@ -17,6 +17,7 @@ import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
 import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart } from '@/lib/calendar/schedule-check'
+import { isSlotFree, BUSY_STATUSES, type BusyAppointment } from '@/lib/calendar/slot-availability'
 import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
 import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, WorkingBlock } from '@/types/database'
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
@@ -316,10 +317,10 @@ async function checkAvailability(
 
   const { data: existingAppointments, error } = await supabaseAdmin
     .from('appointments')
-    .select('starts_at, ends_at')
+    .select('starts_at, ends_at, status')
     .eq('clinic_id', clinicId)
     .eq('doctor_id', doctorId)
-    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
+    .in('status', [...BUSY_STATUSES])
     .gte('starts_at', dayStart)
     .lte('starts_at', dayEnd)
     .order('starts_at', { ascending: true })
@@ -382,15 +383,14 @@ async function checkAvailability(
   // Generar slots iterando sobre todos los bloques efectivos
   const allSlots = effectiveBlocks.flatMap((b) => generateTimeSlots(dateStr, b.start, b.end, duration))
 
-  // Filtrar los que ya están ocupados
-  const occupiedTimes = new Set(
-    (existingAppointments ?? []).map((apt) => apt.starts_at)
-  )
-
-  // Filtrar ocupados + slots que caen dentro de la ventana de anticipación mínima
+  // Filtrar ocupados con SOLAPAMIENTO real (función compartida con
+  // create_appointment) — antes se comparaba starts_at por string y nunca
+  // matcheaba, así que nunca restaba ninguna cita.
   const earliestAllowedISO = earliestAllowed.toISOString()
+  const busy = (existingAppointments ?? []) as BusyAppointment[]
   const availableSlots = allSlots.filter((slot) => {
-    if (occupiedTimes.has(slot.utc)) return false
+    const slotEnd = new Date(Date.parse(slot.utc) + duration * 60000).toISOString()
+    if (!isSlotFree(slot.utc, slotEnd, busy)) return false
     // Excluir slots demasiado próximos según min_booking_advance_hours
     if (slot.utc < earliestAllowedISO) return false
     return true
@@ -950,18 +950,19 @@ async function createAppointment(
 
   const endsAt = calculateEndTime(startsAt, duration)
 
-  // Verificar que no haya otra cita en ese horario (doble booking)
-  const { data: conflict } = await supabaseAdmin
+  // Doble-booking con la MISMA lógica de solapamiento que check_availability
+  // (isSlotFree compartido) — no dos implementaciones distintas de "¿está libre?".
+  const bookDateStr = format(toZonedTime(parseISO(startsAt), TIMEZONE), 'yyyy-MM-dd')
+  const { data: dayAppts } = await supabaseAdmin
     .from('appointments')
-    .select('id')
+    .select('starts_at, ends_at, status')
     .eq('clinic_id', clinicId)
     .eq('doctor_id', doctorId)
-    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
-    .lt('starts_at', endsAt)
-    .gt('ends_at', startsAt)
-    .limit(1)
+    .in('status', [...BUSY_STATUSES])
+    .gte('starts_at', `${bookDateStr}T00:00:00-05:00`)
+    .lte('starts_at', `${bookDateStr}T23:59:59-05:00`)
 
-  if (conflict && conflict.length > 0) {
+  if (!isSlotFree(startsAt, endsAt, (dayAppts ?? []) as BusyAppointment[])) {
     return {
       success: false,
       error: 'SLOT_JUST_TAKEN — Ese horario se acaba de ocupar por otra persona mientras el paciente esperaba. DEBES: (1) disculparte: "Disculpa, ese horario se acaba de ocupar mientras hablábamos" (2) usar check_availability para buscar alternativas cercanas (3) ofrecer 2-3 opciones nuevas. NUNCA actúes como si nunca hubieras propuesto el horario original.',

@@ -34,6 +34,7 @@ export interface CalendarAppointment {
     doctor_notes: string | null
     data_consent_at: string | null
     first_name: string | null
+    entidad: string | null
   } | null
   doctor: {
     name: string

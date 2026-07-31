@@ -3,7 +3,7 @@
  * clasificación consulta/procedimiento. Sin DB.
  * Run: npx tsx scripts/test-entidad-tratante-derivation.ts
  */
-import { classifyServicio, deriveEntidad, deriveTratante, type DerivRow } from '../src/lib/isalud/entidad-tratante-derivation'
+import { classifyServicio, deriveEntidad, deriveTratante, appointmentToDerivRow, type DerivRow } from '../src/lib/isalud/entidad-tratante-derivation'
 
 let pass = 0, fail = 0
 function assert(label: string, ok: boolean, detail?: string): void {
@@ -71,6 +71,19 @@ assert('consulta reciente por no-médico se saltea → consulta previa de médic
     row({ fecha: '2025-05-01', isalud_agenda_id: 1, servicio: 'CONSULTA', profesional: 'Juan Diego Villegas Echeverri' }),
     row({ fecha: '2026-05-01', isalud_agenda_id: 2, servicio: 'CONTROL ENTREGA RESULTADOS', profesional: 'Lady Yuliana Acevedo Lopez' }),
   ], resolve) === 'DOC_JD')
+
+// --- adaptador appointmentToDerivRow (pasado iSalud + presente citas Omuwan) ---
+assert('cita cancelada → adapter null (no define tratante)',
+  appointmentToDerivRow({ id: 'a', doctor_name: 'Nuevo Medico', servicio: 'CONSULTA', starts_at: '2026-07-01T13:00:00Z', status: 'cancelled' }) === null)
+assert('no_show → adapter null',
+  appointmentToDerivRow({ id: 'a', doctor_name: 'Nuevo Medico', servicio: 'CONSULTA', starts_at: '2026-07-01T13:00:00Z', status: 'no_show' }) === null)
+const apptRow = appointmentToDerivRow({ id: 'a', doctor_name: 'Nuevo Medico', servicio: 'CONSULTA GINECOLOGIA', starts_at: '2026-07-01T13:00:00Z', status: 'confirmed' })!
+assert('cita confirmada → DerivRow con profesional+servicio', apptRow.profesional === 'Nuevo Medico' && apptRow.servicio === 'CONSULTA GINECOLOGIA')
+assert('tratante: cita Omuwan (presente) le gana a consulta iSalud vieja',
+  deriveTratante([
+    row({ fecha: '2025-01-01', isalud_agenda_id: 1, servicio: 'CONSULTA', profesional: 'Juan Diego Villegas Echeverri' }),
+    apptRow,
+  ], resolve) === 'DOC_NUEVO')
 
 console.log(`\nResultado: ${pass} ✅ / ${fail} ❌`)
 process.exit(fail === 0 ? 0 : 1)

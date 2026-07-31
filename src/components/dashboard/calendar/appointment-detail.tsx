@@ -67,7 +67,8 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
             value={apt.reminder_confirmed === true ? 'Confirmo' : apt.reminder_confirmed === false ? 'No confirmo' : apt.reminder_24h_sent ? 'Enviado' : 'No enviado'}
             valueColor={apt.reminder_confirmed === true ? 'var(--v2-green-deep)' : apt.reminder_confirmed === false ? 'var(--v2-red)' : undefined}
           />
-          <InfoItem label="Tipo pago" value={apt.payment_type} />
+          <InfoItem label="Entidad" value={patient.entidad ?? 'Sin registrar'} valueColor={patient.entidad ? undefined : 'var(--v2-text-subtle)'} />
+          <InfoItem label="Tipo pago" value={apt.payment_type || '—'} />
           <InfoItem label="Historial" value={`${patient.total_appointments} citas, ${patient.no_show_count} no-shows`} />
           <InfoItem label="Riesgo"
             value={`${probability}%`}

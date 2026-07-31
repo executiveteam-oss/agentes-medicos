@@ -193,6 +193,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
                       {patientName}
                     </p>
                     {doctor && <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>{doctor.name}</p>}
+                    {patient?.entidad && <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>🏥 {patient.entidad}</p>}
                   </div>
 
                   {/* Badges */}

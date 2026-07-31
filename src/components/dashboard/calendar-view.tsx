@@ -162,7 +162,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           reason: (newApt.reason as string | null) ?? null,
           reminder_24h_sent: false,
           reminder_confirmed: null,
-          payment_type: (newApt.payment_type as string) ?? 'Particular',
+          payment_type: (newApt.payment_type as string) ?? '',
           doctor_id: (newApt.doctor_id as string | null) ?? null,
           modality: 'presencial',
           virtual_link: null,

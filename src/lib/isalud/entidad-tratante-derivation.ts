@@ -8,6 +8,8 @@
 // La clasificación consulta/procedimiento es una regla ajustable contra el
 // catálogo de servicios, con fallback por keywords.
 // ============================================================
+import { parseISO, isValid, format } from 'date-fns'
+import { toZonedTime } from 'date-fns-tz'
 
 export interface DerivRow {
   aseguradora: string | null
@@ -76,4 +78,43 @@ export function deriveTratante(
     if (id) return id
   }
   return null
+}
+
+// ============================================================
+// Adaptador: una cita de Omuwan (appointments) → DerivRow, para que la misma
+// derivación de tratante consuma DOS fuentes con la misma regla — el pasado
+// congelado (isalud_historico_rows) y el presente (appointments). Así una cita
+// que Omuwan agenda define/actualiza el tratante sin volver a scrapear.
+// ============================================================
+export interface AppointmentForDeriv {
+  id: string
+  doctor_name: string | null    // resuelto desde doctor_id (el caller lo pasa)
+  servicio: string | null       // nombre del consultation_type
+  starts_at: string             // timestamptz ISO (UTC)
+  status: string
+}
+
+// Solo citas que cuentan como atención agendada/atendida definen tratante.
+const COUNTS_AS_ATTENTION = new Set(['confirmed', 'rescheduled', 'completed'])
+
+/**
+ * Mapea una cita al shape DerivRow. null si el estado no cuenta (cancelada/
+ * no_show) o la fecha es inválida. La aseguradora va null: appointments no
+ * trae entidad y el tratante no la usa. isalud_agenda_id sintético (epoch de
+ * starts_at en segundos) para el desempate de recencia — mayor = más reciente.
+ */
+export function appointmentToDerivRow(a: AppointmentForDeriv): DerivRow | null {
+  if (!COUNTS_AS_ATTENTION.has(a.status)) return null
+  const d = parseISO(a.starts_at)
+  if (!isValid(d)) return null
+  const zoned = toZonedTime(d, 'America/Bogota')
+  return {
+    aseguradora: null,
+    profesional: a.doctor_name,
+    servicio: a.servicio,
+    procedimiento: null,
+    fecha: format(zoned, 'yyyy-MM-dd'),
+    inicio: format(zoned, 'HH:mm:ss'),
+    isalud_agenda_id: Math.floor(d.getTime() / 1000),
+  }
 }

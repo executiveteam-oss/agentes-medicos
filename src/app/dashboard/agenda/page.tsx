@@ -68,7 +68,7 @@ export default async function AgendaPage() {
       reason, reminder_24h_sent, reminder_confirmed,
       payment_type, doctor_id, modality, virtual_link,
       documents_requested, documents_received, free_text_reason,
-      patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at, first_name),
+      patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at, first_name, entidad),
       doctors(name, specialty),
       consultation_types(name)
     `)
@@ -97,7 +97,7 @@ export default async function AgendaPage() {
       reason: (apt.reason as string) ?? null,
       reminder_24h_sent: (apt.reminder_24h_sent as boolean) ?? false,
       reminder_confirmed: (raw.reminder_confirmed as boolean | null) ?? null,
-      payment_type: (apt.payment_type as string) ?? 'Particular',
+      payment_type: (apt.payment_type as string) ?? '',
       modality: (raw.modality as string) ?? 'presencial',
       virtual_link: (raw.virtual_link as string) ?? null,
       documents_requested: (raw.documents_requested as boolean) ?? false,

@@ -67,7 +67,7 @@ async function processClinicFollowups(clinicId: string): Promise<{ sent: number;
     .from('appointments')
     .select(`
       id, starts_at, doctor_id, clinic_id,
-      patients(name, phone),
+      patients(name, phone, proactive_contact_opt_in),
       doctors(name)
     `)
     .eq('clinic_id', clinicId)
@@ -80,10 +80,11 @@ async function processClinicFollowups(clinicId: string): Promise<{ sent: number;
   let failed = 0
 
   for (const apt of appointments ?? []) {
-    const patient = apt.patients as unknown as { name: string; phone: string } | null
+    const patient = apt.patients as unknown as { name: string; phone: string; proactive_contact_opt_in: boolean } | null
     const doctor = apt.doctors as unknown as { name: string } | null
 
     if (!patient?.phone || !doctor) continue
+    if (patient.proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
     const doctorTitle = doctor.name.startsWith('Dr') ? doctor.name : `Dr(a). ${doctor.name}`
 

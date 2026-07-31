@@ -125,7 +125,7 @@ async function processClinicSurveys(
     .from('appointments')
     .select(`
       id, clinic_id, starts_at,
-      patients (name, phone, first_name)
+      patients (name, phone, first_name, proactive_contact_opt_in)
     `)
     .eq('clinic_id', clinic.id)
     .eq('attendance_outcome', 'facturado')
@@ -154,6 +154,7 @@ async function processClinicSurveys(
       console.warn(`[Cron:Survey] Cita ${apt.id} sin phone — skip`)
       continue
     }
+    if ((patient as { proactive_contact_opt_in?: boolean }).proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
     const firstName = extractFirstName({
       first_name: patient.first_name ?? null,

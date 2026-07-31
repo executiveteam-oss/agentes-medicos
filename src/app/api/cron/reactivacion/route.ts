@@ -71,7 +71,7 @@ async function processClinicReactivation(
   // Pacientes con >=2 citas, sin reactivación reciente
   const { data: candidates } = await supabaseAdmin
     .from('patients')
-    .select('id, name, phone, last_reactivation_sent, visit_frequency_days')
+    .select('id, name, phone, last_reactivation_sent, visit_frequency_days, proactive_contact_opt_in')
     .eq('clinic_id', clinicId)
     .gte('total_appointments', 1)
     .or(`last_reactivation_sent.is.null,last_reactivation_sent.lt.${thirtyDaysAgo}`)
@@ -80,6 +80,7 @@ async function processClinicReactivation(
   let failed = 0
 
   for (const patient of candidates ?? []) {
+    if ((patient as { proactive_contact_opt_in?: boolean }).proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
     // Obtener última cita completada
     const { data: lastAppointment } = await supabaseAdmin
       .from('appointments')

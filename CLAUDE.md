@@ -497,6 +497,7 @@ Algia plan `core` cae al fallback `basic = 100K tokens/mes`. Estimación primer 
 4. **Configurar tipos de consulta + horario real** para JOSÉ DUVÁN y JORGE DARIO (feature nuevo)
 5. **Configurar horario real** para JUAN DIEGO y revisar de DANIELA, LINA
 6. **Ajustar TOKEN_LIMITS** para incluir plan `core` con 1M tokens
+7. 🚨 **Activar `proactive_contact_opt_in` (opt-in de canal WhatsApp) ANTES del corte del número.** Migración 00094 agregó el campo con **DEFAULT false para TODOS los pacientes**; los 4 crons proactivos (recordatorio/encuesta/reactivación) ahora NO envían si el campo es false. Consecuencia: **post-migración del número, si Algia no prendió el opt-in, NO sale ni un recordatorio** — que es justo lo que la dirección le prometió al equipo. Prenderlo es decisión de Algia (Ley 1581, opt-in de canal ≠ `data_consent_at`). Operación de activación en masa: `UPDATE patients SET proactive_contact_opt_in=true WHERE clinic_id='dac775fe-...' AND phone IS NOT NULL` (o el botón de dashboard cuando se construya). Hacia adelante se prende solo cuando la paciente agenda por el agente (diseño pendiente de construir en `executor.ts` create_appointment).
 
 ### Decisiones diferidas (lanzables sin esto)
 

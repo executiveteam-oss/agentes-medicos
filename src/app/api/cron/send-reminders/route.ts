@@ -125,7 +125,7 @@ async function send72hReminders(
     .from('appointments')
     .select(`
       id, starts_at, clinic_id, patient_id, doctor_id,
-      patients(name, phone),
+      patients(name, phone, proactive_contact_opt_in),
       doctors(name, specialty),
       clinics(name, address, city),
       consultation_types(name)
@@ -148,12 +148,13 @@ async function send72hReminders(
     const settings = clinicSettings.get(apt.clinic_id)
     if (!settings?.reminder_72h) continue
 
-    const patient = apt.patients as unknown as { name: string; phone: string } | null
+    const patient = apt.patients as unknown as { name: string; phone: string; proactive_contact_opt_in: boolean } | null
     const doctor = apt.doctors as unknown as { name: string; specialty: string | null } | null
     const clinic = apt.clinics as unknown as { name: string; address: string; city: string | null } | null
     const ctName = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
 
     if (!patient || !doctor || !clinic) continue
+    if (patient.proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
     const dateText = formatDateForPatient(apt.starts_at)
     const timeText = formatTimeForPatient(apt.starts_at)
@@ -243,7 +244,7 @@ async function send24hReminders(
     .from('appointments')
     .select(`
       id, starts_at, clinic_id, patient_id, doctor_id, consultation_type_id,
-      patients(name, phone),
+      patients(name, phone, proactive_contact_opt_in),
       doctors(name),
       clinics(name, address),
       consultation_types(name, preparation_instructions, requires_documents, required_documents_description)
@@ -265,7 +266,7 @@ async function send24hReminders(
     const settings = clinicSettings.get(apt.clinic_id)
     if (!settings?.reminder_24h) continue
 
-    const patient = apt.patients as unknown as { name: string; phone: string } | null
+    const patient = apt.patients as unknown as { name: string; phone: string; proactive_contact_opt_in: boolean } | null
     const doctor = apt.doctors as unknown as { name: string } | null
     const clinic = apt.clinics as unknown as { name: string; address: string } | null
     const ctData = apt.consultation_types as unknown as {
@@ -276,6 +277,7 @@ async function send24hReminders(
     } | null
 
     if (!patient || !doctor || !clinic) continue
+    if (patient.proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
     const dateText = formatDateForPatient(apt.starts_at)
     const timeText = formatTimeForPatient(apt.starts_at)
@@ -361,7 +363,7 @@ async function send2hReminders(
     .from('appointments')
     .select(`
       id, starts_at, created_at, clinic_id, patient_id, doctor_id,
-      patients(name, phone, no_show_count, total_appointments),
+      patients(name, phone, no_show_count, total_appointments, proactive_contact_opt_in),
       doctors(name),
       clinics(name, address, city),
       consultation_types(name)
@@ -389,12 +391,14 @@ async function send2hReminders(
       phone: string
       no_show_count: number
       total_appointments: number
+      proactive_contact_opt_in: boolean
     } | null
     const doctor = apt.doctors as unknown as { name: string } | null
     const clinic = apt.clinics as unknown as { name: string; address: string; city: string | null } | null
     const ct2hName = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
 
     if (!patient || !doctor || !clinic) continue
+    if (patient.proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
     // --- Filtro de alto riesgo ---
     const noShowCount = patient.no_show_count ?? 0
@@ -545,7 +549,7 @@ async function sendVirtualLinks(): Promise<{ sent: number; failed: number }> {
     .from('appointments')
     .select(`
       id, starts_at, virtual_link, clinic_id, doctor_id,
-      patients(name, phone),
+      patients(name, phone, proactive_contact_opt_in),
       doctors(name),
       clinics(virtual_config)
     `)
@@ -565,11 +569,12 @@ async function sendVirtualLinks(): Promise<{ sent: number; failed: number }> {
   let failed = 0
 
   for (const apt of virtualAppts ?? []) {
-    const patient = apt.patients as unknown as { name: string; phone: string } | null
+    const patient = apt.patients as unknown as { name: string; phone: string; proactive_contact_opt_in: boolean } | null
     const doctor = apt.doctors as unknown as { name: string } | null
     const clinicData = apt.clinics as unknown as { virtual_config: Record<string, unknown> | null } | null
 
     if (!patient || !doctor) continue
+    if (patient.proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
     const timeText = formatTimeForPatient(apt.starts_at)
     const instructions = (clinicData?.virtual_config as { instructions?: string } | null)?.instructions
@@ -622,7 +627,7 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
     .from('appointments')
     .select(`
       id, starts_at, clinic_id,
-      patients(name, phone),
+      patients(name, phone, proactive_contact_opt_in),
       doctors(name),
       consultation_types(required_documents_description)
     `)
@@ -641,11 +646,12 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
   let failed = 0
 
   for (const apt of pendingAppts ?? []) {
-    const patient = apt.patients as unknown as { name: string; phone: string } | null
+    const patient = apt.patients as unknown as { name: string; phone: string; proactive_contact_opt_in: boolean } | null
     const doctor = apt.doctors as unknown as { name: string } | null
     const ctData = apt.consultation_types as unknown as { required_documents_description: string | null } | null
 
     if (!patient || !doctor) continue
+    if (patient.proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
     const dateText = formatDateForPatient(apt.starts_at)
     const docsDescription = ctData?.required_documents_description

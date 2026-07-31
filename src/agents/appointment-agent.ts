@@ -17,6 +17,7 @@ import { buildSystemPrompt, PROMPT_CACHE_SPLIT_ANCHOR } from '@/agents/prompts/s
 import { executeTool } from '@/agents/tools/executor'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { formatTimestampColombia } from '@/lib/utils/dates'
+import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
 import type { Clinic, ConsultationType, Doctor, Message, WhatsAppConfig } from '@/types/database'
 import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 
@@ -45,6 +46,8 @@ interface AgentParams {
   patientPhone: string        // Para pasarle a las tools
   patientName: string         // Nombre del paciente
   existingPatient?: ExistingPatientData | null  // Datos si es paciente recurrente
+  tratanteMode?: 'off' | 'blando' | 'duro'      // modo feature médico tratante
+  tratantes?: ResolvedTratante[]                // tratantes activos resueltos (por especialidad)
 }
 
 export interface AppointmentData {
@@ -76,7 +79,7 @@ interface AgentResponse {
  * 4. Máximo 5 vueltas de tools para evitar que se quede en un ciclo infinito
  */
 export async function runAppointmentAgent(params: AgentParams): Promise<AgentResponse> {
-  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient } = params
+  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, tratanteMode, tratantes } = params
 
   // 1. Generar el system prompt con datos reales de la clínica y del paciente actual
   const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
@@ -90,7 +93,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   const patientConditionsByCt = await loadActivePatientConditions(consultationTypes)
   const authConveniosByCt = await loadActiveAuthConvenios(consultationTypes)
 
-  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt })
+  const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, tratanteMode, tratantes, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt })
 
   // PROMPT CACHING: partir el system en prefijo estable (cacheable) + cola volátil.
   // El prefijo (instrucciones + catálogo + reglas, ~34K tokens) es idéntico entre

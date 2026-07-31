@@ -295,7 +295,8 @@ export interface Patient {
   entidad: string | null                  // entidad derivada del histórico iSalud (migración 00089/91)
   entidad_source: 'isalud' | 'paciente' | 'secretaria' | null
   entidad_updated_at: string | null
-  tratante_doctor_id: string | null       // médico tratante derivado (migración 00089)
+  tratante_doctor_id: string | null       // DEPRECADO — reemplazado por tratantes (migración 00092)
+  tratantes: Record<string, { doctor_id: string; source: 'isalud' | 'paciente' | 'secretaria'; updated_at: string }> | null
   notes: string | null
   no_show_count: number
   total_appointments: number

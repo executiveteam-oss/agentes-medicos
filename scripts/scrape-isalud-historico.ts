@@ -34,7 +34,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { BrowserContext, Page } from 'playwright-core'
 import { launchBrowserAndContext, loginAndInjectCookies, type ISaludCredentials } from '../src/lib/isalud/adapter'
 import { fetchHistoricoForDocumento, buildHistoricoPostBody, parseHistoricoRow, type HistoricoRow } from '../src/lib/isalud/historico-scraper'
-import { deriveEntidad, deriveTratante, appointmentToDerivRow, type DerivRow } from '../src/lib/isalud/entidad-tratante-derivation'
+import { deriveEntidad, appointmentToDerivRow, type DerivRow } from '../src/lib/isalud/entidad-tratante-derivation'
+import { deriveTratantesBySpecialty, mergeTratantesRespectingSource, type TratantesMap } from '../src/lib/isalud/tratante-specialty'
 import { canonize } from '../src/lib/isalud/name-matcher'
 
 const ALGIA = 'dac775fe-6ebd-47e3-89b4-eeb1a821facb'
@@ -259,12 +260,17 @@ async function scrapeByNombre(): Promise<void> {
 
 async function derive(supa: SupabaseClient): Promise<void> {
   console.log('\n[derive] derivando entidad (más reciente) + tratante (consulta)…')
-  const { data: docs } = await supa.from('doctors').select('id, name, is_active').eq('clinic_id', ALGIA)
+  const { data: docs } = await supa.from('doctors').select('id, name, specialty, is_active').eq('clinic_id', ALGIA)
   const activeDocMap = new Map<string, string>()
   ;(docs ?? []).forEach((d) => { const x = d as { id: string; name: string; is_active: boolean }; if (x.is_active) activeDocMap.set(canonize(x.name), x.id) })
-  const resolveDoctorId = (profesional: string): string | null => activeDocMap.get(canonize(profesional)) ?? null
   const doctorNameById = new Map<string, string>()
-  ;(docs ?? []).forEach((d) => { const x = d as { id: string; name: string }; doctorNameById.set(x.id, x.name) })
+  const doctorSpecialtyById = new Map<string, string | null>()
+  ;(docs ?? []).forEach((d) => { const x = d as { id: string; name: string; specialty: string | null }; doctorNameById.set(x.id, x.name); doctorSpecialtyById.set(x.id, x.specialty) })
+  // Resuelve un profesional (nombre) a un médico ACTIVO con su especialidad.
+  const resolveDoctorInfo = (profesional: string): { id: string; specialty: string | null } | null => {
+    const id = activeDocMap.get(canonize(profesional))
+    return id ? { id, specialty: doctorSpecialtyById.get(id) ?? null } : null
+  }
   const ctNameById = new Map<string, string>()
   {
     const { data: cts } = await supa.from('consultation_types').select('id, name').eq('clinic_id', ALGIA)
@@ -286,9 +292,10 @@ async function derive(supa: SupabaseClient): Promise<void> {
   // Solo derivamos sobre documentos que son de un paciente (los demás rows del
   // histórico se guardan pero no hay patient que actualizar) — evita 14.5K UPDATE no-op.
   const patientIdByDoc = new Map<string, string>()
+  const tratantesByDoc = new Map<string, TratantesMap | null>()
   {
-    const { data: pd } = await supa.from('patients').select('id, document_number').eq('clinic_id', ALGIA).not('document_number', 'is', null)
-    ;(pd ?? []).forEach((r) => { const x = r as { id: string; document_number: string }; patientIdByDoc.set(String(x.document_number), x.id) })
+    const { data: pd } = await supa.from('patients').select('id, document_number, tratantes').eq('clinic_id', ALGIA).not('document_number', 'is', null)
+    ;(pd ?? []).forEach((r) => { const x = r as { id: string; document_number: string; tratantes: TratantesMap | null }; patientIdByDoc.set(String(x.document_number), x.id); tratantesByDoc.set(String(x.document_number), x.tratantes) })
   }
   const toDerive = [...documentos].filter((d) => patientIdByDoc.has(d))
   console.log(`[derive] documentos con filas=${documentos.size}, de pacientes=${toDerive.length}`)
@@ -316,16 +323,19 @@ async function derive(supa: SupabaseClient): Promise<void> {
         })
       })
       .filter((r): r is DerivRow => r !== null)
-    // Tratante: pasado (iSalud) + presente (citas Omuwan), misma regla.
+    // Tratante POR ESPECIALIDAD: pasado (iSalud) + presente (citas Omuwan), misma regla.
     const entidad = deriveEntidad(isaludRows) // entidad solo del histórico (appointments no trae aseguradora)
-    const tratanteId = deriveTratante([...isaludRows, ...apptRows], resolveDoctorId)
+    const derivedTratantes = deriveTratantesBySpecialty([...isaludRows, ...apptRows], resolveDoctorInfo, new Date().toISOString())
+    // Precedencia: no pisar entradas 'paciente'/'secretaria' ya guardadas.
+    const mergedTratantes = mergeTratantesRespectingSource(tratantesByDoc.get(documento) ?? null, derivedTratantes)
     if (entidad) withEntidad++
-    if (tratanteId) withTratante++
-    // Tratante: siempre (no tiene concepto de fuente declarada aún).
-    const { data: upd } = await supa.from('patients')
-      .update({ tratante_doctor_id: tratanteId })
-      .eq('clinic_id', ALGIA).eq('document_number', documento).select('id')
-    if ((upd ?? []).length > 0) patientsUpdated++
+    if (Object.keys(mergedTratantes).length > 0) {
+      withTratante++
+      const { data: upd } = await supa.from('patients')
+        .update({ tratantes: mergedTratantes })
+        .eq('clinic_id', ALGIA).eq('document_number', documento).select('id')
+      if ((upd ?? []).length > 0) patientsUpdated++
+    }
     // Entidad: solo si NO fue declarada por un humano (precedencia declarado > iSalud).
     if (entidad) {
       await supa.from('patients')
@@ -337,15 +347,15 @@ async function derive(supa: SupabaseClient): Promise<void> {
 
   // Conteo real en patients tras derivar
   const { count: cntEntidad } = await supa.from('patients').select('id', { count: 'exact', head: true }).eq('clinic_id', ALGIA).not('entidad', 'is', null)
-  const { count: cntTratante } = await supa.from('patients').select('id', { count: 'exact', head: true }).eq('clinic_id', ALGIA).not('tratante_doctor_id', 'is', null)
+  const { count: cntTratante } = await supa.from('patients').select('id', { count: 'exact', head: true }).eq('clinic_id', ALGIA).not('tratantes', 'is', null)
 
   console.log('\n════════ REPORTE DE CIERRE — DERIVACIÓN ════════')
   console.log(`  documentos con filas:            ${documentos.size}`)
   console.log(`  con entidad derivada:            ${withEntidad}`)
-  console.log(`  con tratante (consulta+médico activo): ${withTratante}`)
+  console.log(`  con tratante (≥1 especialidad):  ${withTratante}`)
   console.log(`  pacientes actualizados:          ${patientsUpdated}`)
   console.log(`  → patients con entidad:          ${cntEntidad}`)
-  console.log(`  → patients con tratante_doctor:  ${cntTratante}`)
+  console.log(`  → patients con tratantes:        ${cntTratante}`)
 }
 
 async function main(): Promise<void> {

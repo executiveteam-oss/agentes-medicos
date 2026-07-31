@@ -6,6 +6,7 @@
 
 import type { Clinic, ConsultationType, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
 import { nowColombia } from '@/lib/utils/dates'
+import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -50,6 +51,8 @@ interface SystemPromptParams {
   patientPhone: string        // Teléfono WhatsApp del paciente (ya lo tenemos, no pedirlo)
   patientName: string         // Nombre del perfil WhatsApp (puede diferir del nombre real)
   existingPatient?: ExistingPatientData | null  // Datos del paciente si ya existe en DB
+  tratanteMode?: 'off' | 'blando' | 'duro'      // modo de la feature de médico tratante
+  tratantes?: ResolvedTratante[]                // tratantes activos por especialidad (ya resueltos + filtrados)
   /**
    * Reglas configurables — Bloque 1 (escalate_human).
    * Set de consultation_type_id que tienen regla activa de "escalar siempre a humano".
@@ -107,7 +110,7 @@ interface SystemPromptParams {
 // "\nFECHA Y HORA ACTUAL:" en otra parte del template (rompería el indexOf del split).
 export const PROMPT_CACHE_SPLIT_ANCHOR = '\nFECHA Y HORA ACTUAL:'
 
-export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt }: SystemPromptParams): string {
+export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, tratanteMode, tratantes, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt }: SystemPromptParams): string {
   const now = nowColombia()
   const currentDateTime = format(now, "EEEE d 'de' MMMM 'de' yyyy, h:mm a", { locale: es })
   // Mismo formato ISO que los timestamps del historial, para que el modelo
@@ -1052,7 +1055,30 @@ FECHA Y HORA ACTUAL: ${currentDateTime} [${currentDateTimeIso}]
 DATOS DEL PACIENTE ACTUAL:
 - Teléfono WhatsApp: ${patientPhone} — usa ESTE valor en patient_phone al llamar create_appointment, NO le pidas el teléfono al paciente
 - Nombre de perfil: ${patientName} — úsalo como referencia, confirma el nombre completo real durante el agendamiento
-${buildExistingPatientSection(existingPatient)}`
+${buildExistingPatientSection(existingPatient)}${buildTratanteSection(tratanteMode, tratantes)}`
+}
+
+/**
+ * Sección de MÉDICO TRATANTE (por especialidad). Solo si el modo != off y hay
+ * tratantes activos. Wording: "te has atendido con el Dr. X" (inferido del
+ * histórico, NO "médico tratante" — vocabulario de secretaria). Modo blando:
+ * sugiere + avisa al cambiar; la decisión es de la paciente. (Modo duro difiere:
+ * por ahora se comporta como blando hasta marcar servicios en el catálogo.)
+ */
+function buildTratanteSection(mode: 'off' | 'blando' | 'duro' | undefined, tratantes: ResolvedTratante[] | undefined): string {
+  if (!mode || mode === 'off' || !tratantes || tratantes.length === 0) return ''
+  const lista = tratantes.map((t) => `- ${t.specialty || 'Consulta'}: ${t.doctor_name}`).join('\n')
+  return `
+
+MÉDICO CON QUIEN YA SE HA ATENDIDO (sugerencia — la decisión es de la paciente):
+Según el historial, esta paciente ya se ha atendido con:
+${lista}
+REGLAS:
+- Si pide una cita de una de esas especialidades, ofrecé PRIMERO ese médico, con este tono (NUNCA digas "médico tratante"):
+  "Veo que te has atendido con el Dr./Dra. [nombre], ¿te busco disponibilidad con él/ella?"
+- Si pide OTRO médico de esa especialidad, avisá y dejá decidir: "Te has atendido con el Dr./Dra. [nombre]. ¿Querés cambiar de especialista o seguir con él/ella?" — si dice cambiar, seguí con el que pidió. La decisión es de ella.
+- Si pide una especialidad que NO está en la lista, flujo normal (no menciones esto).
+- NUNCA preguntes "¿quién es tu médico tratante?". Si no hay dato, seguí el flujo normal de elegir médico.`
 }
 
 /**

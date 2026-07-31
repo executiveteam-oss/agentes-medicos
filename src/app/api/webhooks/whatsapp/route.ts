@@ -617,6 +617,29 @@ async function processWebhook(body: unknown): Promise<void> {
           }
         : null
 
+      // MÉDICO TRATANTE (por especialidad). Modo por clínica: off/blando/duro.
+      const tratanteMode = ((clinic.feature_config as Record<string, unknown> | null)?.tratante_mode as 'off' | 'blando' | 'duro' | undefined) ?? 'off'
+      let resolvedTratantes: import('@/lib/isalud/tratante-specialty').ResolvedTratante[] = []
+      if (tratanteMode !== 'off' && patient.tratantes) {
+        const { data: allDocs } = await supabaseAdmin.from('doctors')
+          .select('id, name, specialty, is_active, agenda_closed').eq('clinic_id', clinic.id)
+        const doctorsById = new Map<string, import('@/lib/isalud/tratante-specialty').DoctorInfo>()
+        ;(allDocs ?? []).forEach((d) => { const x = d as { id: string; name: string; specialty: string | null; is_active: boolean; agenda_closed: boolean | null }; doctorsById.set(x.id, { id: x.id, name: x.name, specialty: x.specialty, is_active: x.is_active, agenda_closed: !!x.agenda_closed }) })
+        const { resolveActiveTratantes } = await import('@/lib/isalud/tratante-specialty')
+        const resolved = resolveActiveTratantes(patient.tratantes, doctorsById)
+        resolvedTratantes = resolved.active
+        // Misses VISIBLES: una clave que ya no matchea una especialidad real → no silencioso.
+        if (resolved.misses.length > 0) {
+          console.warn(`[Webhook] ⚠ tratante lookup miss:`, JSON.stringify(resolved.misses))
+          try {
+            await supabaseAdmin.from('audit_log').insert({
+              clinic_id: clinic.id, action: 'tratante_lookup_miss', actor_type: 'system',
+              details: { conversation_id: conversation.id, misses: resolved.misses },
+            })
+          } catch { /* no crítico */ }
+        }
+      }
+
       let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number } }
 
       try {
@@ -631,6 +654,8 @@ async function processWebhook(body: unknown): Promise<void> {
           patientPhone,
           patientName: patient.name,
           existingPatient,
+          tratanteMode,
+          tratantes: resolvedTratantes,
         })
       } catch (agentError) {
         // Claude API falló (rate limit, 500, network, etc.)

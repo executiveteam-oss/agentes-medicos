@@ -14,8 +14,11 @@ const PAGE_SIZE = 20
 export interface PatientListItem {
   id: string
   name: string
-  phone: string
+  phone: string | null
+  document_number: string | null
   eps: string | null
+  entidad: string | null
+  tratante_names: string[]
   total_appointments: number
   no_show_count: number
   last_no_show_date: string | null
@@ -35,23 +38,36 @@ export async function getPatientsList(opts: {
   page?: number
   search?: string
   epsFilter?: string
+  restrictDoctorId?: string | null
 }): Promise<PatientListResult> {
   const clinicId = await checkReadPermission('patients')
   const page = Math.max(1, opts.page ?? 1)
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
+  // Rol Doctor: restringir a sus pacientes (ids con cita con ese doctor)
+  let restrictIds: string[] | null = null
+  if (opts.restrictDoctorId) {
+    const { data: aptRows } = await supabaseAdmin
+      .from('appointments')
+      .select('patient_id')
+      .eq('clinic_id', clinicId)
+      .eq('doctor_id', opts.restrictDoctorId)
+    restrictIds = [...new Set((aptRows ?? []).map((a) => a.patient_id).filter(Boolean) as string[])]
+    if (restrictIds.length === 0) return { patients: [], total: 0, page, totalPages: 0 }
+  }
+
   // Query base
   let query = supabaseAdmin
     .from('patients')
-    .select('id, name, phone, eps, total_appointments, no_show_count, created_at', { count: 'exact' })
+    .select('id, name, phone, document_number, eps, entidad, tratantes, total_appointments, no_show_count, created_at', { count: 'exact' })
     .eq('clinic_id', clinicId)
+  if (restrictIds) query = query.in('id', restrictIds)
 
-  // Filtro de búsqueda por nombre o teléfono
+  // Filtro de búsqueda por nombre, teléfono o documento
   if (opts.search && opts.search.trim()) {
-    const term = opts.search.trim()
-    // Buscar por nombre (ilike) o por teléfono (contains)
-    query = query.or(`name.ilike.%${term}%,phone.ilike.%${term}%`)
+    const term = opts.search.trim().replace(/[%,()]/g, ' ') // sanitizar wildcards/operadores PostgREST
+    query = query.or(`name.ilike.%${term}%,phone.ilike.%${term}%,document_number.ilike.%${term}%`)
   }
 
   // Filtro por EPS
@@ -90,15 +106,32 @@ export async function getPatientsList(opts: {
     }
   }
 
-  const result: PatientListItem[] = (patients ?? []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    phone: p.phone,
-    eps: p.eps,
-    total_appointments: p.total_appointments,
-    no_show_count: p.no_show_count,
-    last_no_show_date: noShowMap[p.id] ?? null,
-  }))
+  // Resolver doctor_id → nombre para el tratante (jsonb tratantes por especialidad)
+  const { data: docRows } = await supabaseAdmin
+    .from('doctors')
+    .select('id, name')
+    .eq('clinic_id', clinicId)
+  const doctorNameById = new Map((docRows ?? []).map((d) => [d.id as string, d.name as string]))
+
+  const result: PatientListItem[] = (patients ?? []).map((p) => {
+    const tratanteNames = [...new Set(
+      Object.values((p as { tratantes?: Record<string, { doctor_id: string }> | null }).tratantes ?? {})
+        .map((t) => doctorNameById.get(t.doctor_id))
+        .filter((n): n is string => Boolean(n)),
+    )]
+    return {
+      id: p.id,
+      name: p.name,
+      phone: p.phone,
+      document_number: (p as { document_number: string | null }).document_number,
+      eps: p.eps,
+      entidad: (p as { entidad: string | null }).entidad,
+      tratante_names: tratanteNames,
+      total_appointments: p.total_appointments,
+      no_show_count: p.no_show_count,
+      last_no_show_date: noShowMap[p.id] ?? null,
+    }
+  })
 
   return {
     patients: result,

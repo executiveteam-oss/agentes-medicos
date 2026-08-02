@@ -15,6 +15,7 @@ import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt, PROMPT_CACHE_SPLIT_ANCHOR } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
+import { isHardBookingFailure } from '@/agents/booking-failure'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { formatTimestampColombia } from '@/lib/utils/dates'
 import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
@@ -67,6 +68,11 @@ interface AgentResponse {
     output: number
   }
   appointmentData?: AppointmentData  // Datos de cita creada/reagendada/cancelada (para .ics)
+  // Falla DURA de agendamiento (el executor rechazó create/reschedule por slot/horario).
+  // NO es una regla de negocio: el agente intentó agendar y el sistema lo rechazó → hay
+  // que escalar a una persona, no disfrazarlo de "se acaba de ocupar". El webhook, al ver
+  // esto, escala la conversación + avisa al staff + audita.
+  escalate?: { reason: string; code: string }
 }
 
 /**
@@ -254,6 +260,24 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         const resultObj = result as unknown as Record<string, unknown> | null
         const resultData = resultObj?.data as Record<string, unknown> | undefined
         console.log(`[Agent] Tool ${toolUse.name} result: success=${resultObj?.success}, hasAppointmentData=${!!resultData?.appointmentData}`)
+
+        // BUG #4 — falla DURA de agendamiento: create/reschedule rechazado por slot
+        // ocupado (SLOT_JUST_TAKEN) o fuera de horario/pasado (BLOCKED_BY_SCHEDULE).
+        // NO son reglas de negocio (edad/condición/convenio) que el LLM debe explicar;
+        // son el agente intentando agendar y el sistema rechazándolo. En vez de dejar
+        // que el modelo improvise "se acaba de ocupar" (esconde bugs y reporta como
+        // "clínica llena"), cortamos determinista, escalamos y avisamos que hubo un
+        // problema. Los BLOCKED_BY_AGE/CONDITION/RULE_ESCALATE/AUTH NO entran acá.
+        if (resultObj?.success === false && isHardBookingFailure(toolUse.name, resultObj.error as string)) {
+          const code = String(resultObj.error ?? '').split(' ')[0]
+          console.warn(`[Agent] 🚨 Falla dura de agendamiento (${code}) → escalar, NO improvisar`)
+          return {
+            text: 'Uy, tuve un inconveniente para agendar tu cita 🙁 Ya avisé a una persona del equipo para que lo revise y te confirme enseguida. Disculpá la demora 🙏',
+            toolsUsed,
+            tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
+            escalate: { reason: 'booking_failure', code },
+          }
+        }
         if (resultObj?.success && resultData?.appointmentData) {
           appointmentData = resultData.appointmentData as AppointmentData
           console.log(`[Agent] Captured appointmentData: id=${appointmentData.id}, seq=${appointmentData.sequence}`)

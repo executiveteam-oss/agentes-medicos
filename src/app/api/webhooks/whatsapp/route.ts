@@ -641,7 +641,7 @@ async function processWebhook(body: unknown): Promise<void> {
         }
       }
 
-      let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number } }
+      let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string } }
 
       try {
         agentResponse = await runAppointmentAgent({
@@ -699,6 +699,35 @@ async function processWebhook(body: unknown): Promise<void> {
       }
 
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
+
+      // BUG #4 — falla dura de agendamiento: el executor rechazó create/reschedule
+      // por slot/horario. NO se disfraza de negocio normal: se escala a una persona,
+      // se avisa al staff y se audita (para tener señal del problema, no un "clínica
+      // llena" silencioso).
+      if (agentResponse.escalate) {
+        await supabaseAdmin
+          .from('conversations')
+          .update({ status: 'escalated', escalated_at: new Date().toISOString() })
+          .eq('id', conversation.id)
+        await refreshEscalationNotifications({
+          conversationId: conversation.id,
+          clinicId: clinic.id,
+          patientName: patient.name,
+          latestMessage: `⚠ El agente no pudo agendar (${agentResponse.escalate.code}) — hay que agendar a mano y revisar`,
+        })
+        await supabaseAdmin.from('audit_log').insert({
+          clinic_id: clinic.id,
+          action: 'agent_booking_failure_escalated',
+          actor_type: 'agent',
+          target_type: 'conversation',
+          target_id: conversation.id,
+          details: { code: agentResponse.escalate.code, reason: agentResponse.escalate.reason, patient_phone: message.from },
+        })
+        await saveMessage(conversation.id, 'agent', agentResponse.text)
+        await sendWhatsAppMessage(message.from, agentResponse.text, clinicCreds)
+        console.warn(`[Webhook] 🚨 Escalación por falla de agendamiento del agente: ${agentResponse.escalate.code}`)
+        return
+      }
 
       // POST-CITA LOCKOUT DEFENSIVO:
       // Bloquea si el agente intenta re-agendar tras una cita confirmada,

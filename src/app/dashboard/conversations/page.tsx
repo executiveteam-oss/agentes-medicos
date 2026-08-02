@@ -44,7 +44,7 @@ export default async function ConversationsPage() {
   const { data: conversations } = await supabaseAdmin
     .from('conversations')
     .select(`
-      id, status, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
+      id, status, triage_state, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
       patients(id, name, phone, eps, no_show_count, total_appointments),
       messages(id, content, role, created_at)
     `)
@@ -81,6 +81,7 @@ export default async function ConversationsPage() {
       patient_phone: patient?.phone ?? (conv.whatsapp_phone as string),
       patient_eps: patient?.eps ?? null,
       status: conv.status as 'active' | 'escalated' | 'resolved',
+      triage_state: (conv.triage_state as 'atencion' | 'pendiente' | 'resuelta' | null) ?? null,
       last_message_at: conv.last_message_at as string,
       last_message_preview: lastMsg
         ? lastMsg.content.length > 80 ? lastMsg.content.slice(0, 80) + '...' : lastMsg.content
@@ -274,7 +275,7 @@ export default async function ConversationsPage() {
       </div>
 
       {/* Panel */}
-      <ConversationsPanel entries={entries} counts={counts} clinicId={session.clinicId} />
+      <ConversationsPanel entries={entries} clinicId={session.clinicId} />
     </div>
   )
 }

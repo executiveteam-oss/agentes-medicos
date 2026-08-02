@@ -7,7 +7,7 @@
 import { useState, useRef, useEffect, useTransition } from 'react'
 import { formatPhone } from '@/lib/utils/dates'
 import { getInitials } from '@/lib/utils/ui-helpers'
-import { sendStaffMessage, updateConversationStatus, reopenConversation } from '@/app/actions/conversations'
+import { sendStaffMessage, updateConversationStatus, reopenConversation, setConversationTriageState } from '@/app/actions/conversations'
 import { claimConversation, releaseConversation, overrideClaim } from '@/app/actions/claim'
 import { resolveClaimState, type ClaimConfig, type ClaimRow } from '@/lib/rules/claim-logic'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
@@ -42,6 +42,7 @@ interface ConversationInfo {
   patient_date_of_birth: string | null
   patient_created_at: string | null
   status: 'active' | 'escalated' | 'resolved'
+  triage_state: 'atencion' | 'pendiente' | 'resuelta' | null
   escalated_to: string | null
   escalated_at: string | null
   created_at: string
@@ -90,6 +91,10 @@ function needsDateSep(current: string, previous: string | null): boolean {
 export function ConversationChat({ conversation, initialMessages, canWrite, staffName, nextAppointment, claimConfig, claim: initialClaim, myClinicUserId }: Props) {
   const [messages, setMessages] = useState(initialMessages)
   const [status, setStatus] = useState(conversation.status)
+  const [triage, setTriage] = useState(conversation.triage_state)
+  // Estado de triage derivado: resuelta/atención salen del status; pendiente se persiste.
+  const triageState: 'atencion' | 'pendiente' | 'resuelta' =
+    status === 'resolved' ? 'resuelta' : triage === 'pendiente' ? 'pendiente' : 'atencion'
   const [newMessage, setNewMessage] = useState('')
   const [toast, setToast] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -224,6 +229,18 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
     })
   }
 
+  function handleTriage(next: 'atencion' | 'pendiente' | 'resuelta') {
+    if (next === triageState) return
+    startTransition(async () => {
+      const r = await setConversationTriageState(conversation.id, next)
+      if (r.ok) {
+        setStatus(next === 'resuelta' ? 'resolved' : 'escalated')
+        setTriage(next === 'pendiente' ? 'pendiente' : null)
+        showToastMsg(next === 'atencion' ? 'En atención' : next === 'pendiente' ? 'Marcada pendiente' : 'Resuelta')
+      } else showToastMsg(r.error ?? 'Error')
+    })
+  }
+
   const assistanceRate = conversation.patient_total_appointments > 0
     ? Math.round(((conversation.patient_total_appointments - conversation.patient_no_show_count) / conversation.patient_total_appointments) * 100)
     : 100
@@ -308,6 +325,24 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
               )}
             </p>
           </div>
+
+          {/* Selector de estado (triage): Atención / Pendiente / Resuelta.
+              Solo cuando está en la cola humana (no 'active' = con el agente).
+              Abrir la conversación NO cambia el estado; solo este control. */}
+          {canWrite && status !== 'active' && (
+            <div style={{ display: 'flex', background: 'var(--v2-bg-deeper)', borderRadius: '8px', padding: '2px', gap: '2px', flexShrink: 0 }}>
+              {([['atencion', 'Atención'], ['pendiente', 'Pendiente'], ['resuelta', 'Resuelta']] as const).map(([k, label]) => {
+                const on = triageState === k
+                const c = k === 'atencion' ? ['var(--v2-amber-soft)', '#b07d00'] : k === 'pendiente' ? ['rgba(62,116,232,0.14)', '#3E74E8'] : ['var(--v2-green-soft)', 'var(--v2-green-deep)']
+                return (
+                  <button key={k} onClick={() => handleTriage(k)} style={{
+                    border: 'none', fontFamily: 'inherit', fontSize: '11px', fontWeight: 700, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer',
+                    background: on ? c[0] : 'transparent', color: on ? c[1] : 'var(--v2-text-muted)',
+                  }}>{label}</button>
+                )
+              })}
+            </div>
+          )}
 
           {/* Actions */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>

@@ -19,6 +19,7 @@ interface ConversationEntry {
   patient_phone: string
   patient_eps: string | null
   status: 'active' | 'escalated' | 'resolved'
+  triage_state: 'atencion' | 'pendiente' | 'resuelta' | null
   last_message_at: string
   last_message_preview: string
   last_message_role: string
@@ -28,33 +29,46 @@ interface ConversationEntry {
 
 interface Props {
   entries: ConversationEntry[]
-  counts: { all: number; active: number; escalated: number; resolved: number }
   clinicId: string
 }
 
-type FilterKey = 'all' | 'active' | 'escalated' | 'resolved'
+// Los 3 estados de triage + "agente" (observación del bot, no cola de trabajo).
+type FilterKey = 'atencion' | 'pendiente' | 'resuelta' | 'agente'
+
+// Bucket derivado: solo 'pendiente' se persiste; el resto sale del status.
+function bucketOf(e: ConversationEntry): FilterKey {
+  if (e.status === 'resolved') return 'resuelta'
+  if (e.triage_state === 'pendiente') return 'pendiente'
+  if (e.status === 'escalated') return 'atencion'
+  return 'agente' // active — el bot lo maneja
+}
 
 const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
-  { key: 'all', label: 'Todas', emoji: '' },
-  { key: 'active', label: 'Bot manejando', emoji: '🤖' },
-  { key: 'escalated', label: 'Atencion', emoji: '⚠️' },
-  { key: 'resolved', label: 'Resueltas', emoji: '✅' },
+  { key: 'atencion', label: 'Atención', emoji: '⚠️' },
+  { key: 'pendiente', label: 'Pendiente', emoji: '⏳' },
+  { key: 'resuelta', label: 'Resuelta', emoji: '✅' },
+  { key: 'agente', label: 'Con el agente', emoji: '🤖' }, // última, observación (se lee distinto)
 ]
 
 
 
 
-export function ConversationsPanel({ entries: initialEntries, counts: initialCounts, clinicId }: Props) {
+export function ConversationsPanel({ entries: initialEntries, clinicId }: Props) {
   const [entries, setEntries] = useState(initialEntries)
-  const [counts, setCounts] = useState(initialCounts)
-  const [filter, setFilter] = useState<FilterKey>('all')
+  const [filter, setFilter] = useState<FilterKey>('atencion') // Atención por defecto
   const [search, setSearch] = useState('')
 
   // Sync with server if props change (navigation)
   useEffect(() => {
     setEntries(initialEntries)
-    setCounts(initialCounts)
-  }, [initialEntries, initialCounts])
+  }, [initialEntries])
+
+  const counts: Record<FilterKey, number> = {
+    atencion: entries.filter((e) => bucketOf(e) === 'atencion').length,
+    pendiente: entries.filter((e) => bucketOf(e) === 'pendiente').length,
+    resuelta: entries.filter((e) => bucketOf(e) === 'resuelta').length,
+    agente: entries.filter((e) => bucketOf(e) === 'agente').length,
+  }
 
   // Realtime: listen for conversation changes
   useEffect(() => {
@@ -74,14 +88,19 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
     return () => { supabase.removeChannel(channel) }
   }, [clinicId])
 
-  const filtered = entries.filter((e) => {
-    if (filter !== 'all' && e.status !== filter) return false
-    if (search.trim()) {
-      const s = search.toLowerCase().trim()
-      if (!e.patient_name.toLowerCase().includes(s) && !e.patient_phone.includes(s)) return false
-    }
-    return true
-  })
+  // La que espera hace más, arriba: hace visible el mute y auto-ordena la cola.
+  const waitingMs = (e: ConversationEntry) =>
+    e.last_message_role === 'patient' ? new Date(e.last_message_at).getTime() : Infinity
+  const filtered = entries
+    .filter((e) => {
+      if (bucketOf(e) !== filter) return false
+      if (search.trim()) {
+        const s = search.toLowerCase().trim()
+        if (!e.patient_name.toLowerCase().includes(s) && !e.patient_phone.includes(s)) return false
+      }
+      return true
+    })
+    .sort((a, b) => waitingMs(a) - waitingMs(b)) // esperando (más viejo) primero; respondidas al final
 
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }}>
@@ -141,6 +160,11 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
                         background: 'var(--v2-bg-soft)',
                         color: 'var(--v2-text-muted)',
                       }),
+                  // "Con el agente": observación, no cola → apartada a la derecha, lectura distinta
+                  ...(f.key === 'agente' ? { marginLeft: 'auto' } : {}),
+                  ...(f.key === 'agente' && !isActive
+                    ? { background: 'transparent', border: '1px dashed var(--v2-border-strong)', color: 'var(--v2-text-subtle)' }
+                    : {}),
                 }}
               >
                 {f.emoji && <span>{f.emoji}</span>}
@@ -154,8 +178,8 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
                     ...(isActive
                       ? { background: 'rgba(255,255,255,0.25)', color: '#fff' }
                       : {
-                          background: f.key === 'escalated' && count > 0 ? 'var(--v2-pink-soft)' : 'var(--v2-bg-deeper)',
-                          color: f.key === 'escalated' && count > 0 ? 'var(--v2-pink)' : 'var(--v2-text-subtle)',
+                          background: f.key === 'atencion' && count > 0 ? 'var(--v2-pink-soft)' : 'var(--v2-bg-deeper)',
+                          color: f.key === 'atencion' && count > 0 ? 'var(--v2-pink)' : 'var(--v2-text-subtle)',
                         }),
                   }}
                 >
@@ -171,7 +195,7 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
           <div style={{ padding: '64px 24px', textAlign: 'center' }}>
             <MessageCircle size={40} style={{ color: 'var(--v2-primary)', opacity: 0.3, margin: '0 auto 12px' }} />
             <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--v2-text-muted)' }}>
-              {search ? 'Sin resultados' : filter !== 'all' ? `No hay conversaciones ${FILTERS.find((f) => f.key === filter)?.label.toLowerCase()}` : 'Aun no hay conversaciones'}
+              {search ? 'Sin resultados' : filter === 'atencion' ? 'Nada que atender ahora 🎉' : filter === 'agente' ? 'El agente no tiene conversaciones activas' : `No hay conversaciones en ${FILTERS.find((f) => f.key === filter)?.label.toLowerCase()}`}
             </p>
             <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>
               {search ? 'Intenta con otro termino' : 'Las conversaciones de pacientes via WhatsApp apareceran aqui'}
@@ -225,7 +249,7 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
                         height: '12px',
                         borderRadius: '50%',
                         border: '2px solid var(--v2-bg-card)',
-                        background: entry.status === 'escalated' ? 'var(--v2-amber)' : entry.status === 'resolved' ? 'var(--v2-text-subtle)' : 'var(--v2-primary)',
+                        background: bucketOf(entry) === 'atencion' ? 'var(--v2-amber)' : bucketOf(entry) === 'pendiente' ? '#3E74E8' : bucketOf(entry) === 'resuelta' ? 'var(--v2-text-subtle)' : 'var(--v2-primary)',
                       }}
                     />
                   </div>
@@ -243,11 +267,13 @@ export function ConversationsPanel({ entries: initialEntries, counts: initialCou
                       }}>
                         {entry.patient_name}
                       </p>
-                      {entry.status === 'escalated' && (
-                        <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-amber-soft)', color: '#b07d00' }}>
-                          ESC
+                      {/* La consecuencia visible: hace cuánto espera sin respuesta.
+                          Ordena la cola sola y distingue una escalada normal de una caída. */}
+                      {isUnread && bucketOf(entry) !== 'agente' ? (
+                        <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 7px', borderRadius: '4px', background: 'var(--v2-amber-soft)', color: '#b07d00' }}>
+                          ⏳ Esperando {timeAgo}
                         </span>
-                      )}
+                      ) : null}
                       {entry.last_message_role === 'staff' && (
                         <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-pink-soft)', color: 'var(--v2-pink)' }}>
                           TU

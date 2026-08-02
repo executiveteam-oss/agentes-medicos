@@ -1122,18 +1122,36 @@ async function findOrCreateConversation(
   patientId: string,
   phone: string
 ): Promise<Conversation> {
-  // Buscar conversación activa o escalada
+  // Frescura del hilo: reutilizar la conversación MÁS RECIENTE del paciente
+  // (cualquier status) si su última actividad fue hace menos de N días. Así
+  // "Resuelta" ya NO corta el hilo ni borra la memoria — solo la saca de la cola
+  // humana; la frescura la maneja el TIEMPO, no el click. Config por clínica.
+  const { data: clinicCfg } = await supabaseAdmin
+    .from('clinics').select('feature_config').eq('id', clinicId).maybeSingle()
+  const freshnessDays = ((clinicCfg?.feature_config as { conversation_freshness_days?: number } | null)?.conversation_freshness_days) ?? 7
+
   const { data: existing } = await supabaseAdmin
     .from('conversations')
     .select('*')
     .eq('clinic_id', clinicId)
     .eq('patient_id', patientId)
-    .in('status', ['active', 'escalated'])
-    .order('created_at', { ascending: false })
+    .order('last_message_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle()
 
-  if (existing) return existing as Conversation
+  if (existing) {
+    const lastActivity = (existing.last_message_at as string | null) ?? (existing.created_at as string)
+    const daysSince = (Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24)
+    if (daysSince < freshnessDays) {
+      // Hilo vivo → reutilizar (con memoria). Si estaba resuelta, el bot retoma.
+      if (existing.status === 'resolved') {
+        await supabaseAdmin.from('conversations').update({ status: 'active', triage_state: null }).eq('id', existing.id)
+        return { ...(existing as Conversation), status: 'active', triage_state: null } as Conversation
+      }
+      return existing as Conversation
+    }
+    // Última actividad hace > N días → hilo fresco (cae a crear una nueva).
+  }
 
   // Crear conversación nueva
   const { data: newConversation, error } = await supabaseAdmin

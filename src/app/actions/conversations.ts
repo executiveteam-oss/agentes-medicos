@@ -281,6 +281,61 @@ export async function sendStaffMessage(
   }
 }
 
+/** Triage de bandeja: Atención / Pendiente / Resuelta. SEPARADO del flujo del
+ *  agente. 'pendiente' se persiste (override); atención/resuelta se derivan del
+ *  status. Abrir/leer NO llama a esto — el estado solo cambia por acción explícita. */
+export async function setConversationTriageState(
+  conversationId: string,
+  state: 'atencion' | 'pendiente' | 'resuelta',
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('conversations')
+
+    // Estado previo (para auditar de→a)
+    const { data: prev } = await supabaseAdmin
+      .from('conversations')
+      .select('status, triage_state')
+      .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
+      .single()
+    const prevState = prev
+      ? (prev.status === 'resolved' ? 'resuelta' : prev.triage_state === 'pendiente' ? 'pendiente' : 'atencion')
+      : null
+
+    const update: Record<string, unknown> =
+      state === 'pendiente'
+        ? { status: 'escalated', triage_state: 'pendiente' }            // vista pero abierta (sigue fuera del agente)
+        : state === 'resuelta'
+          ? { status: 'resolved', triage_state: null }                  // resuelta se deriva de status
+          : { status: 'escalated', triage_state: null, escalated_at: new Date().toISOString() } // atención (deriva de escalated)
+
+    const { error } = await supabaseAdmin
+      .from('conversations')
+      .update(update)
+      .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
+    if (error) return { ok: false, error: 'Error actualizando estado' }
+
+    // Resolver = atender: limpia la alerta de escalación de esta conversación.
+    if (state === 'resuelta') await resolveEscalationNotifications(conversationId)
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'conversation_state_changed',
+      actor_type: 'staff',
+      target_type: 'conversation',
+      target_id: conversationId,
+      details: { from: prevState, to: state },
+    })
+
+    revalidatePath(`/dashboard/conversations/${conversationId}`)
+    revalidatePath('/dashboard/conversations')
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
 /** Cambiar estado de conversación (resolved / escalated) */
 export async function updateConversationStatus(
   conversationId: string,

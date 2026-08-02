@@ -513,6 +513,14 @@ async function processWebhook(body: unknown): Promise<void> {
 
       // 15. Si la conversación está escalada → no responder (un humano se encarga)
       if (conversation.status === 'escalated') {
+        // Mensaje nuevo sobre una PENDIENTE = la paciente insiste → vuelve a
+        // Atención en el momento. El reloj de re-surface (etapa 3) es para el
+        // SILENCIO, no para la insistencia: escribir de nuevo es la señal más
+        // fuerte de que está esperando.
+        if ((conversation as { triage_state?: string | null }).triage_state === 'pendiente') {
+          await supabaseAdmin.from('conversations').update({ triage_state: 'atencion' }).eq('id', conversation.id)
+          console.log(`[Webhook] Pendiente con mensaje nuevo → vuelve a Atención. ID: ${conversation.id}`)
+        }
         // Fix zona muerta: refresca la alerta viva con el último mensaje (o crea
         // una nueva si fue atendida). Así la campana refleja lo último que dijo
         // el paciente y re-sube. La crisis ya se manejó arriba en la Capa 0.

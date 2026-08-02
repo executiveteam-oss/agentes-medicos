@@ -76,13 +76,19 @@ export async function notifyStaffOfEscalation(params: {
  * una conversación — clinic-wide, de una query. Se llama cuando alguien
  * atiende (reabrir / resolver / responder). Idempotente. Nunca lanza.
  */
+// Tipos de alerta que se marcan leídas al ATENDER (resolver/reabrir) una
+// conversación. NUNCA incluye 'crisis_detected' ni 'data_rights_request': esas
+// son no-limpiables por diseño (registro permanente para el staff). Resolver la
+// conversación, o devolverla al agente, NO puede apagar el 🆘. Blindado con test.
+export const ALERTS_CLEARED_ON_ATTEND = ['conversation_escalated'] as const
+
 export async function resolveEscalationNotifications(conversationId: string): Promise<void> {
   try {
     await supabaseAdmin
       .from('staff_notifications')
       .update({ read_at: new Date().toISOString() })
       .eq('conversation_id', conversationId)
-      .eq('type', 'conversation_escalated')
+      .in('type', [...ALERTS_CLEARED_ON_ATTEND])
       .is('read_at', null)
   } catch (err) {
     console.error('[Escalation] resolveEscalationNotifications falló (no crítico):', err)

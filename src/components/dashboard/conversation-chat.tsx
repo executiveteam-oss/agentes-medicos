@@ -9,6 +9,8 @@ import { formatPhone } from '@/lib/utils/dates'
 import { getInitials } from '@/lib/utils/ui-helpers'
 import { sendStaffMessage, updateConversationStatus, reopenConversation, setConversationTriageState } from '@/app/actions/conversations'
 import { claimConversation, releaseConversation, overrideClaim } from '@/app/actions/claim'
+import { PatientLabelsEditor } from '@/components/dashboard/patient-labels-editor'
+import type { ClinicLabel } from '@/lib/labels/patient-labels'
 import { resolveClaimState, type ClaimConfig, type ClaimRow } from '@/lib/rules/claim-logic'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
@@ -64,6 +66,9 @@ interface Props {
   claimConfig: ClaimConfig
   claim: ClaimRow
   myClinicUserId: string
+  patientLabelIds: string[]
+  labelCatalog: ClinicLabel[]
+  canLabelWrite: boolean
 }
 
 // ---- Helpers ----
@@ -88,7 +93,7 @@ function needsDateSep(current: string, previous: string | null): boolean {
 
 // ---- Main Component ----
 
-export function ConversationChat({ conversation, initialMessages, canWrite, staffName, nextAppointment, claimConfig, claim: initialClaim, myClinicUserId }: Props) {
+export function ConversationChat({ conversation, initialMessages, canWrite, staffName, nextAppointment, claimConfig, claim: initialClaim, myClinicUserId, patientLabelIds, labelCatalog, canLabelWrite }: Props) {
   const [messages, setMessages] = useState(initialMessages)
   const [status, setStatus] = useState(conversation.status)
   const [triage, setTriage] = useState(conversation.triage_state)
@@ -324,6 +329,16 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
                 </span>
               )}
             </p>
+            {conversation.patient_id && (
+              <div style={{ marginTop: '6px' }}>
+                <PatientLabelsEditor
+                  patientId={conversation.patient_id}
+                  patientLabelIds={patientLabelIds}
+                  catalog={labelCatalog}
+                  canWrite={canLabelWrite}
+                />
+              </div>
+            )}
           </div>
 
           {/* Selector de estado (triage): Atención / Pendiente / Resuelta.

@@ -10,12 +10,14 @@ import { getRestrictedDoctorId, isDoctorUnlinked } from '@/lib/doctor-filter'
 import { DoctorUnlinkedBanner } from '@/components/dashboard/doctor-unlinked-banner'
 import { redirect } from 'next/navigation'
 import { getPatientsList } from '@/app/actions/patients'
+import { getClinicLabels } from '@/app/actions/patient-labels'
 import { PatientsListV2 } from '@/components/dashboard/patients-list-v2'
+import { LabelFilter } from '@/components/dashboard/label-filter'
 
 export default async function PatientsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; eps?: string }>
+  searchParams: Promise<{ q?: string; page?: string; eps?: string; label?: string }>
 }) {
   const session = await getUserSession()
   if (!session) redirect('/login')
@@ -25,9 +27,13 @@ export default async function PatientsPage({
   const sp = await searchParams
   const search = (sp.q ?? '').trim()
   const epsFilter = sp.eps ?? 'todas'
+  const labelFilter = sp.label
   const page = Math.max(1, Number.parseInt(sp.page ?? '1', 10) || 1)
 
-  const { patients, total, totalPages } = await getPatientsList({ page, search, epsFilter, restrictDoctorId })
+  const [{ patients, total, totalPages }, catalog] = await Promise.all([
+    getPatientsList({ page, search, epsFilter, restrictDoctorId, labelFilter }),
+    getClinicLabels(),
+  ])
 
   return (
     <div className="space-y-6">
@@ -59,12 +65,17 @@ export default async function PatientsPage({
         </div>
       </div>
 
+      {catalog.length > 0 && (
+        <LabelFilter catalog={catalog} basePath="/dashboard/patients" />
+      )}
+
       <PatientsListV2
         patients={patients}
         total={total}
         page={page}
         totalPages={totalPages}
         search={search}
+        labelCatalog={catalog}
       />
     </div>
   )

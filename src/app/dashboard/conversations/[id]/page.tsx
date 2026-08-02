@@ -7,6 +7,7 @@ import { getUserSession } from '@/lib/session'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ConversationChat } from '@/components/dashboard/conversation-chat'
+import { getClinicLabels } from '@/app/actions/patient-labels'
 import Link from 'next/link'
 import { nowColombia } from '@/lib/utils/dates'
 import { parseClaimConfig } from '@/lib/rules/claim-logic'
@@ -36,7 +37,7 @@ export default async function ConversationDetailPage({ params }: Props) {
   // Load conversation with patient details
   const { data: conv, error } = await supabaseAdmin
     .from('conversations')
-    .select('id, status, triage_state, escalated_to, escalated_at, created_at, whatsapp_phone, patient_id, claimed_by, claimed_by_name, claimed_at, patients(id, name, phone, eps, no_show_count, total_appointments, document_type, document_number, date_of_birth, created_at)')
+    .select('id, status, triage_state, escalated_to, escalated_at, created_at, whatsapp_phone, patient_id, claimed_by, claimed_by_name, claimed_at, patients(id, name, phone, eps, no_show_count, total_appointments, document_type, document_number, date_of_birth, created_at, labels)')
     .eq('id', id)
     .eq('clinic_id', session.clinicId)
     .single()
@@ -55,7 +56,7 @@ export default async function ConversationDetailPage({ params }: Props) {
     )
   }
 
-  const patient = conv.patients as unknown as { id: string; name: string; phone: string; eps: string | null; no_show_count: number; total_appointments: number; document_type: string; document_number: string | null; date_of_birth: string | null; created_at: string } | null
+  const patient = conv.patients as unknown as { id: string; name: string; phone: string; eps: string | null; no_show_count: number; total_appointments: number; document_type: string; document_number: string | null; date_of_birth: string | null; created_at: string; labels: string[] | null } | null
 
   // Load messages
   const { data: messages } = await supabaseAdmin
@@ -120,6 +121,8 @@ export default async function ConversationDetailPage({ params }: Props) {
   }))
 
   const canWrite = session.permissions.conversations?.write ?? false
+  const canLabelWrite = session.permissions.patients?.write ?? false
+  const labelCatalog = await getClinicLabels()
   const staffName = session.fullName.split(' ')[0] ?? session.fullName
 
   const { data: clinicRow } = await supabaseAdmin
@@ -144,6 +147,9 @@ export default async function ConversationDetailPage({ params }: Props) {
           claimed_at: conv.claimed_at as string | null,
         }}
         myClinicUserId={session.clinicUserId}
+        patientLabelIds={patient?.labels ?? []}
+        labelCatalog={labelCatalog}
+        canLabelWrite={canLabelWrite}
       />
     </div>
   )

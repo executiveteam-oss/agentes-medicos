@@ -19,6 +19,7 @@ export interface PatientListItem {
   eps: string | null
   entidad: string | null
   tratante_names: string[]
+  label_ids: string[]
   total_appointments: number
   no_show_count: number
   last_no_show_date: string | null
@@ -39,6 +40,7 @@ export async function getPatientsList(opts: {
   search?: string
   epsFilter?: string
   restrictDoctorId?: string | null
+  labelFilter?: string
 }): Promise<PatientListResult> {
   const clinicId = await checkReadPermission('patients')
   const page = Math.max(1, opts.page ?? 1)
@@ -60,9 +62,11 @@ export async function getPatientsList(opts: {
   // Query base
   let query = supabaseAdmin
     .from('patients')
-    .select('id, name, phone, document_number, eps, entidad, tratantes, total_appointments, no_show_count, created_at', { count: 'exact' })
+    .select('id, name, phone, document_number, eps, entidad, tratantes, labels, total_appointments, no_show_count, created_at', { count: 'exact' })
     .eq('clinic_id', clinicId)
   if (restrictIds) query = query.in('id', restrictIds)
+  // Filtro por etiqueta de paciente (el caso "agendar en septiembre")
+  if (opts.labelFilter) query = query.contains('labels', [opts.labelFilter])
 
   // Filtro de búsqueda por nombre, teléfono o documento
   if (opts.search && opts.search.trim()) {
@@ -127,6 +131,7 @@ export async function getPatientsList(opts: {
       eps: p.eps,
       entidad: (p as { entidad: string | null }).entidad,
       tratante_names: tratanteNames,
+      label_ids: (p as { labels: string[] | null }).labels ?? [],
       total_appointments: p.total_appointments,
       no_show_count: p.no_show_count,
       last_no_show_date: noShowMap[p.id] ?? null,

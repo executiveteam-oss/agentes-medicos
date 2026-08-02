@@ -14,6 +14,7 @@ import { deletePatient, getPatientForEdit } from '@/app/actions/patients'
 import type { PatientFormData, PatientListItem } from '@/app/actions/patients'
 import { PatientFormModal } from '@/components/dashboard/patient-form-modal'
 import { formatPhone } from '@/lib/utils/dates'
+import { resolveLabels, LABEL_COLOR_STYLES, type ClinicLabel } from '@/lib/labels/patient-labels'
 
 interface Props {
   patients: PatientListItem[]
@@ -21,9 +22,10 @@ interface Props {
   page: number
   totalPages: number
   search: string
+  labelCatalog?: ClinicLabel[]
 }
 
-export function PatientsListV2({ patients, total, page, totalPages, search }: Props) {
+export function PatientsListV2({ patients, total, page, totalPages, search, labelCatalog = [] }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [term, setTerm] = useState(search)
@@ -134,6 +136,14 @@ export function PatientsListV2({ patients, total, page, totalPages, search }: Pr
                         {p.no_show_count} no-show{p.no_show_count > 1 ? 's' : ''}
                       </span>
                     )}
+                    {resolveLabels(p.label_ids, labelCatalog).map((l) => {
+                      const c = LABEL_COLOR_STYLES[l.color]
+                      return (
+                        <span key={l.id} style={{ fontSize: '10px', fontWeight: 700, padding: '1px 7px', borderRadius: '5px', background: c.bg, color: c.fg, opacity: l.archived ? 0.6 : 1 }}>
+                          {l.name}
+                        </span>
+                      )
+                    })}
                   </div>
                   <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '2px' }}>
                     {p.phone ? formatPhone(p.phone) : 'Sin teléfono'} &middot; {p.total_appointments} citas

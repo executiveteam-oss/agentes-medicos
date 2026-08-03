@@ -37,7 +37,7 @@ export default async function ConversationDetailPage({ params }: Props) {
   // Load conversation with patient details
   const { data: conv, error } = await supabaseAdmin
     .from('conversations')
-    .select('id, status, triage_state, escalated_to, escalated_at, created_at, whatsapp_phone, patient_id, claimed_by, claimed_by_name, claimed_at, patients(id, name, phone, eps, no_show_count, total_appointments, document_type, document_number, date_of_birth, created_at, labels)')
+    .select('id, status, triage_state, escalated_to, escalated_at, context, created_at, whatsapp_phone, patient_id, claimed_by, claimed_by_name, claimed_at, patients(id, name, phone, eps, no_show_count, total_appointments, document_type, document_number, date_of_birth, created_at, labels)')
     .eq('id', id)
     .eq('clinic_id', session.clinicId)
     .single()
@@ -108,6 +108,7 @@ export default async function ConversationDetailPage({ params }: Props) {
     triage_state: (conv.triage_state as 'atencion' | 'pendiente' | 'resuelta' | null) ?? null,
     escalated_to: conv.escalated_to as string | null,
     escalated_at: conv.escalated_at as string | null,
+    escalation_reason: ((conv.context as Record<string, unknown> | null)?.escalation_reason as string | null) ?? null,
     created_at: conv.created_at as string,
   }
 

@@ -7,7 +7,7 @@
 import { useState, useRef, useEffect, useTransition } from 'react'
 import { formatPhone } from '@/lib/utils/dates'
 import { getInitials } from '@/lib/utils/ui-helpers'
-import { sendStaffMessage, updateConversationStatus, reopenConversation, setConversationTriageState } from '@/app/actions/conversations'
+import { sendStaffMessage, updateConversationStatus, reopenConversation, setConversationTriageState, returnConversationToAgent } from '@/app/actions/conversations'
 import { claimConversation, releaseConversation, overrideClaim } from '@/app/actions/claim'
 import { PatientLabelsEditor } from '@/components/dashboard/patient-labels-editor'
 import type { ClinicLabel } from '@/lib/labels/patient-labels'
@@ -47,6 +47,7 @@ interface ConversationInfo {
   triage_state: 'atencion' | 'pendiente' | 'resuelta' | null
   escalated_to: string | null
   escalated_at: string | null
+  escalation_reason: string | null
   created_at: string
 }
 
@@ -105,6 +106,11 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   const [isPending, startTransition] = useTransition()
   const [showContext, setShowContext] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
+  // Devolver al agente (Etapa 3): crisis abre modal (checkbox + motivo obligatorio);
+  // los demás motivos van con confirmación liviana.
+  const [showCrisisReturn, setShowCrisisReturn] = useState(false)
+  const [returnReason, setReturnReason] = useState('')
+  const [crisisConfirmed, setCrisisConfirmed] = useState(false)
   const [claim, setClaim] = useState<ClaimRow>(initialClaim)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -246,6 +252,32 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
     })
   }
 
+  // Devolver al agente. Crisis (escalation_reason==='crisis') → modal con
+  // checkbox + motivo obligatorio. Otros motivos → confirm liviano.
+  function handleReturnClick() {
+    setShowMenu(false)
+    if (conversation.escalation_reason === 'crisis') {
+      setReturnReason(''); setCrisisConfirmed(false); setShowCrisisReturn(true)
+      return
+    }
+    if (!window.confirm('¿Devolver al agente? El bot va a responder el último mensaje del paciente.')) return
+    runReturnToAgent()
+  }
+
+  function runReturnToAgent(reason?: string) {
+    startTransition(async () => {
+      const r = await returnConversationToAgent(conversation.id, reason)
+      if (r.ok) {
+        setStatus('active'); setTriage(null); setShowCrisisReturn(false)
+        showToastMsg(
+          r.escalatedAgain ? 'Devuelta, pero el agente volvió a escalar'
+            : r.replied ? 'Devuelta al agente — respondió el último mensaje'
+            : 'Devuelta al agente'
+        )
+      } else showToastMsg(r.error ?? 'Error')
+    })
+  }
+
   const assistanceRate = conversation.patient_total_appointments > 0
     ? Math.round(((conversation.patient_total_appointments - conversation.patient_no_show_count) / conversation.patient_total_appointments) * 100)
     : 100
@@ -369,6 +401,17 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
                 style={{ fontSize: '11px', padding: '6px 12px' }}
               >
                 Tomar control
+              </button>
+            )}
+            {/* Etapa 3: ACCIÓN aparte del selector. Devuelve al agente Y contesta
+                el mensaje colgado. Fricción por motivo (crisis → modal). */}
+            {status === 'escalated' && canWrite && (
+              <button
+                onClick={handleReturnClick}
+                disabled={isPending}
+                style={{ fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', padding: '6px 12px', borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)', background: 'var(--v2-bg-card)', color: 'var(--v2-text)', cursor: isPending ? 'default' : 'pointer' }}
+              >
+                🤖 Devolver al agente
               </button>
             )}
             <button
@@ -700,6 +743,37 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
           </div>
         </div>
       </div>
+
+      {/* Devolver al agente — modal de CRISIS (fricción alta): checkbox + motivo
+          obligatorio. Los otros motivos usan confirm liviano, sin este modal. */}
+      {showCrisisReturn && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+          onClick={() => !isPending && setShowCrisisReturn(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--v2-bg-card)', border: '1px solid var(--v2-border-soft)', borderRadius: 'var(--v2-radius-lg)', boxShadow: 'var(--v2-shadow-lg)', padding: '20px', maxWidth: '420px', width: '100%', fontFamily: 'var(--font-manrope), sans-serif' }}>
+            <p style={{ fontSize: '15px', fontWeight: 800, color: 'var(--v2-text)', marginBottom: '6px' }}>🆘 Devolver una conversación de crisis</p>
+            <p style={{ fontSize: '12.5px', color: 'var(--v2-text-muted)', marginBottom: '14px', lineHeight: 1.5 }}>
+              Esta conversación se escaló por una posible crisis. Devolverla al agente hace que el bot responda el último mensaje. La alerta 🆘 NO se borra. Confirmá que ya fue atendida.
+            </p>
+            <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', fontSize: '13px', color: 'var(--v2-text)', marginBottom: '12px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={crisisConfirmed} onChange={(e) => setCrisisConfirmed(e.target.checked)} style={{ marginTop: '2px' }} />
+              <span>Confirmo que la situación de crisis fue atendida por una persona.</span>
+            </label>
+            <textarea value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Motivo (obligatorio): qué se hizo / por qué es seguro devolver…"
+              className="input-v2" style={{ width: '100%', minHeight: '72px', resize: 'vertical', marginBottom: '14px' }} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setShowCrisisReturn(false)} disabled={isPending} className="btn-v2-ghost" style={{ fontSize: '13px', padding: '8px 14px' }}>Cancelar</button>
+              <button
+                onClick={() => runReturnToAgent(returnReason)}
+                disabled={isPending || !crisisConfirmed || !returnReason.trim()}
+                className="btn-v2-primary"
+                style={{ fontSize: '13px', padding: '8px 14px', opacity: (isPending || !crisisConfirmed || !returnReason.trim()) ? 0.5 : 1 }}
+              >
+                Devolver al agente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (

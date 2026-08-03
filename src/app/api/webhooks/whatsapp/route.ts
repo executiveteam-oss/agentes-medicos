@@ -24,8 +24,7 @@ import { whatsappSendErrorReason } from '@/lib/whatsapp/send-error-reason'
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
-import { insurerFromRecord } from '@/lib/utils/insurer-from-record'
-import { calculateAgeFromBirthDate } from '@/lib/utils/age'
+import { getWhatsAppConfig, findActiveDoctors, findActiveConsultationTypes, buildExistingPatient, resolveTratantesForClinic } from '@/lib/agent/agent-context'
 import { verifyWebhookSignature } from '@/lib/whatsapp/verify-signature'
 import { runAppointmentAgent } from '@/agents/appointment-agent'
 import { trackTokenUsage, isClinicPaused } from '@/lib/api-usage'
@@ -35,7 +34,6 @@ import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
 import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery, normalizeForSafety } from '@/lib/safety/crisis-patterns'
-import { DEFAULT_ESCALATION_KEYWORDS } from '@/lib/whatsapp/default-config'
 import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
 import { buildPrivacyNotice } from '@/lib/legal/privacy-notice'
 import { buildContainmentMessage, DEFAULT_CRISIS_CONFIG, type CrisisConfig } from '@/lib/safety/crisis-config'
@@ -610,53 +608,11 @@ async function processWebhook(body: unknown): Promise<void> {
       // 18. Ejecutar el agente de IA
       console.log(`[Webhook] Ejecutando agente con mensaje: "${sanitizedText.slice(0, 50)}..."`)
 
-      // Construir datos de paciente recurrente. El REGISTRO llega SIEMPRE (para
-      // no re-preguntar lo que ya tenemos); el consentimiento gobierna qué se
-      // ENUNCIA en el chat, no qué SABE el agente — por eso el gate ya no exige
-      // data_consent_at. Separación SABER/ENUNCIAR:
-      //   - Cédula → BANDERA pura (has_document): el agente sabe que la tenemos,
-      //     no recibe el número, así no puede leérselo a quien tenga el teléfono.
-      //   - Fecha de nacimiento → EDAD en años (para reglas 15+/18-50): le da la
-      //     función sin darle un dato enunciable. El executor igual revalida la
-      //     edad desde date_of_birth en DB (defensa en profundidad).
-      //   - Nombre y entidad → como VALOR (saludar + rutear modalidad). El guard
-      //     insurerFromRecord filtra "PARTICULAR" → null (solo el chat habilita
-      //     particular; protege la regla de precios).
-      const existingPatient = (patient.document_number || patient.total_appointments > 0)
-        ? {
-            name: patient.name,
-            phone: patient.phone,
-            has_document: !!patient.document_number,
-            edad: calculateAgeFromBirthDate(patient.date_of_birth),
-            eps: patient.eps ?? insurerFromRecord(patient.entidad),
-            email: patient.email,
-            total_appointments: patient.total_appointments ?? 0,
-            no_show_count: patient.no_show_count ?? 0,
-          }
-        : null
-
-      // MÉDICO TRATANTE (por especialidad). Modo por clínica: off/blando/duro.
-      const tratanteMode = ((clinic.feature_config as Record<string, unknown> | null)?.tratante_mode as 'off' | 'blando' | 'duro' | undefined) ?? 'off'
-      let resolvedTratantes: import('@/lib/isalud/tratante-specialty').ResolvedTratante[] = []
-      if (tratanteMode !== 'off' && patient.tratantes) {
-        const { data: allDocs } = await supabaseAdmin.from('doctors')
-          .select('id, name, specialty, is_active, agenda_closed').eq('clinic_id', clinic.id)
-        const doctorsById = new Map<string, import('@/lib/isalud/tratante-specialty').DoctorInfo>()
-        ;(allDocs ?? []).forEach((d) => { const x = d as { id: string; name: string; specialty: string | null; is_active: boolean; agenda_closed: boolean | null }; doctorsById.set(x.id, { id: x.id, name: x.name, specialty: x.specialty, is_active: x.is_active, agenda_closed: !!x.agenda_closed }) })
-        const { resolveActiveTratantes } = await import('@/lib/isalud/tratante-specialty')
-        const resolved = resolveActiveTratantes(patient.tratantes, doctorsById)
-        resolvedTratantes = resolved.active
-        // Misses VISIBLES: una clave que ya no matchea una especialidad real → no silencioso.
-        if (resolved.misses.length > 0) {
-          console.warn(`[Webhook] ⚠ tratante lookup miss:`, JSON.stringify(resolved.misses))
-          try {
-            await supabaseAdmin.from('audit_log').insert({
-              clinic_id: clinic.id, action: 'tratante_lookup_miss', actor_type: 'system',
-              details: { conversation_id: conversation.id, misses: resolved.misses },
-            })
-          } catch { /* no crítico */ }
-        }
-      }
+      // Contexto del agente (existingPatient + tratantes) — FUENTE ÚNICA en
+      // src/lib/agent/agent-context.ts, compartida con "devolver al agente"
+      // (Etapa 3) para que el re-run use EXACTAMENTE este contexto.
+      const existingPatient = buildExistingPatient(patient)
+      const { tratanteMode, tratantes: resolvedTratantes } = await resolveTratantesForClinic(clinic, patient, conversation.id)
 
       let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string } }
 
@@ -1001,31 +957,6 @@ async function findClinicByPhoneId(phoneNumberId: string): Promise<Clinic | null
 }
 
 /**
- * Extrae y normaliza la config de WhatsApp de la clínica
- */
-function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
-  const DEFAULT: WhatsAppConfig = {
-    schedule: {
-      start: '07:00',
-      end: '20:00',
-      days: [1, 2, 3, 4, 5, 6],
-      out_of_hours_message: 'Hola, nuestro horario de atención es de 7am a 8pm. Te responderemos mañana.',
-    },
-    appointment: { default_duration: 30, max_duration: 60 },
-    escalation_keywords: DEFAULT_ESCALATION_KEYWORDS,
-    doctors: {},
-    automations: {
-      post_consulta: { enabled: false },
-      reactivacion: { enabled: false, days_inactive: 90 },
-    },
-    crisis: DEFAULT_CRISIS_CONFIG,
-  }
-  const raw = (clinic.whatsapp_config as WhatsAppConfig | null)
-  if (!raw) return DEFAULT
-  return { ...DEFAULT, ...raw, automations: { ...DEFAULT.automations, ...(raw.automations ?? {}) }, crisis: { ...DEFAULT_CRISIS_CONFIG, ...(raw.crisis ?? {}) } }
-}
-
-/**
  * Verifica si el mensaje contiene alguna palabra clave de escalamiento
  * Retorna la keyword encontrada o null
  */
@@ -1045,42 +976,6 @@ function checkEscalationKeywords(message: string, config: WhatsAppConfig): strin
     if (new RegExp(`(^|\\s)${escaped}(\\s|$)`).test(n)) return keyword
   }
   return null
-}
-
-/**
- * Obtiene doctores activos, filtrando por la config de WhatsApp
- * Si un doctor está marcado como inactivo en config.doctors, se excluye
- */
-async function findActiveDoctors(clinicId: string, config: WhatsAppConfig): Promise<Doctor[]> {
-  const { data } = await supabaseAdmin
-    .from('doctors')
-    .select('*')
-    .eq('clinic_id', clinicId)
-    .eq('is_active', true)
-    .order('created_at', { ascending: true })
-
-  const allDoctors = (data ?? []) as Doctor[]
-
-  // Filtrar por config: si doctor tiene config explícita con active=false, excluir
-  return allDoctors.filter((doc) => {
-    const docConfig = config.doctors[doc.id]
-    return docConfig ? docConfig.active : true
-  })
-}
-
-/**
- * Carga los tipos de consulta activos de la clínica
- * Se pasan al agente para que conozca las opciones disponibles por doctor
- */
-async function findActiveConsultationTypes(clinicId: string): Promise<ConsultationType[]> {
-  const { data } = await supabaseAdmin
-    .from('consultation_types')
-    .select('*')
-    .eq('clinic_id', clinicId)
-    .eq('is_active', true)
-    .order('doctor_id, created_at')
-
-  return (data ?? []) as ConsultationType[]
 }
 
 /**

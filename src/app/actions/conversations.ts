@@ -10,6 +10,8 @@ import { revalidatePath } from 'next/cache'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
 import { getUserSession } from '@/lib/session'
 import { resolveEscalationNotifications } from '@/lib/notifications/escalation-notify'
+import { replyToHangingMessage } from '@/lib/agent/reply-to-hanging-message'
+import { crisisReturnMissingReason } from '@/lib/rules/return-to-agent'
 import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
 import type { ConversationStatus } from '@/types/database'
 
@@ -377,6 +379,71 @@ export async function updateConversationStatus(
     revalidatePath(`/dashboard/conversations/${conversationId}`)
     revalidatePath('/dashboard/conversations')
     return { ok: true }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
+/**
+ * DEVOLVER AL AGENTE (Etapa 3). ACCIÓN aparte del selector de triage. Accesible
+ * desde CUALQUIER conversación escalada. Flip a 'active', limpia la escalación,
+ * y CONTESTA el mensaje colgado (no espera al próximo). NO toca la alerta 🆘
+ * (resolveEscalationNotifications solo limpia conversation_escalated; crisis_
+ * detected/data_rights_request son no-limpiables por diseño), igual que Resuelta.
+ * Fricción: si el motivo de escalación fue 'crisis', el `reason` es OBLIGATORIO
+ * (el checkbox es UI; acá se valida server-side).
+ */
+export async function returnConversationToAgent(
+  conversationId: string,
+  reason?: string,
+): Promise<{ ok: boolean; error?: string; replied?: boolean; escalatedAgain?: boolean }> {
+  try {
+    const clinicId = await checkWritePermission('conversations')
+    const session = await getUserSession()
+
+    const { data: conv } = await supabaseAdmin
+      .from('conversations')
+      .select('status, context')
+      .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
+      .single()
+    if (!conv) return { ok: false, error: 'Conversación no encontrada' }
+    if (conv.status !== 'escalated') return { ok: false, error: 'La conversación no está escalada' }
+
+    const escReason = (conv.context as Record<string, unknown> | null)?.escalation_reason as string | undefined
+
+    // Fricción server-side: crisis exige motivo (el checkbox + textarea son UI).
+    if (crisisReturnMissingReason(escReason, reason)) {
+      return { ok: false, error: 'Para devolver una conversación de crisis, el motivo es obligatorio.' }
+    }
+
+    // Flip a active — limpia la escalación (incluido escalation_reason del context).
+    const { error } = await supabaseAdmin
+      .from('conversations')
+      .update({ status: 'active', escalated_to: null, escalated_at: null, triage_state: null, context: {} })
+      .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
+    if (error) return { ok: false, error: 'Error devolviendo la conversación' }
+
+    // NO toca la 🆘: solo limpia conversation_escalated (igual que Resuelta).
+    await resolveEscalationNotifications(conversationId)
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'conversation_returned_to_agent',
+      actor_type: 'staff',
+      actor_id: session?.clinicUserId ?? null,
+      target_type: 'conversation',
+      target_id: conversationId,
+      details: { from_reason: escReason ?? null, reason: reason?.trim() ?? null },
+    })
+
+    // Contesta el mensaje colgado (no espera al próximo). Puede re-escalar.
+    const reply = await replyToHangingMessage(conversationId)
+
+    revalidatePath(`/dashboard/conversations/${conversationId}`)
+    revalidatePath('/dashboard/conversations')
+    return { ok: true, replied: reply.replied, escalatedAgain: reply.escalatedAgain }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }
   }

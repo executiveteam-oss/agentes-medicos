@@ -15,7 +15,7 @@ import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt, PROMPT_CACHE_SPLIT_ANCHOR } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
-import { isHardBookingFailure } from '@/agents/booking-failure'
+import { isHardBookingFailure, isTechnicalError } from '@/agents/booking-failure'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { formatTimestampColombia } from '@/lib/utils/dates'
 import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
@@ -267,14 +267,24 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         // que el modelo improvise "se acaba de ocupar" (esconde bugs y reporta como
         // "clínica llena"), cortamos determinista, escalamos y avisamos que hubo un
         // problema. Los BLOCKED_BY_AGE/CONDITION/RULE_ESCALATE/AUTH NO entran acá.
-        if (resultObj?.success === false && isHardBookingFailure(toolUse.name, resultObj.error as string)) {
-          const code = String(resultObj.error ?? '').split(' ')[0]
-          console.warn(`[Agent] 🚨 Falla dura de agendamiento (${code}) → escalar, NO improvisar`)
+        // Falla dura de agendamiento (bug#4) O error TÉCNICO de cualquier tool.
+        // Ambos se cortan determinista y escalan — el LLM NUNCA los narra (los
+        // disfrazaría de "clínica llena" / lista de espera / otro médico, que es
+        // como un bug del sistema termina reportado como consultorio ocupado).
+        // Los resultados de NEGOCIO (available:false, agenda_closed, fecha
+        // inválida, sin convenio) NO entran acá y siguen yendo al LLM.
+        const bookingFail = resultObj?.success === false && isHardBookingFailure(toolUse.name, resultObj.error as string)
+        const techFail = resultObj?.success === false && isTechnicalError(resultObj.error as string)
+        if (bookingFail || techFail) {
+          const code = String(resultObj?.error ?? '').split(' ')[0]
+          console.warn(`[Agent] 🚨 ${bookingFail ? 'Falla dura de agendamiento' : 'Error técnico de tool'} (${toolUse.name}/${code}) → escalar, NO improvisar`)
           return {
-            text: 'Uy, tuve un inconveniente para agendar tu cita 🙁 Ya avisé a una persona del equipo para que lo revise y te confirme enseguida. Disculpá la demora 🙏',
+            text: bookingFail
+              ? 'Uy, tuve un inconveniente para agendar tu cita 🙁 Ya avisé a una persona del equipo para que lo revise y te confirme enseguida. Disculpá la demora 🙏'
+              : 'Uy, tuve un inconveniente técnico revisando eso 🙁 Ya avisé a una persona del equipo para que lo revise y te ayude enseguida. Disculpá 🙏',
             toolsUsed,
             tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
-            escalate: { reason: 'booking_failure', code },
+            escalate: { reason: bookingFail ? 'booking_failure' : 'tool_technical_error', code },
           }
         }
         if (resultObj?.success && resultData?.appointmentData) {

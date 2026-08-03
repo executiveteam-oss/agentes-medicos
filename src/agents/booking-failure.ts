@@ -17,3 +17,16 @@ export function isHardBookingFailure(toolName: string, errorCode: string | null 
   const code = String(errorCode ?? '')
   return code.startsWith('SLOT_JUST_TAKEN') || code === 'BLOCKED_BY_SCHEDULE'
 }
+
+/**
+ * ¿El error de una tool (CUALQUIERA) es un fallo TÉCNICO del sistema (excepción
+ * atrapada, error de DB), no un resultado de negocio? Los técnicos se marcan con
+ * el prefijo 'INTERNAL_ERROR' en el executor. Un fallo técnico NO se le narra al
+ * paciente por el LLM (que lo disfrazaría de "clínica llena" / lista de espera):
+ * se corta determinista, se avisa que hubo un problema y se escala. Los
+ * resultados de negocio (available:false, agenda_closed, fecha inválida, sin
+ * convenio) NO llevan este prefijo y siguen yendo al LLM.
+ */
+export function isTechnicalError(errorCode: string | null | undefined): boolean {
+  return String(errorCode ?? '').startsWith('INTERNAL_ERROR')
+}

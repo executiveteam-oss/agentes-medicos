@@ -717,24 +717,28 @@ async function processWebhook(body: unknown): Promise<void> {
 
       console.log(`[Webhook] Agente respondió. Tools usadas: [${agentResponse.toolsUsed.join(', ')}]`)
 
-      // BUG #4 — falla dura de agendamiento: el executor rechazó create/reschedule
-      // por slot/horario. NO se disfraza de negocio normal: se escala a una persona,
-      // se avisa al staff y se audita (para tener señal del problema, no un "clínica
-      // llena" silencioso).
+      // El agente cortó determinista y pidió escalar: (a) falla DURA de
+      // agendamiento (bug#4, create/reschedule rechazado por slot/horario) o
+      // (b) error TÉCNICO de cualquier tool. NINGUNO se disfraza de negocio
+      // normal: se escala a una persona, se avisa al staff y se audita — para
+      // tener señal del problema, no un "clínica llena" silencioso.
       if (agentResponse.escalate) {
+        const isTech = agentResponse.escalate.reason === 'tool_technical_error'
         await supabaseAdmin
           .from('conversations')
-          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'falla_agendamiento' } })
+          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: isTech ? 'error_tecnico_tool' : 'falla_agendamiento' } })
           .eq('id', conversation.id)
         await refreshEscalationNotifications({
           conversationId: conversation.id,
           clinicId: clinic.id,
           patientName: patient.name,
-          latestMessage: `⚠ El agente no pudo agendar (${agentResponse.escalate.code}) — hay que agendar a mano y revisar`,
+          latestMessage: isTech
+            ? `⚠ El agente tuvo un error técnico (${agentResponse.escalate.code}) — revisar el sistema y atender a la paciente`
+            : `⚠ El agente no pudo agendar (${agentResponse.escalate.code}) — hay que agendar a mano y revisar`,
         })
         await supabaseAdmin.from('audit_log').insert({
           clinic_id: clinic.id,
-          action: 'agent_booking_failure_escalated',
+          action: isTech ? 'agent_tool_error_escalated' : 'agent_booking_failure_escalated',
           actor_type: 'agent',
           target_type: 'conversation',
           target_id: conversation.id,
@@ -742,7 +746,7 @@ async function processWebhook(body: unknown): Promise<void> {
         })
         await saveMessage(conversation.id, 'agent', agentResponse.text)
         await sendWhatsAppMessage(message.from, agentResponse.text, clinicCreds)
-        console.warn(`[Webhook] 🚨 Escalación por falla de agendamiento del agente: ${agentResponse.escalate.code}`)
+        console.warn(`[Webhook] 🚨 Escalación por ${isTech ? 'error técnico de tool' : 'falla de agendamiento'} del agente: ${agentResponse.escalate.code}`)
         return
       }
 

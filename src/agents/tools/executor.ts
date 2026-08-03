@@ -91,9 +91,11 @@ export async function executeTool(
     }
   } catch (error) {
     console.error(`[Tool:${toolName}] Error:`, error)
+    // Prefijo INTERNAL_ERROR → el loop del agente lo corta y escala, NO lo
+    // narra el LLM (que lo disfrazaría de negocio). Ver isTechnicalError.
     return {
       success: false,
-      error: 'Ocurrió un error interno. Informa al paciente que hubo un problema y puede escribir "hablar con humano".',
+      error: 'INTERNAL_ERROR — Ocurrió un error interno. Informa al paciente que hubo un problema y puede escribir "hablar con humano".',
     }
   }
 }
@@ -260,6 +262,11 @@ async function checkAvailability(
   const dayKey = dayOfWeek as keyof typeof clinic.working_hours
   let isDayActive = false
   let dayBlocks: WorkingBlock[] = []
+  // Si el médico marcó ESTE día EXPLÍCITAMENTE inactivo, NO se cae a los
+  // fallbacks (rama 2/3): un día inactivo del médico significa "no atiende",
+  // no "usá el horario de la clínica". Sin esto, un médico que no trabaja el
+  // miércoles aparecía disponible 08-18 con el horario de la CLÍNICA.
+  let doctorMarkedInactive = false
 
   // 1) working_hours del médico PEDIDO (targetDoctor por doctorId), NO del `doctor`
   // param (que es el principal de la clínica). Fix: antes devolvía el horario de
@@ -267,18 +274,22 @@ async function checkAvailability(
   if (targetDoctor?.working_hours) {
     const docHours = normalizeWorkingHours(targetDoctor.working_hours)
     const dayCfg = docHours[dayKey]
+    // rawDay: el día TAL CUAL está en su working_hours. active===false explícito
+    // ≠ día ausente (undefined). Solo el explícito corta; el ausente sí hereda.
+    const rawDay = (targetDoctor.working_hours as Record<string, unknown> | null)?.[dayKey] as { active?: boolean } | undefined
     if (dayCfg.active && dayCfg.blocks.length > 0) {
       isDayActive = true
       dayBlocks = dayCfg.blocks
-    } else if (!dayCfg.active) {
-      // El doctor explícitamente marcó este día como inactivo
+    } else if (rawDay?.active === false) {
+      // El médico marcó este día EXPLÍCITAMENTE como inactivo → no atiende.
       isDayActive = false
       dayBlocks = []
+      doctorMarkedInactive = true
     }
   }
 
   // 2) Fallback a whatsapp_config.doctors[id] (formato global single window)
-  if (!isDayActive && dayBlocks.length === 0 && docConfig) {
+  if (!isDayActive && dayBlocks.length === 0 && !doctorMarkedInactive && docConfig) {
     const dayNum = date.getDay()
     if (docConfig.days.includes(dayNum)) {
       isDayActive = true
@@ -286,8 +297,8 @@ async function checkAvailability(
     }
   }
 
-  // 3) Fallback a clinic.working_hours
-  if (!isDayActive && dayBlocks.length === 0) {
+  // 3) Fallback a clinic.working_hours (NO si el médico marcó el día inactivo)
+  if (!isDayActive && dayBlocks.length === 0 && !doctorMarkedInactive) {
     const clinicHours = normalizeWorkingHours(clinic.working_hours)
     const dayCfg = clinicHours[dayKey]
     if (dayCfg.active && dayCfg.blocks.length > 0) {
@@ -327,7 +338,7 @@ async function checkAvailability(
 
   if (error) {
     console.error('[check_availability] Error DB:', error)
-    return { success: false, error: 'Error consultando disponibilidad' }
+    return { success: false, error: 'INTERNAL_ERROR — Error consultando disponibilidad' }
   }
 
   // Si se proporcionó consultation_type_id, usar su duración

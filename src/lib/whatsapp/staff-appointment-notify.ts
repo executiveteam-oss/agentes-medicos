@@ -102,7 +102,7 @@ export async function notifyStaffAppointmentCreated(
     lines.push(`⚠️ Recordá NO agendar esta hora en iSalud — ya está bloqueada en Omuwan.`)
 
     const message = lines.join('\n')
-    await sendWhatsAppMessage(contactPhone, message, clinicCreds)
+    await sendWhatsAppMessage(contactPhone, message, clinicCreds, { clinicId: params.clinicId, sendType: 'staff_appointment' })
     console.log(`[StaffNotify] WhatsApp enviado a ${contactPhone.slice(0, 5)}*** por nueva cita en ${(rec?.name as string) ?? params.clinicId.slice(0, 8)}`)
   } catch (err) {
     // Fire-and-forget — nunca bloquear el flujo del agente

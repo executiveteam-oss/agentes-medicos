@@ -97,7 +97,7 @@ async function processClinicFollowups(clinicId: string): Promise<{ sent: number;
     const whatsappNumber = patient.phone.replace('+', '')
     const credsPC = await getClinicCreds(apt.clinic_id)
     if (!credsPC) continue
-    const result = await sendWhatsAppMessage(whatsappNumber, message, credsPC)
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsPC, { clinicId: apt.clinic_id, sendType: 'other' })
 
     if (result) {
       sent++

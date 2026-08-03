@@ -169,7 +169,7 @@ export async function GET(request: NextRequest) {
       if (!clinicCreds) { skipped++; continue }
 
       const whatsappNumber = adminPhone.replace('+', '')
-      const result = await sendWhatsAppMessage(whatsappNumber, message, clinicCreds)
+      const result = await sendWhatsAppMessage(whatsappNumber, message, clinicCreds, { clinicId: clinic.id, sendType: 'weekly_report' })
 
       if (result) {
         sentCount++

@@ -128,6 +128,7 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
       [doctor.name, secondVar],
       null, // sin botones
       creds,
+      { clinicId, sendType: 'morning_report' },
     )
 
     if (result.ok) {

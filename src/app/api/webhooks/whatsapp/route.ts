@@ -20,7 +20,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, sendWhatsAppMessageWithResult, markAsRead } from '@/lib/whatsapp/client'
-import { whatsappSendErrorReason } from '@/lib/whatsapp/send-error-reason'
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
@@ -812,23 +811,13 @@ async function processWebhook(body: unknown): Promise<void> {
       // 19. Guardar respuesta del agente en DB (versión limpia, ya sin marcador)
       const agentMsgId = await saveMessage(conversation.id, 'agent', sendText)
 
-      // 19. Enviar por WhatsApp. Si falla, marcar el mensaje como NO ENTREGADO
-      // (visible para la secretaria, sin conversación fantasma) + audit con el
-      // código de Meta para poder contar cuántos fallan y por qué.
-      const sendResult = await sendWhatsAppMessageWithResult(message.from, sendText, clinicCreds)
-      if (!sendResult.ok) {
-        const reason = whatsappSendErrorReason(sendResult.errorCode)
-        console.error(`[Webhook] FALLÓ el envío por WhatsApp (code ${sendResult.errorCode ?? 'red'}): ${reason}`)
-        if (agentMsgId) {
-          await supabaseAdmin.from('messages').update({ delivery_status: 'failed', delivery_error: reason }).eq('id', agentMsgId)
-        }
-        try {
-          await supabaseAdmin.from('audit_log').insert({
-            clinic_id: clinic.id, action: 'whatsapp_send_failed', actor_type: 'system',
-            details: { conversation_id: conversation.id, message_id: agentMsgId, meta_code: sendResult.errorCode ?? null, meta_message: sendResult.errorMessage ?? null, to: `${message.from.slice(0, 5)}***` },
-          })
-        } catch { /* no crítico */ }
-      }
+      // 19. Enviar por WhatsApp. El registro del fallo (audit whatsapp_send_failed
+      // + delivery_status NO ENTREGADO en el mensaje) lo hace ahora
+      // recordWhatsAppSendFailure POR DENTRO del send, vía ctx — fuente única,
+      // ver src/lib/whatsapp/send-failure.ts (antes vivía inline acá).
+      await sendWhatsAppMessageWithResult(message.from, sendText, clinicCreds, {
+        clinicId: clinic.id, sendType: 'agent_reply', conversationId: conversation.id, messageId: agentMsgId ?? undefined,
+      })
 
       // 19.5 Calendar invite (.ics) — send after text confirmation
       console.log(`[Webhook] appointmentData present: ${!!agentResponse.appointmentData}, toolsUsed: [${agentResponse.toolsUsed.join(', ')}]`)
@@ -874,7 +863,9 @@ async function processWebhook(body: unknown): Promise<void> {
           // del .ics (es texto RFC 5545); el nombre cita.ics conserva la extensión
           // para que el teléfono lo rutee al calendario. PENDIENTE: validar en
           // dispositivo real (algunos clientes abren text/plain como texto).
-          const docResult = await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/plain', clinicCreds)
+          const docResult = await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/plain', clinicCreds, {
+            clinicId: clinic.id, sendType: 'ics', conversationId: conversation.id,
+          })
           console.log(`[Webhook] ICS send result: ${docResult ? 'OK msgId=' + docResult : 'FAILED'}`)
         } catch (icsErr) {
           console.error('[Webhook] ICS send failed (non-critical):', icsErr instanceof Error ? icsErr.message : icsErr)
@@ -1163,8 +1154,13 @@ async function handleCrisis(
   // 1. Contención al paciente — SOLO si el wording fue aprobado por Algia.
   if (crisisCfg.auto_message_approved) {
     const containment = buildContainmentMessage(crisisCfg, patient.name ?? undefined)
-    await saveMessage(conversation.id, 'agent', containment)
-    const sentId = await sendWhatsAppMessage(patientPhone, containment, clinicCreds)
+    const savedId = await saveMessage(conversation.id, 'agent', containment)
+    // sendType 'crisis_containment' → recordWhatsAppSendFailure ALERTA al staff
+    // (único tipo en ALERT_ON_SEND_FAILURE). Si falla, alguien lo ve YA.
+    const sentId = await sendWhatsAppMessage(patientPhone, containment, clinicCreds, {
+      clinicId: clinic.id, sendType: 'crisis_containment', conversationId: conversation.id,
+      messageId: savedId ?? undefined, patientName: patient.name ?? undefined,
+    })
     if (!sentId) {
       console.error(`[CAPA0][CRISIS] CRÍTICO: contención NO se envió (conv ${conversation.id})`)
     }

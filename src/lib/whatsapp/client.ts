@@ -7,6 +7,7 @@
 
 import type { WhatsAppSendTextPayload } from '@/types/whatsapp'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { recordWhatsAppSendFailure, type SendFailureContext } from '@/lib/whatsapp/send-failure'
 
 const WHATSAPP_API_URL = 'https://graph.facebook.com/v21.0'
 
@@ -45,7 +46,8 @@ export interface WhatsAppSendResult {
 export async function sendWhatsAppMessageWithResult(
   to: string,
   message: string,
-  clinicCreds?: ClinicWhatsAppCredentials | null
+  clinicCreds?: ClinicWhatsAppCredentials | null,
+  ctx?: SendFailureContext,
 ): Promise<WhatsAppSendResult> {
   const { phoneNumberId, accessToken } = getConfig(clinicCreds)
 
@@ -80,6 +82,7 @@ export async function sendWhatsAppMessageWithResult(
         console.error(`[WhatsApp] ERROR ${response.status} (code ${errorCode}): ${errorMessage}`)
         console.error('[WhatsApp] Response completa:', JSON.stringify(responseBody))
       }
+      if (ctx) await recordWhatsAppSendFailure(ctx, { errorCode, errorMessage })
       return { ok: false, errorCode, errorMessage }
     }
 
@@ -88,7 +91,9 @@ export async function sendWhatsAppMessageWithResult(
     return { ok: true, messageId }
   } catch (error) {
     console.error('[WhatsApp] Error de red (no se pudo conectar a Meta):', error)
-    return { ok: false, errorMessage: error instanceof Error ? error.message : String(error) }
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    if (ctx) await recordWhatsAppSendFailure(ctx, { errorMessage })
+    return { ok: false, errorMessage }
   }
 }
 
@@ -99,9 +104,10 @@ export async function sendWhatsAppMessageWithResult(
 export async function sendWhatsAppMessage(
   to: string,
   message: string,
-  clinicCreds?: ClinicWhatsAppCredentials | null
+  clinicCreds?: ClinicWhatsAppCredentials | null,
+  ctx?: SendFailureContext,
 ): Promise<string | null> {
-  const r = await sendWhatsAppMessageWithResult(to, message, clinicCreds)
+  const r = await sendWhatsAppMessageWithResult(to, message, clinicCreds, ctx)
   return r.ok ? (r.messageId ?? null) : null
 }
 
@@ -121,11 +127,13 @@ export async function sendWhatsAppDocument(
   filename: string,
   mimeType: string,
   clinicCreds?: ClinicWhatsAppCredentials | null,
+  ctx?: SendFailureContext,
 ): Promise<string | null> {
   let config: { phoneNumberId: string; accessToken: string }
   try {
     config = getConfig(clinicCreds)
   } catch {
+    if (ctx) await recordWhatsAppSendFailure(ctx, { errorMessage: 'sin credenciales WhatsApp' })
     return null
   }
 
@@ -149,6 +157,7 @@ export async function sendWhatsAppDocument(
     const uploadData = await uploadRes.json()
     if (!uploadData.id) {
       console.error('[WhatsApp] Media upload failed:', JSON.stringify(uploadData).slice(0, 300))
+      if (ctx) await recordWhatsAppSendFailure(ctx, { errorCode: uploadData.error?.code, errorMessage: uploadData.error?.message ?? 'media upload failed' })
       return null
     }
 
@@ -182,9 +191,11 @@ export async function sendWhatsAppDocument(
     } else {
       console.error('[WhatsApp] Document send error:', JSON.stringify(data).slice(0, 300))
     }
+    if (ctx) await recordWhatsAppSendFailure(ctx, { errorCode, errorMessage: data.error?.message })
     return null
   } catch (err) {
     console.error('[WhatsApp] Document send failed:', err instanceof Error ? err.message : err)
+    if (ctx) await recordWhatsAppSendFailure(ctx, { errorMessage: err instanceof Error ? err.message : String(err) })
     return null
   }
 }
@@ -261,6 +272,7 @@ export async function sendWhatsAppTemplate(
   bodyParams: string[],
   buttonUrlParam: string | null,
   clinicCreds?: ClinicWhatsAppCredentials | null,
+  ctx?: SendFailureContext,
 ): Promise<SendTemplateResult> {
   const { phoneNumberId, accessToken } = getConfig(clinicCreds)
 
@@ -324,6 +336,7 @@ export async function sendWhatsAppTemplate(
         console.error(`[WhatsApp:template] ERROR ${response.status} (code ${errorCode}): ${errorMessage}`)
       }
 
+      if (ctx) await recordWhatsAppSendFailure(ctx, { errorCode, errorMessage })
       return { ok: false, error: errorMessage, errorCode }
     }
 
@@ -332,6 +345,7 @@ export async function sendWhatsAppTemplate(
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error('[WhatsApp:template] Error de red:', msg)
+    if (ctx) await recordWhatsAppSendFailure(ctx, { errorMessage: `Network error: ${msg}` })
     return { ok: false, error: `Network error: ${msg}` }
   }
 }

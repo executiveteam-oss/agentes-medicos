@@ -131,7 +131,7 @@ async function processClinicReactivation(
     const whatsappNumber = patient.phone.replace('+', '')
     const credsReact = await getClinicCreds(clinicId)
     if (!credsReact) continue
-    const result = await sendWhatsAppMessage(whatsappNumber, message, credsReact)
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsReact, { clinicId, sendType: 'reactivation' })
 
     if (result) {
       sent++

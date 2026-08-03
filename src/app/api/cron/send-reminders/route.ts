@@ -180,6 +180,7 @@ async function send72hReminders(
       [patient.name, `${doctorPrefix} ${doctor.name}`, dateText, timeText, address],
       null,   // Quick Reply buttons — sin param de URL
       creds,
+      { clinicId: apt.clinic_id, sendType: 'reminder' },
     )
 
     if (result.ok) {
@@ -293,6 +294,7 @@ async function send24hReminders(
       [patient.name, doctor.name, dateText, timeText, clinic.address],
       null,   // Quick Reply buttons — sin param de URL
       creds24,
+      { clinicId: apt.clinic_id, sendType: 'reminder' },
     )
 
     if (result.ok) {
@@ -448,6 +450,7 @@ async function send2hReminders(
       [patient.name, doctor.name, 'hoy', timeText, address],
       null,   // Quick Reply buttons — sin param de URL
       creds2h,
+      { clinicId: apt.clinic_id, sendType: 'reminder' },
     )
 
     if (result.ok) {
@@ -594,7 +597,7 @@ async function sendVirtualLinks(): Promise<{ sent: number; failed: number }> {
     const whatsappNumber = patient.phone.replace('+', '')
     const credsVirtual = await getClinicCreds(apt.clinic_id)
     if (!credsVirtual) continue
-    const result = await sendWhatsAppMessage(whatsappNumber, message, credsVirtual)
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsVirtual, { clinicId: apt.clinic_id, sendType: 'reminder' })
 
     if (result !== null) {
       sent++
@@ -667,7 +670,7 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
     const whatsappNumber = patient.phone.replace('+', '')
     const credsDocs = await getClinicCreds(apt.clinic_id)
     if (!credsDocs) continue
-    const result = await sendWhatsAppMessage(whatsappNumber, message, credsDocs)
+    const result = await sendWhatsAppMessage(whatsappNumber, message, credsDocs, { clinicId: apt.clinic_id, sendType: 'reminder' })
 
     if (result !== null) {
       sent++

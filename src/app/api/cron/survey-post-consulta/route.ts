@@ -173,6 +173,7 @@ async function processClinicSurveys(
       [firstName, clinicDisplayName],
       formUrl,
       clinicCreds,
+      { clinicId: apt.clinic_id, sendType: 'survey' },
     )
 
     if (result.ok) {

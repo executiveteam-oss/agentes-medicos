@@ -321,7 +321,7 @@ export async function rejectAuthorization(params: {
   let noticeSent = false
   if (windowOpen && phone && patientMsg) {
     try {
-      await sendWhatsAppMessage(phone, patientMsg, await getClinicCreds(clinicId))
+      await sendWhatsAppMessage(phone, patientMsg, await getClinicCreds(clinicId), { clinicId, sendType: 'auth_rejection' })
       await supabaseAdmin.from('messages').insert({
         conversation_id: m.conversation_id, role: 'agent', content: patientMsg,
       })
@@ -450,7 +450,7 @@ export async function approveAndReturnToAgent(
   let noticeSent = false
   if (windowOpen && phone) {
     try {
-      await sendWhatsAppMessage(phone, patientMsg, await getClinicCreds(clinicId))
+      await sendWhatsAppMessage(phone, patientMsg, await getClinicCreds(clinicId), { clinicId, sendType: 'auth_rejection' })
       await supabaseAdmin.from('messages').insert({
         conversation_id: m.conversation_id, role: 'agent', content: patientMsg,
       })

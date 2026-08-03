@@ -26,8 +26,11 @@ export const DEFAULT_CRISIS_CONFIG: CrisisConfig = {
     'Con gusto te paso con una persona del consultorio. Ya te contactan. 🙏',
 }
 
-/** Construye el mensaje de contención. Interpola {nombre} si viene. */
+/** Construye el mensaje de contención. Interpola {nombre} si viene.
+ *  Colapsa SOLO espacios/tabs repetidos (limpieza tras interpolar {nombre}),
+ *  NUNCA saltos de línea: el wording de crisis viene en párrafos separados y
+ *  debe llegar EXACTO (WhatsApp respeta \n). Un `\s{2,}` colapsaría los \n\n. */
 export function buildContainmentMessage(config: CrisisConfig, patientFirstName?: string): string {
   const nombre = (patientFirstName ?? '').trim().split(' ')[0] || ''
-  return config.containment_message.replace(/\{nombre\}/g, nombre).replace(/\s{2,}/g, ' ').trim()
+  return config.containment_message.replace(/\{nombre\}/g, nombre).replace(/[^\S\n]{2,}/g, ' ').trim()
 }

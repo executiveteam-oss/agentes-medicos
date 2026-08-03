@@ -3,16 +3,15 @@
 // El bot NUNCA cumple la solicitud (no borra, no exporta, no rectifica): solo
 // acusa recibo, escala y avisa al staff, que responde dentro del término legal.
 //
-// Wording BORRADOR — pendiente de validación de Algia. Usa "término legal" a
-// propósito (NO hardcodea 15 días): 15 días hábiles ES el término del reclamo
-// bajo Ley 1581, así no contradice la política vigente de la clínica y sirve
-// multi-tenant.
+// Wording APROBADO por Algia (2026-08-03). {clinic} interpola el nombre de la
+// clínica (multi-tenant). "15 días hábiles" ES el término del reclamo bajo Ley
+// 1581 — aprobado explícito, no contradice la política vigente.
 // ============================================================
 
 const DATA_RIGHTS_ACK_TEMPLATE =
-  'Recibí tu mensaje sobre el manejo de tus datos personales. ' +
-  'Lo registré y el equipo de {clinic} lo va a revisar y responderte dentro del término legal. ' +
-  'Una persona te contacta por este mismo medio. 🔐'
+  'Recibí tu solicitud sobre tus datos personales y ya quedó registrada.\n\n' +
+  '{clinic} tiene hasta 15 días hábiles para darte una respuesta formal, y una persona del equipo se va a comunicar contigo para confirmarte cómo va.\n\n' +
+  "Si quieres consultar la política de tratamiento de datos, escribe 'privacidad' y te comparto el enlace."
 
 /** Acuse al paciente al detectar una solicitud ARCO. Puro. */
 export function buildDataRightsAck(clinicName: string | null): string {

@@ -33,9 +33,8 @@ export type PatientConditionRuleInfo =
 interface ExistingPatientData {
   name: string
   phone: string
-  document_type: string | null
-  document_number: string | null
-  date_of_birth: string | null
+  has_document: boolean        // bandera pura: tenemos cédula en ficha, NO su valor
+  edad: number | null          // edad en años (para reglas de edad); NO la fecha
   eps: string | null
   email: string | null
   total_appointments: number
@@ -1218,18 +1217,20 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
   if (!patient) return ''
 
   // Solo mostrar sección si el paciente tiene al menos nombre y algún dato más
-  const hasData = patient.document_number || patient.date_of_birth || patient.eps
+  const hasData = patient.has_document || patient.edad !== null || patient.eps
   if (!hasData && patient.total_appointments === 0) return ''
 
   const lines: string[] = []
   lines.push('')
   lines.push('PACIENTE RECURRENTE — DATOS YA REGISTRADOS:')
   lines.push(`- Nombre: ${patient.name}`)
-  if (patient.document_type && patient.document_number) {
-    lines.push(`- Documento: ${patient.document_type} ${patient.document_number}`)
+  if (patient.has_document) {
+    // Bandera, NO el valor: el agente sabe que la cédula está en ficha y NO
+    // debe pedirla. NUNCA recibe el número → no se lo puede leer a nadie.
+    lines.push('- Documento: ya registrado en ficha (NO lo pidas; NO lo menciones)')
   }
-  if (patient.date_of_birth) {
-    lines.push(`- Fecha de nacimiento: ${patient.date_of_birth}`)
+  if (patient.edad !== null) {
+    lines.push(`- Edad: ${patient.edad} años (dato interno para requisitos de edad — NO se lo menciones al paciente ni le pidas la fecha de nacimiento)`)
   }
   if (patient.eps) {
     lines.push(`- EPS: ${patient.eps}`)
@@ -1248,8 +1249,8 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
 
   // Campos faltantes
   const missing: string[] = []
-  if (!patient.document_number) missing.push('tipo y número de documento')
-  if (!patient.date_of_birth) missing.push('fecha de nacimiento')
+  if (!patient.has_document) missing.push('tipo y número de documento')
+  if (patient.edad === null) missing.push('fecha de nacimiento')
   if (!patient.eps) missing.push('EPS')
   if (!patient.email) missing.push('correo electrónico')
 
@@ -1259,10 +1260,10 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
   lines.push('PASO 1 — CUANDO no exista en el historial una confirmación de identidad de ESTE paciente:')
   lines.push('  Saluda y pide confirmación. Usa EXACTAMENTE este formato:')
   lines.push(`  "¡Hola ${patient.name}! 👋 Veo que ya eres paciente nuestro.`)
-  if (patient.document_type && patient.document_number && patient.eps) {
-    lines.push(`  ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}, afiliado/a a ${patient.eps}?`)
-  } else if (patient.document_type && patient.document_number) {
-    lines.push(`  ¿Confirmas que eres ${patient.name}, ${patient.document_type} ${patient.document_number}?`)
+  // Confirmación por NOMBRE (+ EPS si la hay). NUNCA se lee la cédula de vuelta:
+  // el teléfono puede ser compartido y leer el documento sería filtrarlo.
+  if (patient.eps) {
+    lines.push(`  ¿Confirmas que eres ${patient.name}, afiliado/a a ${patient.eps}?`)
   } else {
     lines.push(`  ¿Confirmas que eres ${patient.name}?`)
   }
@@ -1288,7 +1289,7 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
   lines.push('')
   lines.push('PASO 5 — Tras un mensaje que NO es afirmación (ej. "para pedir una cita"):')
   lines.push('  El flujo está PAUSADO en confirmación. Responde con amabilidad y REPITE la pregunta:')
-  lines.push(`  "Claro, con gusto te agendo. Pero primero confirma: ¿eres ${patient.name}${patient.document_type && patient.document_number ? `, ${patient.document_type} ${patient.document_number}` : ''}? Respóndeme sí o no."`)
+  lines.push(`  "Claro, con gusto te agendo. Pero primero confirma: ¿eres ${patient.name}? Respóndeme sí o no."`)
   lines.push('  NUNCA digas "ya confirmaste", "como confirmaste", "perfecto, vamos a agendar" — el paciente NO ha confirmado.')
   lines.push('')
   lines.push('PASO 6 — Tras NEGACIÓN: pregunta qué dato cambió (nombre/documento/EPS) y actualiza ese campo.')

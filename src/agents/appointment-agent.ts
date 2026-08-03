@@ -27,9 +27,8 @@ const MAX_TOOL_ITERATIONS = 5 // Máximo de veces que Claude puede usar tools en
 interface ExistingPatientData {
   name: string
   phone: string
-  document_type: string | null
-  document_number: string | null
-  date_of_birth: string | null
+  has_document: boolean        // bandera pura: tenemos cédula en ficha, NO su valor
+  edad: number | null          // edad en años (para reglas de edad); NO la fecha
   eps: string | null
   email: string | null
   total_appointments: number

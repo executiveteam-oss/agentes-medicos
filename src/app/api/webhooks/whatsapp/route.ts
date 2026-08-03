@@ -25,6 +25,7 @@ import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
 import { insurerFromRecord } from '@/lib/utils/insurer-from-record'
+import { calculateAgeFromBirthDate } from '@/lib/utils/age'
 import { verifyWebhookSignature } from '@/lib/whatsapp/verify-signature'
 import { runAppointmentAgent } from '@/agents/appointment-agent'
 import { trackTokenUsage, isClinicPaused } from '@/lib/api-usage'
@@ -608,17 +609,24 @@ async function processWebhook(body: unknown): Promise<void> {
       // 18. Ejecutar el agente de IA
       console.log(`[Webhook] Ejecutando agente con mensaje: "${sanitizedText.slice(0, 50)}..."`)
 
-      // Construir datos de paciente recurrente (si tiene datos registrados)
-      const existingPatient = (patient.data_consent_at && (patient.document_number || patient.total_appointments > 0))
+      // Construir datos de paciente recurrente. El REGISTRO llega SIEMPRE (para
+      // no re-preguntar lo que ya tenemos); el consentimiento gobierna qué se
+      // ENUNCIA en el chat, no qué SABE el agente — por eso el gate ya no exige
+      // data_consent_at. Separación SABER/ENUNCIAR:
+      //   - Cédula → BANDERA pura (has_document): el agente sabe que la tenemos,
+      //     no recibe el número, así no puede leérselo a quien tenga el teléfono.
+      //   - Fecha de nacimiento → EDAD en años (para reglas 15+/18-50): le da la
+      //     función sin darle un dato enunciable. El executor igual revalida la
+      //     edad desde date_of_birth en DB (defensa en profundidad).
+      //   - Nombre y entidad → como VALOR (saludar + rutear modalidad). El guard
+      //     insurerFromRecord filtra "PARTICULAR" → null (solo el chat habilita
+      //     particular; protege la regla de precios).
+      const existingPatient = (patient.document_number || patient.total_appointments > 0)
         ? {
             name: patient.name,
             phone: patient.phone,
-            document_type: patient.document_type,
-            document_number: patient.document_number,
-            date_of_birth: patient.date_of_birth,
-            // eps declarada/manual gana; si no, la entidad del histórico iSalud
-            // (guard: "PARTICULAR" del registro NUNCA se propaga → el agente
-            // pregunta la modalidad; solo el chat habilita particular).
+            has_document: !!patient.document_number,
+            edad: calculateAgeFromBirthDate(patient.date_of_birth),
             eps: patient.eps ?? insurerFromRecord(patient.entidad),
             email: patient.email,
             total_appointments: patient.total_appointments ?? 0,

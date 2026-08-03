@@ -131,12 +131,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     .maybeSingle()
 
   if (patient) {
+    const { calculateAgeFromBirthDate } = await import('@/lib/utils/age')
     existingPatient = {
       name: patient.name as string,
       phone: patient.phone as string,
-      document_type: patient.document_type as string | null,
-      document_number: patient.document_number as string | null,
-      date_of_birth: patient.date_of_birth as string | null,
+      has_document: !!patient.document_number,
+      edad: calculateAgeFromBirthDate(patient.date_of_birth as string | null),
       eps: patient.eps as string | null,
       email: patient.email as string | null,
       total_appointments: (patient.total_appointments as number) ?? 0,

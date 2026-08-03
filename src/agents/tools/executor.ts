@@ -1097,7 +1097,7 @@ async function createAppointment(
   // Buscar o crear paciente
   let { data: patient } = await supabaseAdmin
     .from('patients')
-    .select('id')
+    .select('id, document_number, document_type, date_of_birth')
     .eq('clinic_id', clinicId)
     .eq('phone', patientPhone)
     .single()
@@ -1115,7 +1115,7 @@ async function createAppointment(
         ...(patientEmail && { email: patientEmail }),
         ...(patientEps && { eps: patientEps }),
       })
-      .select('id')
+      .select('id, document_number, document_type, date_of_birth')
       .single()
 
     if (patientError) {
@@ -1124,19 +1124,27 @@ async function createAppointment(
     }
     patient = newPatient
   } else {
-    // Si el paciente ya existe, actualizar todos los datos que llegaron
+    // Paciente EXISTENTE: la identidad de la ficha MANDA. NUNCA se sobrescribe
+    // cédula / tipo de documento / fecha de nacimiento con lo que mande el agente
+    // — post-#2 el agente no tiene esos valores y los fabricaba para llenar el
+    // required (observado: 1000000000 / 1996-01-01, corrompía la ficha). Solo se
+    // RELLENA un campo de identidad si está vacío en el registro. name/email/eps
+    // sí se actualizan (no son identidad dura).
+    const p = patient as { id: string; document_number: string | null; document_type: string | null; date_of_birth: string | null }
     await supabaseAdmin
       .from('patients')
       .update({
         name: patientName,
-        ...(dateOfBirth && { date_of_birth: dateOfBirth }),
-        ...(documentType && { document_type: documentType }),
-        ...(documentNumber && { document_number: documentNumber }),
+        ...(!p.date_of_birth && dateOfBirth && { date_of_birth: dateOfBirth }),
+        ...(!p.document_type && documentType && { document_type: documentType }),
+        ...(!p.document_number && documentNumber && { document_number: documentNumber }),
         ...(patientEmail && { email: patientEmail }),
         ...(patientEps && { eps: patientEps }),
       })
       .eq('id', patient.id)
   }
+
+  if (!patient) return { success: false, error: 'Error registrando al paciente' }
 
   // Mapear procedure_entity a payment_type para la cita
   // EPS → EPS, Póliza → Póliza, ARL → ARL, SOAT → SOAT, cualquier otra → Particular

@@ -70,7 +70,7 @@ export const agentTools: Tool[] = [
         },
         date_of_birth: {
           type: 'string',
-          description: 'Fecha de nacimiento del paciente en formato YYYY-MM-DD (ej: 1990-03-15)',
+          description: 'Fecha de nacimiento en formato YYYY-MM-DD (ej: 1990-03-15). Solo para pacientes NUEVOS. NUNCA la inventes: si es recurrente y no la tenés, OMITÍ este campo — el sistema usa la de la ficha.',
         },
         document_type: {
           type: 'string',
@@ -79,7 +79,7 @@ export const agentTools: Tool[] = [
         },
         document_number: {
           type: 'string',
-          description: 'Número de documento sin puntos, comas ni espacios (solo dígitos)',
+          description: 'Número de documento sin puntos ni espacios (solo dígitos). Solo para pacientes NUEVOS. NUNCA lo inventes: si es recurrente y no lo tenés, OMITÍ este campo — el sistema usa el de la ficha.',
         },
         patient_address: {
           type: 'string',
@@ -132,7 +132,12 @@ export const agentTools: Tool[] = [
           },
         },
       },
-      required: ['doctor_id', 'patient_name', 'patient_phone', 'starts_at', 'date_of_birth', 'document_type', 'document_number'],
+      // date_of_birth / document_type / document_number NO son required: para un
+      // paciente recurrente el agente NO tiene esos valores (post-#2 recibe
+      // bandera + edad, no el número ni la fecha) y los FABRICABA para llenar el
+      // required (observado: 1000000000 / 1996-01-01, corrompía la ficha). El
+      // executor los resuelve del registro cuando el paciente ya existe.
+      required: ['doctor_id', 'patient_name', 'patient_phone', 'starts_at'],
     },
   },
   {

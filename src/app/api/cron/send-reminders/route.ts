@@ -19,6 +19,7 @@ import { syncClinicSheet } from '@/lib/google-sheets'
 import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import type { NotificationSettings } from '@/types/database'
 import { insertPendingContact, autoExpirePendingContacts, cleanupOldPendingContacts } from '@/app/actions/pending-contacts'
+import { refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
 
 // Máximo tiempo de ejecución
 export const maxDuration = 30
@@ -81,8 +82,8 @@ export async function GET(request: NextRequest) {
     // Enviar recordatorios de documentos pendientes (48h)
     const docResult = await sendDocumentReminders()
 
-    // Auto-timeout: reabrir conversaciones escaladas sin respuesta >24h
-    const escalationTimeouts = await autoTimeoutEscalatedConversations()
+    // Re-alerta (NO reabre) escalaciones estancadas >24h sin atender
+    const escalationRealerts = await realertStaleEscalations()
 
     // Auto-expire pending contacts for appointments >48h ago
     const pendingExpired = await autoExpirePendingContacts()
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
 
     console.log(
       `[Cron:Reminders] Completado — 72h: ${result72h.sent}, 24h: ${result24h.sent}, 2h: ${result2h.sent}, ` +
-      `virtual: ${virtualResult.sent}, docs: ${docResult.sent}, esc_timeout: ${escalationTimeouts}`
+      `virtual: ${virtualResult.sent}, docs: ${docResult.sent}, esc_realert: ${escalationRealerts}`
     )
 
     return NextResponse.json({
@@ -102,7 +103,7 @@ export async function GET(request: NextRequest) {
       reminders_2h: result2h,
       virtual_links_sent: virtualResult.sent,
       document_reminders_sent: docResult.sent,
-      escalation_timeouts: escalationTimeouts,
+      escalation_realerts: escalationRealerts,
     })
   } catch (error) {
     console.error('[Cron:Reminders] Error general:', error)
@@ -689,14 +690,20 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
 }
 
 // ============================================================
-// Auto-timeout: reabrir conversaciones escaladas >24h sin respuesta staff
+// Re-alerta de escalaciones estancadas: si una conversación lleva >24h
+// escalada SIN respuesta del staff, re-suena la alerta en la campana (una
+// sola vez). NUNCA reabre ni devuelve al bot: una escalación (servicio
+// ruleado, crisis, ARCO, pedido de humano) la cierra una PERSONA, no un cron.
+// Devolverle el bot a quien pidió un humano era el peor caso, no el más seguro.
+// El caso "conversación trabada para siempre" lo resuelve el botón de
+// devolver-al-agente (un humano decide), no este cron.
 // ============================================================
-async function autoTimeoutEscalatedConversations(): Promise<number> {
+async function realertStaleEscalations(): Promise<number> {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
   const { data: stale } = await supabaseAdmin
     .from('conversations')
-    .select('id, clinic_id, whatsapp_phone, patient_id')
+    .select('id, clinic_id, context, patients(name)')
     .eq('status', 'escalated')
     .lt('escalated_at', cutoff)
 
@@ -704,7 +711,11 @@ async function autoTimeoutEscalatedConversations(): Promise<number> {
 
   let count = 0
   for (const conv of stale) {
-    // Verificar que NO hubo respuesta staff en las últimas 24h
+    const ctx = (conv.context as Record<string, unknown> | null) ?? {}
+    // One-shot: si ya se re-alertó, no repetir cada hora (el cron es horario).
+    if (ctx.timeout_realerted_at) continue
+
+    // Solo si NO hubo respuesta del staff en las últimas 24h.
     const { count: staffMsgCount } = await supabaseAdmin
       .from('messages')
       .select('id', { count: 'exact', head: true })
@@ -714,44 +725,35 @@ async function autoTimeoutEscalatedConversations(): Promise<number> {
 
     if ((staffMsgCount ?? 0) > 0) continue
 
-    // Reabrir conversación
+    const patientName = (conv.patients as unknown as { name: string } | null)?.name ?? null
+
+    // Re-alerta: sube las alertas vivas al tope de la campana y, si no hay
+    // ninguna viva, crea una nueva. NO cambia status, NO manda WhatsApp al
+    // paciente, NO reinserta al bot. La conversación SIGUE escalada.
+    await refreshEscalationNotifications({
+      conversationId: conv.id,
+      clinicId: conv.clinic_id,
+      patientName,
+      latestMessage: '⏰ Escalación de hace más de 24h sin atender por el equipo',
+    })
+
+    // Marcar el one-shot preservando el resto del context (escalation_reason, etc.).
     await supabaseAdmin
       .from('conversations')
-      .update({ status: 'active', escalated_to: null, escalated_at: null })
+      .update({ context: { ...ctx, timeout_realerted_at: new Date().toISOString() } })
       .eq('id', conv.id)
-
-    // Enviar mensaje al paciente
-    const phone = conv.whatsapp_phone.replace('+', '')
-    const { data: clinic } = await supabaseAdmin
-      .from('clinics')
-      .select('whatsapp_phone_id, whatsapp_access_token')
-      .eq('id', conv.clinic_id)
-      .maybeSingle()
-    const creds = clinic?.whatsapp_phone_id && clinic?.whatsapp_access_token
-      ? { phoneNumberId: clinic.whatsapp_phone_id, accessToken: clinic.whatsapp_access_token }
-      : null
-
-    const msg = 'Hola, retomamos tu conversación. ¿En qué podemos ayudarte?'
-    await sendWhatsAppMessage(phone, msg, creds)
-
-    await supabaseAdmin.from('messages').insert({
-      conversation_id: conv.id,
-      role: 'agent',
-      content: msg,
-      message_type: 'text',
-    })
 
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: conv.clinic_id,
-      action: 'escalation_auto_timeout',
+      action: 'escalation_timeout_realert',
       actor_type: 'system',
       target_type: 'conversation',
       target_id: conv.id,
-      details: { timeout_hours: 24 },
+      details: { hours_since_escalation: 24, escalation_reason: (ctx.escalation_reason as string) ?? null },
     })
 
     count++
-    console.log(`[Cron:EscTimeout] Conversación ${conv.id} reabierta tras 24h sin respuesta staff`)
+    console.log(`[Cron:EscRealert] Conversación ${conv.id} re-alertada (>24h sin atender). NO reabierta.`)
   }
 
   return count

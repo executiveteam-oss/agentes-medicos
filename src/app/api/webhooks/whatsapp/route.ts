@@ -715,7 +715,7 @@ async function processWebhook(body: unknown): Promise<void> {
       if (agentResponse.escalate) {
         await supabaseAdmin
           .from('conversations')
-          .update({ status: 'escalated', escalated_at: new Date().toISOString() })
+          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'falla_agendamiento' } })
           .eq('id', conversation.id)
         await refreshEscalationNotifications({
           conversationId: conversation.id,
@@ -913,6 +913,7 @@ async function processWebhook(body: unknown): Promise<void> {
           .update({
             status: 'escalated',
             escalated_at: new Date().toISOString(),
+            context: { escalation_reason: 'escalate_to_human' },
           })
           .eq('id', conversation.id)
 

@@ -27,7 +27,16 @@ export const IDENTITY_CLAIM_PATTERNS: readonly RegExp[] = [
 ]
 
 // Detecta cuando el AGENTE preguntó por confirmación
-export const AGENT_REQUESTED_CONFIRMATION = /confirmas\s+que\s+eres|¿confirmas\??|responde\s+s[ií]\s+para|¿eres\s+[A-ZÁÉÍÓÚÑ]/i
+export const AGENT_REQUESTED_CONFIRMATION = /confirmas\s+que\s+eres|¿confirmas\??|me\s+confirmas\s+tu\s+nombre|confirmas\s+tu\s+nombre|tu\s+nombre\s+completo|responde\s+s[ií]\s+para|¿eres\s+[A-ZÁÉÍÓÚÑ]/i
+
+/** El paciente dijo un nombre que matchea la ficha → cuenta como confirmación
+ *  (el protocolo nuevo confirma pidiendo el nombre, no un "sí"). Lenient a
+ *  propósito: el guard NO debe bloquear un flujo legítimo por no haber un "sí". */
+export function patientMsgMatchesName(msg: string, patientName: string): boolean {
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const nMsg = norm(msg)
+  return norm(patientName).split(/\s+/).filter((t) => t.length >= 3).some((tok) => nMsg.includes(tok))
+}
 
 // Mensaje del PACIENTE que cuenta como afirmación explícita
 // (mensaje entero o que empieza con sí + puntuación)
@@ -89,7 +98,9 @@ export function detectHallucinatedIdentity(args: {
   // ¿Alguno fue afirmación explícita?
   const explicitConfirmation = subsequentPatientMsgs.some((m) => {
     const t = m.trim()
-    return PATIENT_AFFIRMATION.test(t) || PATIENT_AFFIRMATION_PREFIX.test(t)
+    // "sí/confirmo" O un nombre que matchea la ficha (protocolo nuevo: confirma
+    // dando el nombre, no un "sí"). Sin esto, el guard bloquearía el flujo nuevo.
+    return PATIENT_AFFIRMATION.test(t) || PATIENT_AFFIRMATION_PREFIX.test(t) || patientMsgMatchesName(t, patientName)
   })
 
   if (explicitConfirmation) return { blocked: false }

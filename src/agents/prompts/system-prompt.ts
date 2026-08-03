@@ -1258,44 +1258,39 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
   lines.push('INSTRUCCIONES PARA PACIENTE RECURRENTE (PROTOCOLO ESTRICTO — IDENTIDAD ANTES DE TODO):')
   lines.push('')
   lines.push('PASO 1 — CUANDO no exista en el historial una confirmación de identidad de ESTE paciente:')
-  lines.push('  Saluda y pide confirmación. Usa EXACTAMENTE este formato:')
-  lines.push(`  "¡Hola ${patient.name}! 👋 Veo que ya eres paciente nuestro.`)
-  // Confirmación por NOMBRE (+ EPS si la hay). NUNCA se lee la cédula de vuelta:
-  // el teléfono puede ser compartido y leer el documento sería filtrarlo.
-  if (patient.eps) {
-    lines.push(`  ¿Confirmas que eres ${patient.name}, afiliado/a a ${patient.eps}?`)
-  } else {
-    lines.push(`  ¿Confirmas que eres ${patient.name}?`)
-  }
-  lines.push('  Responde Sí para continuar o No si algo cambió."')
+  // NO revelar nombre NI aseguradora: el teléfono puede ser de otra persona
+  // (familiar). Se PIDE el nombre, no se anuncia — mismo principio que la
+  // desambiguación por teléfono compartido. El "Nombre" de los DATOS de arriba
+  // queda en memoria del agente SOLO para matchear, NUNCA para leerlo en voz alta
+  // (ahí fue donde el agente soltó una aseguradora equivocada).
+  lines.push('  PEDÍ el nombre, NO lo anuncies. NO menciones la aseguradora. Usa EXACTAMENTE este formato:')
+  lines.push('  "¡Hola! 👋 Antes de seguir, ¿me confirmas tu nombre completo?"')
   lines.push('')
   lines.push('PASO 2 — DESPUÉS de la pregunta:')
   lines.push('  NO uses tools. NO menciones agendamiento. NO digas "perfecto/anotado/listo".')
   lines.push('  Tu respuesta acaba con el signo de pregunta y ESPERA respuesta del paciente.')
   lines.push('')
-  lines.push('PASO 3 — INTERPRETAR el siguiente mensaje del paciente:')
-  lines.push('  AFIRMACIONES VÁLIDAS (avanza al PASO 4): "sí", "si", "correcto", "exacto", "dale", "ok", "listo", "confirmo", "claro", "así es", "esa soy", "soy yo", "afirmativo".')
-  lines.push('  NO SON AFIRMACIÓN (repite la pregunta — PASO 5):')
-  lines.push('    - "para pedir una cita", "necesito agendar", "quiero una cita", "ver disponibilidad" — son INTENCIÓN DE AGENDAR, no confirmación.')
-  lines.push('    - Mensajes sobre otro tema, silencio, saludos repetidos.')
-  lines.push('  NEGACIONES (PASO 6): "no", "no soy", "cambió", "ya no".')
+  lines.push('PASO 3 — INTERPRETAR el siguiente mensaje (matcheá el nombre que diga contra "Nombre" de los DATOS de arriba, SIN revelarlo):')
+  lines.push('  COINCIDE (avanza al PASO 4): el nombre que dice matchea el de la ficha. Tolerá mayúsculas, tildes, orden nombre/apellido, y que dé el nombre completo o una parte inequívoca.')
+  lines.push('  NO DA SU NOMBRE (repite la pregunta — PASO 5): "para pedir una cita", "necesito agendar", "quiero una cita", intención de agendar, otro tema, silencio, saludos repetidos.')
+  lines.push('  NO COINCIDE (PASO 6): dice un nombre claramente distinto al de la ficha.')
   lines.push('')
-  lines.push('PASO 4 — Tras AFIRMACIÓN explícita: avanza al agendamiento usando los datos guardados.')
+  lines.push('PASO 4 — Tras COINCIDENCIA del nombre: avanza al agendamiento usando los datos guardados.')
   if (missing.length > 0) {
     lines.push(`  Pide en UN solo mensaje los datos faltantes: ${missing.join(', ')}.`)
   } else {
     lines.push('  Todos los datos están — NO pidas más datos. Pregunta qué tipo de consulta necesita.')
   }
   lines.push('')
-  lines.push('PASO 5 — Tras un mensaje que NO es afirmación (ej. "para pedir una cita"):')
-  lines.push('  El flujo está PAUSADO en confirmación. Responde con amabilidad y REPITE la pregunta:')
-  lines.push(`  "Claro, con gusto te agendo. Pero primero confirma: ¿eres ${patient.name}? Respóndeme sí o no."`)
-  lines.push('  NUNCA digas "ya confirmaste", "como confirmaste", "perfecto, vamos a agendar" — el paciente NO ha confirmado.')
+  lines.push('PASO 5 — Tras un mensaje que NO es su nombre (ej. "para pedir una cita"):')
+  lines.push('  El flujo está PAUSADO en confirmación. Respondé con amabilidad y REPETÍ la pregunta, SIN revelar el nombre:')
+  lines.push('  "Con gusto te agendo. Antes, ¿me confirmas tu nombre completo?"')
+  lines.push('  NUNCA digas "ya confirmaste", "perfecto, vamos a agendar" — todavía no confirmó.')
   lines.push('')
-  lines.push('PASO 6 — Tras NEGACIÓN: pregunta qué dato cambió (nombre/documento/EPS) y actualiza ese campo.')
+  lines.push('PASO 6 — Tras un nombre que NO coincide con la ficha: NO reveles el nombre registrado (puede ser otra persona con el mismo teléfono). Respondé "Gracias, ¿en qué te puedo ayudar?" y tratá el caso como paciente nuevo (pedí los datos que hagan falta). Si insiste en agendar a nombre de la persona de la ficha, escalá con escalate_to_human.')
   lines.push('')
   lines.push('IMPORTANTE — DETECCIÓN DE "YA CONFIRMADO":')
-  lines.push('Solo considera la identidad confirmada si EN EL HISTORIAL existe esta secuencia: agente preguntó "¿Confirmas...?" → paciente respondió afirmación válida. Si NO existe esa secuencia, el paciente NO ha confirmado, sin importar otros mensajes.')
+  lines.push('Solo considera la identidad confirmada si EN EL HISTORIAL existe esta secuencia: agente pidió "¿me confirmas tu nombre completo?" → paciente respondió un nombre que COINCIDE con la ficha. Si NO existe esa secuencia, NO ha confirmado, sin importar otros mensajes.')
   lines.push('')
 
   return lines.join('\n')

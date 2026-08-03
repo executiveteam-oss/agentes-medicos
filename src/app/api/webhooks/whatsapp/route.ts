@@ -868,7 +868,13 @@ async function processWebhook(body: unknown): Promise<void> {
 
           console.log(`[Webhook] ICS generated: ${icsString.length} bytes, isCancel=${isCancel}`)
           const fileBuffer = Buffer.from(icsString, 'utf-8')
-          const docResult = await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/calendar', clinicCreds)
+          // MIME text/plain: WhatsApp NO acepta text/calendar en el upload de
+          // media (error #100) — el .ics venía fallando en silencio hace meses.
+          // text/plain SÍ está en la lista oficial de Meta y admite el contenido
+          // del .ics (es texto RFC 5545); el nombre cita.ics conserva la extensión
+          // para que el teléfono lo rutee al calendario. PENDIENTE: validar en
+          // dispositivo real (algunos clientes abren text/plain como texto).
+          const docResult = await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/plain', clinicCreds)
           console.log(`[Webhook] ICS send result: ${docResult ? 'OK msgId=' + docResult : 'FAILED'}`)
         } catch (icsErr) {
           console.error('[Webhook] ICS send failed (non-critical):', icsErr instanceof Error ? icsErr.message : icsErr)

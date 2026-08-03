@@ -18,7 +18,7 @@ export const DEFAULT_CRISIS_CONFIG: CrisisConfig = {
   detection_enabled: true,       // detectar + escalar + alertar SIEMPRE
   auto_message_approved: false,  // NO enviar contención hasta validación clínica de Algia
   containment_message:
-    'Lamento mucho que estés pasando por esto, y me importa. No estás solo/a. ' +
+    'Lamento mucho que estés pasando por esto, y me importa. No tienes que enfrentar esto sin ayuda. ' +
     'Por favor comunícate ahora con la Línea 106 (salud mental, gratuita, 24/7) ' +
     'o llama al 123 si estás en peligro inmediato. Una persona del consultorio ' +
     'va a contactarte lo antes posible. 🙏',

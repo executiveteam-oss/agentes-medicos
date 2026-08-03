@@ -254,9 +254,9 @@ Pregunta qué tipo de consulta necesita ANTES de mencionar doctores.
 Bien: "¡Hola! Con gusto te ayudo. ¿Qué tipo de consulta necesitas?"
 Mal: "Tenemos estos doctores: Dr. A, Dr. B, Dr. C, Dr. D..." (NUNCA hagas esto)
 
-PATRÓN B — Paciente dice tipo de consulta o especialidad ("ginecología", "terapia"):
-Propón MÁXIMO 2-3 doctores de esa especialidad + opción "el que tenga primer horario".
-Bien: "Para ginecología tengo a la Dra. X o al Dr. Y. ¿Prefieres alguno o te propongo el primer horario?"
+PATRÓN B — Paciente dice una ESPECIALIDAD ("ginecología", "terapia"):
+NO propongas doctores ni horarios todavía. PRIMERO preguntá qué TIPO de consulta necesita de esa especialidad (solo los agendables por WhatsApp). Recién con el tipo elegido, proponé MÁXIMO 2-3 doctores + opción "el que tenga primer horario".
+Bien: "Para ginecología, ¿qué necesitas: primera vez, control, entrega de resultados o ecografía pélvica?"
 
 PATRÓN C — Paciente dice un doctor específico ("con la Dra. Lina"):
 Ir directo a preguntar fecha. No repreguntar.
@@ -287,7 +287,7 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
   const hasConsultationTypes = (consultationTypes ?? []).some((ct) => ct.is_active)
   const consultationTypeRules = hasConsultationTypes
     ? `\nREGLAS DE TIPOS DE CONSULTA:
-- Cuando el paciente quiera agendar, DESPUÉS de elegir doctor, pregunta qué tipo de consulta necesita.
+- ORDEN: especialidad → tipo de consulta → médico → horario. Preguntá el tipo ANTES de elegir médico — nunca después, nunca lo saltees. El tipo define duración, precio y reglas; sin tipo NO se agenda.
 - Muestra SOLO las opciones marcadas como "agendables por WhatsApp" del doctor elegido.
 - Si el paciente pide un servicio NO agendable por WhatsApp (marcado con ESCALAR en la lista):
   1. Responde con el mensaje configurado para ese servicio (ver "Mensaje:" en la lista)
@@ -1073,10 +1073,10 @@ MÉDICO CON QUIEN YA SE HA ATENDIDO (sugerencia — la decisión es de la pacien
 Según el historial, esta paciente ya se ha atendido con:
 ${lista}
 REGLAS:
-- Si pide una cita de una de esas especialidades, ofrecé PRIMERO ese médico, con este tono (NUNCA digas "médico tratante"):
-  "Veo que te has atendido con el Dr./Dra. [nombre], ¿te busco disponibilidad con él/ella?"
-- Si pide OTRO médico de esa especialidad, avisá y dejá decidir: "Te has atendido con el Dr./Dra. [nombre]. ¿Querés cambiar de especialista o seguir con él/ella?" — si dice cambiar, seguí con el que pidió. La decisión es de ella.
-- Si pide una especialidad que NO está en la lista, flujo normal (no menciones esto).
+- Esta sugerencia entra SOLO en el paso de ELEGIR MÉDICO, DESPUÉS de que la paciente eligió el tipo de consulta. NUNCA al mencionar la especialidad, y NUNCA saltes a horarios sin un tipo de consulta elegido.
+- En ese paso, ofrecé PRIMERO ese médico (NUNCA digas "médico tratante"): "Veo que te has atendido con el Dr./Dra. [nombre], ¿seguimos con él/ella?"
+- Si prefiere OTRO médico de esa especialidad, avisá y dejá decidir; seguí con el que pida. La decisión es de ella.
+- Si la especialidad NO está en la lista, flujo normal (no menciones esto).
 - NUNCA preguntes "¿quién es tu médico tratante?". Si no hay dato, seguí el flujo normal de elegir médico.`
 }
 

@@ -491,10 +491,45 @@ async function createAppointment(
   const patientEmail = (input.patient_email as string) ?? null
   const patientEps = (input.patient_eps as string) ?? null
   const procedureEntity = (input.procedure_entity as string) ?? null
-  const consultationTypeId = (input.consultation_type_id as string) ?? null
+  let consultationTypeId: string | null = (input.consultation_type_id as string | undefined) ?? null
   const modality = (input.modality as string) ?? 'presencial'
   const freeTextReason = (input.free_text_reason as string) ?? null
   const patientConditionAnswers = (input.patient_condition_answers as Record<string, 'yes' | 'no' | 'ambiguous'> | undefined) ?? {}
+
+  // BACKSTOP — NUNCA agendar sin tipo de consulta. Si no vino, resolver el ÚNICO
+  // tipo agendable por WhatsApp del médico y ESCRIBIRLO; si hay varios (o ninguno),
+  // BLOQUEAR. Una cita con consultation_type_id null queda ROTA: sin precio, sin
+  // duración real, sin reglas del tipo (edad/condición/entrega-resultados/auth),
+  // sin dato de reporte. Gemelo del fix de identidad: el otro campo que el schema
+  // no exige y que el agente podría omitir (permitir null "porque hay uno solo"
+  // deja la fila igual de rota).
+  if (!consultationTypeId) {
+    const { data: docTypes } = await supabaseAdmin
+      .from('consultation_types')
+      .select('id, name')
+      .eq('clinic_id', clinicId)
+      .eq('doctor_id', doctorId)
+      .eq('is_active', true)
+      .eq('bookable_via_whatsapp', true)
+    const types = (docTypes ?? []) as { id: string; name: string }[]
+    if (types.length === 1) {
+      consultationTypeId = types[0].id   // resuelto → se escribe, NUNCA null
+    } else {
+      return {
+        success: false,
+        error: 'BLOCKED_MISSING_CONSULTATION_TYPE',
+        data: {
+          outcome: 'missing_consultation_type',
+          message_for_patient: types.length === 0
+            ? 'Necesito confirmar con el consultorio antes de agendar esta cita. Ya lo verifico.'
+            : '¿Qué tipo de consulta necesitas? Así agendo con la duración y el valor correctos.',
+          instruction_for_llm: types.length === 0
+            ? 'El médico no tiene tipos agendables por WhatsApp: NO agendes. Escalá con escalate_to_human.'
+            : `NO agendes sin consultation_type_id. El médico tiene ${types.length} tipos agendables: ${types.map((t) => t.name).join(', ')}. Preguntá al paciente cuál necesita y volvé a llamar create_appointment con el consultation_type_id correcto.`,
+        },
+      }
+    }
+  }
 
   // Validar motivo libre si el tipo lo requiere
   if (consultationTypeId) {

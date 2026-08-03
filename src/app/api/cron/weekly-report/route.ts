@@ -160,10 +160,13 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      // Credenciales WhatsApp per-clinic
+      // Credenciales WhatsApp per-clinic. Sin creds → SKIP (no llamar al send:
+      // getConfig(null) tira 'clinicCreds requerido' y, sin try/catch acá, mataba
+      // el cron entero antes de llegar a las clínicas que SÍ tienen token.
       const clinicCreds = clinic.whatsapp_phone_id && clinic.whatsapp_access_token
         ? { phoneNumberId: clinic.whatsapp_phone_id, accessToken: clinic.whatsapp_access_token }
         : null
+      if (!clinicCreds) { skipped++; continue }
 
       const whatsappNumber = adminPhone.replace('+', '')
       const result = await sendWhatsAppMessage(whatsappNumber, message, clinicCreds)

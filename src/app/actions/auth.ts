@@ -11,6 +11,7 @@ import { seedDefaultRoles } from '@/lib/seed-roles'
 import { redirect } from 'next/navigation'
 import { checkRateLimit } from '@/lib/rate-limit'
 import type { FeatureConfig } from '@/types/database'
+import { DEFAULT_WHATSAPP_CONFIG } from '@/lib/whatsapp/default-config'
 
 /** Iniciar sesión con email y contraseña */
 export async function loginAction(formData: FormData): Promise<{ error?: string }> {
@@ -154,6 +155,10 @@ export async function registerAction(formData: FormData): Promise<{ error?: stri
         subscription_plan: subscriptionPlan,
         trial_ends_at: trialEndsAt.toISOString(),
         feature_config: featureConfig as unknown as Record<string, unknown>,
+        // Setear explícito la fuente única — NO heredar el DEFAULT de columna
+        // (migración 00012), que quedó con la lista vieja ("médico"/"hablar con
+        // alguien"). Ver src/lib/whatsapp/default-config.ts.
+        whatsapp_config: DEFAULT_WHATSAPP_CONFIG as unknown as Record<string, unknown>,
         preferred_plan: cfgPlan,
         preferred_plan_price: cfgPlanPrice,
         expected_doctors: cfgMedicos,

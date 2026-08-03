@@ -34,7 +34,8 @@ import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
-import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery } from '@/lib/safety/crisis-patterns'
+import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery, normalizeForSafety } from '@/lib/safety/crisis-patterns'
+import { DEFAULT_ESCALATION_KEYWORDS } from '@/lib/whatsapp/default-config'
 import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
 import { buildPrivacyNotice } from '@/lib/legal/privacy-notice'
 import { buildContainmentMessage, DEFAULT_CRISIS_CONFIG, type CrisisConfig } from '@/lib/safety/crisis-config'
@@ -1007,7 +1008,7 @@ function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
       out_of_hours_message: 'Hola, nuestro horario de atención es de 7am a 8pm. Te responderemos mañana.',
     },
     appointment: { default_duration: 30, max_duration: 60 },
-    escalation_keywords: ['urgencia', 'emergencia', 'hablar con alguien', 'sangrado', 'humano', 'persona real', 'quiero hablar con alguien'],
+    escalation_keywords: DEFAULT_ESCALATION_KEYWORDS,
     doctors: {},
     automations: {
       post_consulta: { enabled: false },
@@ -1025,11 +1026,19 @@ function getWhatsAppConfig(clinic: Clinic): WhatsAppConfig {
  * Retorna la keyword encontrada o null
  */
 function checkEscalationKeywords(message: string, config: WhatsAppConfig): string | null {
-  const normalized = message.toLowerCase()
+  // Normaliza (minúsculas, sin tildes, sin puntuación) igual que Capa 0, y
+  // matchea por PALABRA(S) COMPLETA(S), no substring: "dolor" ya NO matchea
+  // dentro de "doloroso" ni "médico" dentro de "paramédico", y "medico" sin
+  // tilde matchea la keyword con tilde. Esto arregla los matches PARCIALES.
+  // NO resuelve el problema de vocabulario (la palabra completa "dolor" en "ya
+  // no tengo dolor" sí matchea) — eso se arregla migrando escalation_keywords a
+  // FRASES multi-palabra validadas por un médico (ver default-config.ts).
+  const n = normalizeForSafety(message)
   for (const keyword of config.escalation_keywords) {
-    if (normalized.includes(keyword.toLowerCase())) {
-      return keyword
-    }
+    const k = normalizeForSafety(keyword)
+    if (!k) continue
+    const escaped = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    if (new RegExp(`(^|\\s)${escaped}(\\s|$)`).test(n)) return keyword
   }
   return null
 }

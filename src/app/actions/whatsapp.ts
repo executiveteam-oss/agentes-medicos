@@ -7,6 +7,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkReadPermission, checkWritePermission } from '@/lib/actions-helpers'
 import type { WhatsAppConfig, WorkingHours } from '@/types/database'
+import { DEFAULT_WHATSAPP_CONFIG } from '@/lib/whatsapp/default-config'
 
 // --- Tipos ---
 
@@ -42,24 +43,9 @@ export interface WhatsAppPageData {
   hasIsalud: boolean
 }
 
-const DEFAULT_CONFIG: WhatsAppConfig = {
-  schedule: {
-    start: '07:00',
-    end: '20:00',
-    days: [1, 2, 3, 4, 5, 6],
-    out_of_hours_message: 'Hola, nuestro horario de atención es de 7am a 8pm. Te responderemos mañana.',
-  },
-  appointment: {
-    default_duration: 30,
-    max_duration: 60,
-  },
-  escalation_keywords: ['urgencia', 'dolor', 'emergencia', 'hablar con alguien', 'médico', 'sangrado'],
-  doctors: {},
-  automations: {
-    post_consulta: { enabled: false },
-    reactivacion: { enabled: false, days_inactive: 90 },
-  },
-}
+// Fuente única (ver src/lib/whatsapp/default-config.ts). Antes esta copia tenía
+// la lista vieja con "médico" + "hablar con alguien".
+const DEFAULT_CONFIG: WhatsAppConfig = DEFAULT_WHATSAPP_CONFIG
 
 /**
  * Obtener datos para la página de WhatsApp:

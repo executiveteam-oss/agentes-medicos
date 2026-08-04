@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     // Clínicas activas con al menos 10 citas totales
     const { data: clinics } = await supabaseAdmin
       .from('clinics')
-      .select('id, name, phone, escalation_contact_phone, consultation_price, notification_settings, whatsapp_phone_id, whatsapp_access_token')
+      .select('id, name, phone, consultation_price, notification_settings, whatsapp_phone_id, whatsapp_access_token')
       .in('subscription_status', ['trial', 'active'])
 
     let sentCount = 0
@@ -153,8 +153,8 @@ export async function GET(request: NextRequest) {
 
       message += `\n\nVer detalles:\ndashboard.omuwan.co/dashboard`
 
-      // Obtener teléfono del admin
-      const adminPhone = (clinic.escalation_contact_phone || clinic.phone || '').trim()
+      // Reporte periódico (NO escalación) → va por WhatsApp a clinic.phone.
+      const adminPhone = (clinic.phone || '').trim()
       if (!adminPhone) {
         skipped++
         continue

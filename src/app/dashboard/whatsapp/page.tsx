@@ -25,10 +25,9 @@ export default async function WhatsAppPage() {
   const [pageData, vacationMessage, clinicData] = await Promise.all([
     getWhatsAppPageData(),
     getVacationMessage(),
-    supabaseAdmin.from('clinics').select('escalation_contact_phone, specialty').eq('id', session.clinicId).single(),
+    supabaseAdmin.from('clinics').select('specialty').eq('id', session.clinicId).single(),
   ])
   const clinicRow = clinicData.data as Record<string, unknown> | null
-  const hasEscalationContact = !!clinicRow?.escalation_contact_phone
   const clinicSpecialties = (Array.isArray(clinicRow?.specialty) ? clinicRow.specialty : []) as string[]
   const { activeConversations, config, doctors, whatsappConnected, whatsappPhoneDisplay, hasIsalud } = pageData
 
@@ -71,27 +70,6 @@ export default async function WhatsAppPage() {
             className="text-xs text-green-700 hover:text-green-900 font-medium"
           >
             Ver configuración
-          </Link>
-        </div>
-      )}
-
-      {/* ==================== BANNER: ESCALAMIENTO NO CONFIGURADO ==================== */}
-      {!hasEscalationContact && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-          <span className="text-lg">⚠️</span>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-amber-900">
-              No tienes configurado un número para alertas de escalamiento
-            </p>
-            <p className="text-xs text-amber-700 mt-1">
-              Cuando un paciente necesite atención urgente, no se enviará notificación a tu equipo.
-            </p>
-          </div>
-          <Link
-            href="/dashboard/settings/clinic"
-            className="text-xs text-amber-700 hover:text-amber-900 font-medium whitespace-nowrap shrink-0"
-          >
-            Configurar →
           </Link>
         </div>
       )}

@@ -451,11 +451,11 @@ ZONA HORARIA: America/Bogota (UTC-5). Fecha actual: {now}
 
 El staff de Algia sigue operando en iSalud mientras transicionan. Las citas que el agente cree en Omuwan **NO van a iSalud** → riesgo de doble-agendamiento. Mitigación:
 
-1. **Notificación WhatsApp automática al staff** por cada cita que el agente cree (commit del 2026-06-11): el helper `notifyStaffAppointmentCreated` (`src/lib/whatsapp/staff-appointment-notify.ts`) envía a `clinics.escalation_contact_phone` un resumen (paciente, médico, día, hora, tipo) + recordatorio "no agendar esta hora en iSalud". Fire-and-forget, no rompe el flujo si falla.
+1. **Notificación WhatsApp automática al staff** por cada cita que el agente cree: el helper `notifyStaffAppointmentCreated` (`src/lib/whatsapp/staff-appointment-notify.ts`) envía a **`clinics.phone`** (2026-08-04: era `escalation_contact_phone`, que se eliminó) un resumen (paciente, médico, día, hora, tipo) + recordatorio "no agendar esta hora en iSalud". Fire-and-forget. **⏳ TRANSITORIO** — muere cuando Algia corte iSalud.
 
 2. **Lady revisa `/dashboard/agenda` ANTES de agendar en iSalud**. Las citas iSalud importadas (vía cron cada 30 min) y las creadas por el agente conviven en la misma vista.
 
-3. **Escalación por keyword** ("urgencia", "dolor", etc.) → conversation marcada `escalated`, el agente NO sigue respondiendo, `notifyEscalationContact` avisa al staff por WhatsApp. **Requiere `escalation_contact_phone` configurado** (sin eso, escala silenciosamente).
+3. **Escalación por keyword** ("urgencia", "dolor", etc.) → conversation marcada `escalated`, el agente NO sigue respondiendo. **La alerta al staff vive DENTRO de Omuwan** (campana + pestaña Atención, vía `notifyStaffOfEscalation`/`refreshEscalationNotifications`). **2026-08-04: se eliminó el segundo canal por WhatsApp (`escalation_contact_phone` + `notifyEscalationContact`)** — una alerta que un domingo 11pm no llega es peor que no prometerla; las escalaciones se atienden en el tablero.
 
 ### Crons confirmados activos al lanzamiento
 
@@ -478,7 +478,7 @@ El staff de Algia sigue operando en iSalud mientras transicionan. Las citas que 
 
 > **⚠ Error `131030` = "Recipient phone number not in allowed list".** El Test Number de Meta solo puede ENVIAR a ≤5 números pre-cargados en developers.facebook.com → WhatsApp → API Setup → "To". Un número fuera de esa lista: el agente genera la respuesta, la guarda, pero el envío falla. **Ya se maneja en pantalla** (2026-07-31): el mensaje queda marcado `delivery_status='failed'` + `delivery_error` (motivo en español) visible en la conversación como "⚠ No entregado — …", y cada fallo va a `audit_log` con `action='whatsapp_send_failed'` + `meta_code`. Aplica también post-migración para 190 (token vencido), 131047 (fuera de ventana 24h), 131026 (sin WhatsApp), etc. Para contar fallos: `SELECT details->>'meta_code', count(*) FROM audit_log WHERE action='whatsapp_send_failed' GROUP BY 1`.
 | `whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token` | presentes | ✅ |
-| `escalation_contact_phone` | **NULL** | 🚨 **bloqueante** — sin esto no llegan alertas al staff |
+| ~~`escalation_contact_phone`~~ | — | ✅ **ELIMINADO 2026-08-04.** Las escalaciones se atienden dentro de Omuwan (campana + Atención), sin segundo canal por WhatsApp. Ya NO es bloqueante. |
 | `feature_config.agent` | `true` | ✅ |
 | `feature_config.reminders_24h` + `reminders_72h` | ambos `true` | ✅ |
 | `feature_config.res256_enabled` | `true` | ✅ (pendiente auditoría EAPB pre-primer reporte) |
@@ -498,7 +498,7 @@ Algia plan `core` cae al fallback `basic = 100K tokens/mes`. Estimación primer 
 ### Bloqueantes pendientes para el martes (resumen)
 
 1. **Migración del número WhatsApp real** Test Number → **⚠ número a confirmar**: el doc decía `3245820722`, el pedido del 2026-08-04 dice `3046572945`. Aclarar cuál es el productivo. Ver "Migración Meta" abajo — es el único bloqueante con espera externa.
-2. **`UPDATE clinics SET escalation_contact_phone = '<numero>'`** — 🚨 **SIGUE NULL al 2026-08-04, bloqueante VIVO** — sin esto las escalaciones quedan mudas.
+2. ~~`UPDATE clinics SET escalation_contact_phone`~~ — **YA NO APLICA (2026-08-04): el campo se eliminó.** Las escalaciones viven en el tablero de Omuwan (campana + Atención), sin canal WhatsApp al staff.
 3. ~~`UPDATE doctors SET agenda_closed=true` para los 4 cerrados~~ — **HECHO distinto (2026-08-04): NINGÚN `agenda_closed=true`; CHRISTIAN y JOSÉ DUVÁN quedaron `is_active=false`.**
 4. ~~Configurar tipos + horario para JOSÉ DUVÁN y JORGE~~ — **JORGE tiene 11 tipos + 7 días; JOSÉ DUVÁN quedó inactivo.**
 5. ~~Configurar horario real JUAN DIEGO / revisar DANIELA, LINA~~ — **HECHO: los 7 médicos activos tienen los 7 días explícitos.**

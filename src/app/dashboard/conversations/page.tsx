@@ -8,7 +8,7 @@ import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { ConversationsPanel } from '@/components/dashboard/conversations-panel'
-import { AlertTriangle, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
 
@@ -117,14 +117,6 @@ export default async function ConversationsPage() {
     .eq('role', 'agent')
     .gte('created_at', todayStartISO)
 
-  // Escalation phone check
-  const { data: clinicEsc } = await supabaseAdmin
-    .from('clinics')
-    .select('escalation_contact_phone')
-    .eq('id', session.clinicId)
-    .maybeSingle()
-  const hasEscalationPhone = !!((clinicEsc as Record<string, unknown> | null)?.escalation_contact_phone as string | null)?.trim()
-
   // Bloque 4 — count de autorizaciones pendientes para el acceso visible.
   // Solo carga si el usuario tiene authorizations.review (para no exponer
   // info sensible a quien no debe verla).
@@ -190,35 +182,6 @@ export default async function ConversationsPage() {
             </span>
           )}
         </Link>
-      )}
-
-      {/* Escalation warning */}
-      {!hasEscalationPhone && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px',
-            padding: '14px 18px',
-            borderRadius: 'var(--v2-radius)',
-            background: 'var(--v2-amber-soft)',
-            border: '1px solid rgba(255, 184, 69, 0.3)',
-            fontFamily: 'var(--font-manrope), sans-serif',
-          }}
-        >
-          <AlertTriangle size={18} style={{ color: '#b07d00', flexShrink: 0, marginTop: '1px' }} />
-          <div>
-            <p style={{ fontSize: '13px', fontWeight: 600, color: '#b07d00' }}>
-              Configura el teléfono de escalamiento
-            </p>
-            <p style={{ fontSize: '12px', color: '#b07d00', opacity: 0.8, marginTop: '2px' }}>
-              Para que el equipo reciba notificaciones de conversaciones que necesitan humano.{' '}
-              <Link href="/dashboard/settings/clinic" style={{ fontWeight: 700, textDecoration: 'underline' }}>
-                Configurar →
-              </Link>
-            </p>
-          </div>
-        </div>
       )}
 
       {/* Header */}

@@ -30,7 +30,6 @@ import { trackTokenUsage, isClinicPaused } from '@/lib/api-usage'
 import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
-import { notifyEscalationContact } from '@/lib/whatsapp/escalation-notify'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
 import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery, normalizeForSafety } from '@/lib/safety/crisis-patterns'
 import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
@@ -574,15 +573,6 @@ async function processWebhook(body: unknown): Promise<void> {
           })
         } catch { /* no crítico */ }
 
-        // Notificar al contacto de escalamiento
-        notifyEscalationContact({
-          clinicId: clinic.id,
-          patientName: patient.name,
-          patientPhone: message.from,
-          lastPatientMessage: sanitizedText,
-          clinicCreds,
-        })
-
         // Notificación in-app persistente para el staff (campana)
         await notifyStaffOfEscalation({
           clinicId: clinic.id,
@@ -953,15 +943,6 @@ async function processWebhook(body: unknown): Promise<void> {
             context: { escalation_reason: 'escalate_to_human' },
           })
           .eq('id', conversation.id)
-
-        // Notificar al contacto de escalamiento (fire-and-forget)
-        notifyEscalationContact({
-          clinicId: clinic.id,
-          patientName: patient.name,
-          patientPhone: message.from,
-          lastPatientMessage: sanitizedText,
-          clinicCreds,
-        })
 
         // Notificación in-app persistente para el staff (campana)
         await notifyStaffOfEscalation({

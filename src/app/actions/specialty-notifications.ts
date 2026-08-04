@@ -52,7 +52,10 @@ export async function deleteSpecialtyNotification(id: string): Promise<{ ok: boo
   return { ok: true }
 }
 
-/** Get the notification phone for a specialty, fallback to escalation_contact_phone */
+/** Teléfono de notificación por especialidad (o null). SIN fallback: el
+ *  enrutamiento de escalación vive en el tablero de Omuwan (campana + Atención),
+ *  no en un segundo canal por WhatsApp. Si no hay teléfono por-especialidad
+ *  configurado → null y el caller no manda WhatsApp. */
 export async function getNotificationPhoneForSpecialty(clinicId: string, specialty: string | null): Promise<string | null> {
   if (specialty) {
     const { data } = await supabaseAdmin
@@ -63,11 +66,5 @@ export async function getNotificationPhoneForSpecialty(clinicId: string, special
       .maybeSingle()
     if (data?.notification_phone) return data.notification_phone
   }
-  // Fallback to clinic's escalation_contact_phone
-  const { data: clinic } = await supabaseAdmin
-    .from('clinics')
-    .select('escalation_contact_phone')
-    .eq('id', clinicId)
-    .single()
-  return (clinic as Record<string, unknown>)?.escalation_contact_phone as string | null ?? null
+  return null
 }

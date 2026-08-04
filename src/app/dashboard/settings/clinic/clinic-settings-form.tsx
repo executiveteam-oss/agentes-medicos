@@ -405,30 +405,6 @@ export function ClinicSettingsForm({ initialData }: Props) {
       </div>
 
       {/* --- Alertas de escalamiento --- */}
-      <div className="card-v2 p-5">
-        <h3 className="text-sm font-semibold text-slate-900 mb-1">Alertas de escalamiento</h3>
-        <p className="text-xs text-slate-400 mb-5">
-          Cuando un paciente necesite atención urgente, enviaremos un WhatsApp a este número.
-        </p>
-
-        <div>
-          <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">
-            Número para alertas de escalamiento
-            <span className="text-slate-400 normal-case tracking-normal ml-1">(opcional)</span>
-          </label>
-          <input
-            type="tel"
-            value={data.escalation_contact_phone}
-            onChange={(e) => update('escalation_contact_phone', e.target.value)}
-            placeholder="+57 3XX XXX XXXX"
-            className="input-v2 w-full"
-          />
-          <p className="text-xs text-slate-400 mt-1">
-            Este número recibirá un WhatsApp cuando un paciente necesite atención urgente
-          </p>
-        </div>
-      </div>
-
       {/* --- Política de cancelación --- */}
       <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Política de cancelación</h3>

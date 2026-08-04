@@ -1,0 +1,16 @@
+-- Elimina clinics.escalation_contact_phone (2026-08-04).
+--
+-- Las escalaciones se atienden DENTRO de Omuwan (campana + pestaña Atención),
+-- sin un segundo canal por WhatsApp al staff. Motivo: una alerta que un domingo
+-- a las 11pm no llega es peor que no prometerla — el mensaje de crisis ahora dice
+-- la verdad ("el equipo verá tu mensaje dentro de su horario") y ancla en 123/106.
+--
+-- Todo el código que lo usaba se migró:
+--   - notificación de cita creada al staff (transición iSalud) → clinics.phone
+--   - reporte semanal + onboarding al admin                    → clinics.phone
+--   - notificación de escalación (notifyEscalationContact)      → ELIMINADA (tablero)
+--   - fallback por-especialidad                                 → ELIMINADO (tablero)
+--
+-- ⚠ APLICAR DESPUÉS de que el deploy que quita las referencias esté LIVE: si se
+-- dropea con el código viejo aún sirviendo, sus SELECT del campo fallan.
+ALTER TABLE clinics DROP COLUMN IF EXISTS escalation_contact_phone;

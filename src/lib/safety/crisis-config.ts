@@ -18,12 +18,15 @@ export const DEFAULT_CRISIS_CONFIG: CrisisConfig = {
   detection_enabled: true,       // detectar + escalar + alertar SIEMPRE
   auto_message_approved: false,  // NO enviar contención hasta validación clínica de Algia
   containment_message:
-    'Lamento mucho que estés pasando por esto, y me importa. No tienes que enfrentar esto sin ayuda. ' +
-    'Por favor comunícate ahora con la Línea 106 (salud mental, gratuita, 24/7) ' +
-    'o llama al 123 si estás en peligro inmediato. Una persona del consultorio ' +
-    'va a contactarte lo antes posible. 🙏',
+    'Lamento mucho que estés pasando por esto. No tienes que enfrentarlo sin ayuda.\n\n' +
+    'Ahora mismo tienes a quién acudir, sin esperar a nadie:\n' +
+    '📞 Si estás en peligro inmediato, llama al 123.\n' +
+    '💚 Para hablar ya, la Línea 106 es gratuita y atiende a cualquier hora. ' +
+    'También puedes marcar al 606 333 9610.\n\n' +
+    'El equipo del consultorio verá tu mensaje y te acompañará dentro de su horario de atención. ' +
+    'Por favor no esperes por eso: el 123 y la 106 están disponibles ahora mismo. 🙏',
   human_handoff_message:
-    'Con gusto te paso con una persona del consultorio. Ya te contactan. 🙏',
+    'Con gusto le dejo tu mensaje al equipo del consultorio. Te responden dentro de su horario de atención. 🙏',
 }
 
 /** Construye el mensaje de contención. Interpola {nombre} si viene.

@@ -33,14 +33,13 @@ export async function sendWhatsAppOnboardingSequence(
     // Verificar que no se haya enviado antes
     const { data: clinic } = await supabaseAdmin
       .from('clinics')
-      .select('whatsapp_onboarding_sent, phone, escalation_contact_phone')
+      .select('whatsapp_onboarding_sent, phone')
       .eq('id', clinicId)
       .single()
 
     if (!clinic || clinic.whatsapp_onboarding_sent) return
 
-    // Usar escalation_contact_phone primero, luego phone de la clínica
-    const adminPhone = (clinic.escalation_contact_phone || clinic.phone || '').trim()
+    const adminPhone = (clinic.phone || '').trim()
     if (!adminPhone) return
 
     const whatsappNumber = adminPhone.replace('+', '')

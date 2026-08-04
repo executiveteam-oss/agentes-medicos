@@ -1,14 +1,14 @@
 // ============================================================
 // Notificación al staff cuando el agente crea una cita
 //
-// Mitiga el gap de la transición Algia ↔ iSalud (sync unidireccional):
-// el staff que sigue operando en iSalud NO ve las citas creadas por el
-// agente en Omuwan. Esta notificación les llega por WhatsApp al
-// escalation_contact_phone para que sepan que existe la cita ANTES
-// de potencialmente doble-agendar.
+// ⏳ TRANSITORIO — muere cuando Algia corte iSalud. Mitiga el gap de la
+// transición Algia ↔ iSalud (sync unidireccional): el staff que sigue operando
+// en iSalud NO ve las citas creadas por el agente en Omuwan. Les llega por
+// WhatsApp a clinic.phone para que espejen a mano ANTES de doble-agendar. NO es
+// el canal de escalaciones (ese vive en el tablero: campana + Atención).
 //
 // Comportamiento:
-//   - Si escalation_contact_phone es NULL → silencioso, no hace nada
+//   - Si clinic.phone es NULL → silencioso, no hace nada
 //   - Si las credenciales WA están incompletas → silencioso
 //   - Fire-and-forget: nunca lanza excepciones al caller
 //   - El error log queda para depurar pero no rompe el flujo del agente
@@ -35,7 +35,7 @@ interface StaffAppointmentNotifyParams {
 }
 
 /**
- * Notifica al staff de la clínica (vía WhatsApp al escalation_contact_phone)
+ * Notifica al staff de la clínica (vía WhatsApp a clinic.phone)
  * que el agente acaba de crear una cita.
  *
  * Fire-and-forget: nunca lanza. Si no hay número de escalamiento, no hace nada.
@@ -44,19 +44,24 @@ export async function notifyStaffAppointmentCreated(
   params: StaffAppointmentNotifyParams,
 ): Promise<void> {
   try {
+    // ⏳ TRANSITORIO (puente Algia↔iSalud): mientras las secretarias espejen a
+    // mano en iSalud lo que agenda el agente, esto va por WhatsApp a clinic.phone
+    // — si solo sonara en la campana se les pasarían las citas creadas de noche.
+    // MUERE cuando Algia corte iSalud. NO es el canal de escalaciones (ese vive
+    // en el tablero); es la señal operativa del doble-agendamiento.
     const { data: clinic } = await supabaseAdmin
       .from('clinics')
-      .select('escalation_contact_phone, whatsapp_phone_id, whatsapp_access_token, name')
+      .select('phone, whatsapp_phone_id, whatsapp_access_token, name')
       .eq('id', params.clinicId)
       .single()
 
     const rec = clinic as Record<string, unknown> | null
-    const rawPhone = rec?.escalation_contact_phone as string | null
+    const rawPhone = rec?.phone as string | null
     const phoneId = rec?.whatsapp_phone_id as string | null
     const accessToken = rec?.whatsapp_access_token as string | null
 
     if (!rawPhone) {
-      console.log('[StaffNotify] escalation_contact_phone no configurado — skip')
+      console.log('[StaffNotify] clinic.phone no configurado — skip')
       return
     }
     if (!phoneId || !accessToken) {

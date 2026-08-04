@@ -1162,6 +1162,16 @@ async function saveMessage(
     console.error('[saveMessage] Error:', error)
     return null
   }
+
+  // Fuente única: TODO mensaje (paciente/agente/staff) bumpea last_message_at.
+  // De esto dependen el orden de la bandeja, "esperando hace Xh", el no-leído y
+  // el realtime de conversations (cada mensaje dispara un UPDATE). Antes se hacía
+  // suelto en algunos call sites y varios replies del agente no lo bumpeaban.
+  await supabaseAdmin
+    .from('conversations')
+    .update({ last_message_at: new Date().toISOString() })
+    .eq('id', conversationId)
+
   return (data as { id: string }).id
 }
 

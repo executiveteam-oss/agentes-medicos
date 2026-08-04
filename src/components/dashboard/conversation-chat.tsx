@@ -4,15 +4,16 @@
 // ConversationChat v2 — Chat + Context panel + Realtime
 // ============================================================
 
-import { useState, useRef, useEffect, useTransition } from 'react'
+import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
 import { formatPhone } from '@/lib/utils/dates'
 import { getInitials } from '@/lib/utils/ui-helpers'
-import { sendStaffMessage, updateConversationStatus, reopenConversation, setConversationTriageState, returnConversationToAgent } from '@/app/actions/conversations'
+import { sendStaffMessage, updateConversationStatus, reopenConversation, setConversationTriageState, returnConversationToAgent, getMessagesSince } from '@/app/actions/conversations'
 import { claimConversation, releaseConversation, overrideClaim } from '@/app/actions/claim'
 import { PatientLabelsEditor } from '@/components/dashboard/patient-labels-editor'
 import type { ClinicLabel } from '@/lib/labels/patient-labels'
 import { resolveClaimState, type ClaimConfig, type ClaimRow } from '@/lib/rules/claim-logic'
-import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { useRealtimeConnection } from '@/hooks/use-realtime-connection'
+import { RealtimeIndicator } from '@/components/dashboard/realtime-indicator'
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
@@ -133,50 +134,69 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   }, [conversation.id])
 
   // Realtime: listen for new messages
-  useEffect(() => {
-    const supabase = createSupabaseBrowserClient()
-    const channel = supabase
-      .channel(`chat-${conversation.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversation.id}` },
-        (payload) => {
-          const newMsg = payload.new as Record<string, unknown>
-          const msg: Message = {
-            id: newMsg.id as string,
-            role: newMsg.role as Message['role'],
-            content: newMsg.content as string,
-            message_type: (newMsg.message_type as string) ?? 'text',
-            created_at: newMsg.created_at as string,
-            sender_name: (newMsg.sender_name as string | null) ?? null,
-          }
-          // Avoid duplicates (optimistic messages)
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === msg.id)) return prev
-            // Remove temp messages that match this content
-            const filtered = prev.filter((m) => !m.id.startsWith('temp-'))
-            return [...filtered, msg]
-          })
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `id=eq.${conversation.id}` },
-        (payload) => {
-          const row = payload.new as Record<string, unknown>
-          const newStatus = row.status as string
-          if (newStatus) setStatus(newStatus as typeof status)
-          setClaim({
-            claimed_by: (row.claimed_by as string | null) ?? null,
-            claimed_by_name: (row.claimed_by_name as string | null) ?? null,
-            claimed_at: (row.claimed_at as string | null) ?? null,
-          })
-        }
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
+  // Backfill del detalle: al (re)conectar, traer los mensajes posteriores al
+  // último que tenemos (recupera lo perdido durante una caída). Ref para no
+  // recrear el callback en cada mensaje.
+  const messagesRef = useRef(messages)
+  useEffect(() => { messagesRef.current = messages }, [messages])
+  const backfill = useCallback(async () => {
+    const real = messagesRef.current.filter((m) => !m.id.startsWith('temp-'))
+    const since = real.length ? real[real.length - 1].created_at : new Date(0).toISOString()
+    const r = await getMessagesSince(conversation.id, since)
+    if (!r.ok || !r.messages?.length) return
+    setMessages((prev) => {
+      const ids = new Set(prev.map((m) => m.id))
+      const add: Message[] = (r.messages ?? [])
+        .filter((m) => !ids.has(m.id))
+        .map((m) => ({ ...m, role: m.role as Message['role'] }))
+      if (!add.length) return prev
+      return [...prev.filter((m) => !m.id.startsWith('temp-')), ...add]
+    })
   }, [conversation.id])
+
+  // Realtime robusto: mensajes nuevos + status/claim, con indicador de "sin
+  // conexión" y backfill al reconectar (ver use-realtime-connection).
+  const { connected } = useRealtimeConnection({
+    channelName: `chat-${conversation.id}`,
+    deps: [conversation.id],
+    onResync: backfill,
+    bind: (channel) =>
+      channel
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversation.id}` },
+          (payload) => {
+            const newMsg = payload.new as Record<string, unknown>
+            const msg: Message = {
+              id: newMsg.id as string,
+              role: newMsg.role as Message['role'],
+              content: newMsg.content as string,
+              message_type: (newMsg.message_type as string) ?? 'text',
+              created_at: newMsg.created_at as string,
+              sender_name: (newMsg.sender_name as string | null) ?? null,
+            }
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === msg.id)) return prev
+              const filtered = prev.filter((m) => !m.id.startsWith('temp-'))
+              return [...filtered, msg]
+            })
+          },
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'conversations', filter: `id=eq.${conversation.id}` },
+          (payload) => {
+            const row = payload.new as Record<string, unknown>
+            const newStatus = row.status as string
+            if (newStatus) setStatus(newStatus as typeof status)
+            setClaim({
+              claimed_by: (row.claimed_by as string | null) ?? null,
+              claimed_by_name: (row.claimed_by_name as string | null) ?? null,
+              claimed_at: (row.claimed_at as string | null) ?? null,
+            })
+          },
+        ),
+  })
 
   function showToastMsg(msg: string) {
     setToast(msg)
@@ -313,6 +333,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', fontFamily: 'var(--font-manrope), sans-serif' }}>
       {/* ===== Chat column ===== */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <RealtimeIndicator connected={connected} />
         {/* Header */}
         <div
           style={{

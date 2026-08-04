@@ -4,13 +4,16 @@
 // ConversationsPanel v2 — Lista filtrable con realtime
 // ============================================================
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Search, MessageCircle } from 'lucide-react'
-import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+import { useRealtimeConnection } from '@/hooks/use-realtime-connection'
+import { RealtimeIndicator } from '@/components/dashboard/realtime-indicator'
+import { useNow } from '@/hooks/use-now'
 
 interface ConversationEntry {
   id: string
@@ -70,23 +73,33 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
     agente: entries.filter((e) => bucketOf(e) === 'agente').length,
   }
 
-  // Realtime: listen for conversation changes
-  useEffect(() => {
-    const supabase = createSupabaseBrowserClient()
-    const channel = supabase
-      .channel('conv-list-realtime')
-      .on(
+  // Realtime de la bandeja: cualquier cambio de conversación de la clínica →
+  // router.refresh() SOFT (re-corre el server, recomputa la lista —incluido
+  // last_message_role, que es derivado— y preserva scroll/filtro), debounced.
+  // Reemplaza el window.location.reload() anterior.
+  const router = useRouter()
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current)
+    refreshTimer.current = setTimeout(() => router.refresh(), 800)
+  }, [router])
+  useEffect(() => () => { if (refreshTimer.current) clearTimeout(refreshTimer.current) }, [])
+
+  const { connected } = useRealtimeConnection({
+    channelName: 'conv-list-realtime',
+    deps: [clinicId],
+    onResync: () => router.refresh(), // backfill al (re)conectar
+    bind: (channel) =>
+      channel.on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'conversations', filter: `clinic_id=eq.${clinicId}` },
-        () => {
-          // Simple approach: reload page on any conversation change
-          window.location.reload()
-        }
-      )
-      .subscribe()
+        () => scheduleRefresh(),
+      ),
+  })
 
-    return () => { supabase.removeChannel(channel) }
-  }, [clinicId])
+  // Ticker: re-render cada 60s → "esperando hace Xh" se recalcula solo (es
+  // tiempo transcurrido, no depende de ningún evento).
+  useNow()
 
   // La que espera hace más, arriba: hace visible el mute y auto-ordena la cola.
   const waitingMs = (e: ConversationEntry) =>
@@ -104,6 +117,7 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
 
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }}>
+      <RealtimeIndicator connected={connected} />
       {/* Search + Filter card */}
       <div
         style={{

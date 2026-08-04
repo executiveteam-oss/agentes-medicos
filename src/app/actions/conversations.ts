@@ -483,3 +483,34 @@ export async function reopenConversation(
     return { ok: false, error: 'Error de permisos o sesión' }
   }
 }
+
+/**
+ * Backfill del detalle: mensajes con created_at > sinceIso. Se llama al
+ * (re)conectar realtime para recuperar lo perdido durante una caída. El chat
+ * mergea por id (ya deduplica), así que traer de más es inofensivo.
+ */
+export async function getMessagesSince(
+  conversationId: string,
+  sinceIso: string,
+): Promise<{ ok: boolean; messages?: { id: string; role: string; content: string; message_type: string; created_at: string; sender_name: string | null }[] }> {
+  try {
+    const clinicId = await checkReadPermission('conversations')
+    const { data: conv } = await supabaseAdmin
+      .from('conversations').select('id, clinic_id').eq('id', conversationId).single()
+    if (!conv || (conv as { clinic_id: string }).clinic_id !== clinicId) return { ok: false }
+
+    const { data } = await supabaseAdmin
+      .from('messages')
+      .select('id, role, content, message_type, created_at')
+      .eq('conversation_id', conversationId)
+      .gt('created_at', sinceIso)
+      .order('created_at', { ascending: true })
+      .limit(200)
+
+    const messages = ((data ?? []) as Array<{ id: string; role: string; content: string; message_type: string; created_at: string }>)
+      .map((m) => ({ ...m, sender_name: null }))
+    return { ok: true, messages }
+  } catch {
+    return { ok: false }
+  }
+}

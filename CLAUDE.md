@@ -418,28 +418,34 @@ ZONA HORARIA: America/Bogota (UTC-5). Fecha actual: {now}
 
 ---
 
-## 🚀 LANZAMIENTO ALGIA — martes 16 de junio 2026
+## 🚀 LANZAMIENTO ALGIA — objetivo ~jueves 2026-08-06 (título original "martes 16 jun 2026" movido; reconciliado 2026-08-04)
 
 **Contexto**: Algia está saturada de WhatsApps sin responder. Lanzamiento del agente IA respondiendo + agendando, aunque no esté todo perfecto.
 
 ### Roster del lanzamiento
 
-**ACTIVOS (5 médicos)** — agendables por el agente desde el martes:
+> **⚠ RECONCILIADO CON LA DB EL 2026-08-04.** La tabla original (plan de junio: "5 activos / 4 cerrados vía `agenda_closed=true`") quedó vieja y casi provoca un fix urgente innecesario. Estado real abajo. Verificar con SQL, no confiar en memoria.
 
-| Médico | Horario | Tipos | Pre-martes pendiente |
-|---|---|---|---|
-| **LINA MARIA GRAJALES MARULANDA** (Fisioterapia) | ✅ custom | 8 | ninguno |
-| **DANIELA OSORIO POSADA** (Fisioterapia) | ✅ custom | 1 | revisar 1 tipo suficiente |
-| **JUAN DIEGO VILLEGAS ECHEVERRI** (Ginecología) | ⚠ default | 10 | configurar horario real |
-| **JOSÉ DUVÁN LÓPEZ JARAMILLO** (Ginecología) | ⚠ default | 0 | **tipos** (feature nuevo) + horario real |
-| **JORGE DARIO LOPEZ ISANOA** (Ginecología) | ⚠ default | 0 | **tipos** (feature nuevo) + horario real |
+**AGENDABLES** (`is_active=true`, `agenda_closed=false`, con tipos bookable + los 7 días de `working_hours` explícitos):
 
-**CERRADOS (4 médicos)** — `agenda_closed=true`, el agente responderá "agenda cerrada, propone otro doctor":
+| Médico | Especialidad | Tipos bookable |
+|---|---|---|
+| **ANGELICA MARIA QUINTERO MONTAÑO** | Ginecología | 27 |
+| **JUAN DIEGO VILLEGAS ECHEVERRI** | Ginecología | 26 |
+| **JORGE DARIO LOPEZ ISANOA** | Ginecología | 11 |
+| **LINA MARIA GRAJALES MARULANDA** | Fisioterapia | 8 |
+| **DANIELA OSORIO POSADA** | Fisioterapia | 4 |
+| **ADRIANA ESTEVEZ DURAN** | Colposcopia | 3 |
 
-- ADRIANA ESTEVEZ DURAN (Colposcopia) — 0 tipos
-- CHRISTIAN ANDRES QUINTERO RIVAS (Radiología) — 0 tipos
-- JAZMIN DANIELA GOMEZ RAMIREZ (Psicología) — 0 tipos
-- ANGELICA MARIA QUINTERO MONTAÑO (Ginecología) — 1 tipo, marcada * en roster
+**ACTIVA SIN tipos bookable** (no agendable hasta configurar tipos): JAZMIN DANIELA GOMEZ RAMIREZ (Psicología) — 0 tipos.
+
+**DESACTIVADAS** (`is_active=false` — así se implementó "cerrado", NO con `agenda_closed`): CHRISTIAN ANDRES QUINTERO RIVAS (Radiología); **JOSÉ DUVÁN LÓPEZ JARAMILLO** (Ginecología).
+
+**🔶 Divergencias vs el plan de junio — CONFIRMAR INTENCIÓN con Algia/Lady:**
+- **NINGÚN** médico tiene `agenda_closed=true`. El mecanismo de "cerrado" terminó siendo `is_active=false` (CHRISTIAN, JOSÉ DUVÁN).
+- **ANGELICA** pasó de "cerrada, 1 tipo" a **agendable con 27 tipos** — ¿intencional?
+- **JOSÉ DUVÁN** estaba como ACTIVO en el plan; hoy está **inactivo** (era el de más citas históricas, 243) — ¿intencional?
+- Todos los horarios que el plan marcaba "⚠ default" hoy tienen los **7 días explícitos** (por eso el ARREGLO 3 del backstop de horario es latente, ver auditoría 2026-08-04).
 
 ### Protocolo de transición Algia ↔ iSalud (sync unidireccional)
 
@@ -476,7 +482,7 @@ El staff de Algia sigue operando en iSalud mientras transicionan. Las citas que 
 | `feature_config.agent` | `true` | ✅ |
 | `feature_config.reminders_24h` + `reminders_72h` | ambos `true` | ✅ |
 | `feature_config.res256_enabled` | `true` | ✅ (pendiente auditoría EAPB pre-primer reporte) |
-| `subscription_plan` | `"core"` | ⚠ no está en `TOKEN_LIMITS` dict (`src/lib/api-usage.ts:12`) → fallback a `basic = 100K tokens/mes` |
+| `subscription_plan` | `"core"` | ✅ `core: 1_000_000` YA está en `TOKEN_LIMITS` (`src/lib/api-usage.ts`) — corregido 2026-08-04, ya NO cae a `basic` |
 | `whatsapp_config.schedule` | L-S 07:00-20:00 + `out_of_hours_message` | ⚠ el `out_of_hours_message` configurado **NO se usa** — el agente improvisa siempre (system prompt línea 244) |
 | `min_booking_advance_hours` | 24 | ✅ |
 | `max_booking_advance_days` | 60 | ✅ |
@@ -487,16 +493,16 @@ Algia plan `core` cae al fallback `basic = 100K tokens/mes`. Estimación primer 
 - ~80 turnos del agente × ~3,200 tokens = **~256K tokens**
 - Se pausaría a media mañana del martes (peor caso de lanzamiento)
 
-**Pendiente**: agregar `'core': 1_000_000` (1M tokens/mes) al `TOKEN_LIMITS` dict en `src/lib/api-usage.ts:12`. Cambio de 1 línea. Holgura ~4× sobre el peor escenario primer día.
+**✅ RESUELTO (verificado 2026-08-04)**: `core: 1_000_000` ya está en `TOKEN_LIMITS` (`src/lib/api-usage.ts`). Holgura ~4× sobre el peor día. Esta sección queda como referencia histórica del análisis.
 
 ### Bloqueantes pendientes para el martes (resumen)
 
-1. **Migración del número WhatsApp real** Test Number → 3245820722 (Lady + Meta Business Manager)
-2. **`UPDATE clinics SET escalation_contact_phone = '<numero>'`** — sin esto las escalaciones quedan mudas
-3. **`UPDATE doctors SET agenda_closed=true` para los 4 cerrados** (Adriana, Christian, Jazmin, Angelica)
-4. **Configurar tipos de consulta + horario real** para JOSÉ DUVÁN y JORGE DARIO (feature nuevo)
-5. **Configurar horario real** para JUAN DIEGO y revisar de DANIELA, LINA
-6. **Ajustar TOKEN_LIMITS** para incluir plan `core` con 1M tokens
+1. **Migración del número WhatsApp real** Test Number → **⚠ número a confirmar**: el doc decía `3245820722`, el pedido del 2026-08-04 dice `3046572945`. Aclarar cuál es el productivo. Ver "Migración Meta" abajo — es el único bloqueante con espera externa.
+2. **`UPDATE clinics SET escalation_contact_phone = '<numero>'`** — 🚨 **SIGUE NULL al 2026-08-04, bloqueante VIVO** — sin esto las escalaciones quedan mudas.
+3. ~~`UPDATE doctors SET agenda_closed=true` para los 4 cerrados~~ — **HECHO distinto (2026-08-04): NINGÚN `agenda_closed=true`; CHRISTIAN y JOSÉ DUVÁN quedaron `is_active=false`.**
+4. ~~Configurar tipos + horario para JOSÉ DUVÁN y JORGE~~ — **JORGE tiene 11 tipos + 7 días; JOSÉ DUVÁN quedó inactivo.**
+5. ~~Configurar horario real JUAN DIEGO / revisar DANIELA, LINA~~ — **HECHO: los 7 médicos activos tienen los 7 días explícitos.**
+6. ~~Ajustar TOKEN_LIMITS para `core`~~ — **HECHO: `core: 1_000_000` ya está en `src/lib/api-usage.ts`.**
 7. 🚨 **Activar `proactive_contact_opt_in` (opt-in de canal WhatsApp) ANTES del corte del número.** Migración 00094 agregó el campo con **DEFAULT false para TODOS los pacientes**; los 4 crons proactivos (recordatorio/encuesta/reactivación) ahora NO envían si el campo es false. Consecuencia: **post-migración del número, si Algia no prendió el opt-in, NO sale ni un recordatorio** — que es justo lo que la dirección le prometió al equipo. Prenderlo es decisión de Algia (Ley 1581, opt-in de canal ≠ `data_consent_at`). Operación de activación en masa: `UPDATE patients SET proactive_contact_opt_in=true WHERE clinic_id='dac775fe-...' AND phone IS NOT NULL` (o el botón de dashboard cuando se construya). Hacia adelante se prende solo cuando la paciente agenda por el agente (diseño pendiente de construir en `executor.ts` create_appointment).
 
 ### Decisiones diferidas (lanzables sin esto)
@@ -568,7 +574,7 @@ Coexiste con el envío automático. Funciona **sin** template aprobado por Meta 
 
 **Server action**: `markSurveySentManually` en `src/app/actions/survey-config.ts`. Gate `agenda.write` (Admin + Coordinadora + Secretaria). Validaciones defensivas: cita facturada + `survey_sent=false` (idempotencia atómica anti-race con cron automático). Audit log con `action='survey_sent_manual'` (distinto de `'survey_sent'` que usa el cron).
 
-**Validación teléfono**: `src/lib/utils/whatsapp-url.ts` con `isValidColombianMobile` estricto (post-`normalizePhone` debe matchear `^\+573\d{9}$`). Data real de Algia hoy: 491/491 = 100% válidos, Estado C es defensa preventiva.
+**Validación teléfono**: `src/lib/utils/whatsapp-url.ts` con `isValidColombianMobile` estricto (post-`normalizePhone` debe matchear `^\+573\d{9}$`). Data de Algia al import inicial 2026-06: 491/491 = 100% válidos. (Al 2026-08-04 `patients` tiene **~14.081** — hubo un import posterior mayor; re-medir validez si importa.) Estado C es defensa preventiva.
 
 **Archivos nuevos/modificados**:
 - `src/lib/utils/whatsapp-url.ts` — isValidColombianMobile + buildWhatsAppUrl

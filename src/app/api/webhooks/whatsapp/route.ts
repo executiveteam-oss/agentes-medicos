@@ -615,21 +615,22 @@ async function processWebhook(body: unknown): Promise<void> {
 
       let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string } }
 
+      const agentParams = {
+        patientMessage: sanitizedText,
+        messageHistory,
+        clinic,
+        doctor,
+        doctors,
+        waConfig,
+        consultationTypes,
+        patientPhone,
+        patientName: patient.name,
+        existingPatient,
+        tratanteMode,
+        tratantes: resolvedTratantes,
+      }
       try {
-        agentResponse = await runAppointmentAgent({
-          patientMessage: sanitizedText,
-          messageHistory,
-          clinic,
-          doctor,
-          doctors,
-          waConfig,
-          consultationTypes,
-          patientPhone,
-          patientName: patient.name,
-          existingPatient,
-          tratanteMode,
-          tratantes: resolvedTratantes,
-        })
+        agentResponse = await runAppointmentAgent(agentParams)
       } catch (agentError) {
         // Claude API falló (rate limit, 500, network, etc.)
         // El paciente DEBE recibir un mensaje — nunca dejarlo sin respuesta.
@@ -732,14 +733,78 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
-      // GUARDS DEFENSIVOS: detectar alucinaciones del agente
-      // Cada guard reemplaza el texto y registra en audit_log si bloquea.
-      const guardResults = [
-        detectHallucinatedAppointmentConfirmation({
+      // GUARD 4 (alucinación de confirmación de cita) — corregir al MODELO, no a
+      // la paciente. El modelo dijo "✅ cita agendada" sin llamar create_appointment.
+      // En vez de pedirle a la paciente que repita el horario (ella hizo todo bien),
+      // re-corremos el turno inyectándole su propio texto + una corrección para que
+      // llame la tool. La paciente no ve nada. Si en el 2º intento vuelve a alucinar,
+      // AHÍ escalamos y avisamos al staff. Cada disparo se audita (frecuencia).
+      {
+        let apptGuard = detectHallucinatedAppointmentConfirmation({
           agentText: agentResponse.text,
           hasAppointmentData: !!agentResponse.appointmentData,
           toolsUsed: agentResponse.toolsUsed,
-        }),
+        })
+        if (apptGuard.blocked) {
+          console.error('[Webhook] GUARD hallucinated_appointment_confirmation (intento 1) — re-corriendo al modelo')
+          try {
+            await supabaseAdmin.from('audit_log').insert({
+              clinic_id: clinic.id, action: 'hallucinated_appointment_confirmation_blocked', actor_type: 'system',
+              details: { conversation_id: conversation.id, attempt: 1, escalated: false, original_response: agentResponse.text.slice(0, 300) },
+            })
+          } catch { /* non-critical */ }
+
+          const hallucinatedText = agentResponse.text
+          try {
+            agentResponse = await runAppointmentAgent({
+              ...agentParams,
+              selfCorrection: {
+                priorAssistantText: hallucinatedText,
+                note: '[Corrección interna del sistema — la paciente NO ve este mensaje] En tu respuesta anterior dijiste que la cita quedó confirmada o agendada, pero NO llamaste la herramienta create_appointment, así que en la base de datos NO se creó ninguna cita. Llama create_appointment AHORA usando los datos que la paciente ya te dio en esta conversación: el doctor, el tipo de consulta, y la fecha y hora exactas que ella eligió. No vuelvas a escribir una confirmación con ✅ sin haber ejecutado create_appointment primero.',
+              },
+            })
+          } catch (rerunErr) {
+            console.error('[Webhook] Re-run correctivo tiró:', rerunErr instanceof Error ? rerunErr.message : rerunErr)
+          }
+
+          // ¿Corrigió (llamó la tool) o volvió a alucinar?
+          apptGuard = detectHallucinatedAppointmentConfirmation({
+            agentText: agentResponse.text,
+            hasAppointmentData: !!agentResponse.appointmentData,
+            toolsUsed: agentResponse.toolsUsed,
+          })
+          if (apptGuard.blocked) {
+            console.error('[Webhook] 🚨 hallucinated_appointment_confirmation persistió tras re-run — escalando')
+            try {
+              await supabaseAdmin.from('audit_log').insert({
+                clinic_id: clinic.id, action: 'hallucinated_appointment_confirmation_blocked', actor_type: 'system',
+                details: { conversation_id: conversation.id, attempt: 2, escalated: true, original_response: agentResponse.text.slice(0, 300) },
+              })
+            } catch { /* non-critical */ }
+            await supabaseAdmin.from('conversations')
+              .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'falla_agendamiento' } })
+              .eq('id', conversation.id)
+            await refreshEscalationNotifications({
+              conversationId: conversation.id,
+              clinicId: clinic.id,
+              patientName: patient.name,
+              latestMessage: '⚠ El agente no logró agendar (alucinó la confirmación 2 veces) — hay que agendar a mano y revisar',
+            })
+            const escalaText = 'Dame un momentito, te comunico con alguien del equipo para dejar tu cita confirmada. 🙏'
+            await saveMessage(conversation.id, 'agent', escalaText)
+            await sendWhatsAppMessageWithResult(message.from, escalaText, clinicCreds, {
+              clinicId: clinic.id, sendType: 'agent_reply', conversationId: conversation.id,
+            })
+            return
+          }
+          console.log(`[Webhook] Re-run correctivo OK — tools=[${agentResponse.toolsUsed.join(', ')}], appointmentData=${!!agentResponse.appointmentData}`)
+        }
+      }
+
+      // Otros guards defensivos (cancelación, reagendamiento, identidad): estos SÍ
+      // reemplazan el texto (no re-corren) — el re-run correctivo fue solo para la
+      // confirmación de cita.
+      const guardResults = [
         detectHallucinatedCancellation({
           agentText: agentResponse.text,
           toolsUsed: agentResponse.toolsUsed,

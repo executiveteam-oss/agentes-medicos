@@ -18,6 +18,7 @@ import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
 import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart } from '@/lib/calendar/schedule-check'
 import { isSlotFree, BUSY_STATUSES, type BusyAppointment } from '@/lib/calendar/slot-availability'
+import { generateTimeSlots } from '@/lib/calendar/time-slots'
 import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
 import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, WorkingBlock } from '@/types/database'
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
@@ -440,37 +441,8 @@ async function checkAvailability(
   }
 }
 
-/**
- * Genera todos los slots de tiempo para un día
- * Ejemplo: de 8:00 a 18:00 con slots de 30 min = 20 slots
- */
-function generateTimeSlots(
-  dateStr: string,
-  startTime: string,
-  endTime: string,
-  durationMinutes: number
-): Array<{ utc: string; display: string }> {
-  const slots: Array<{ utc: string; display: string }> = []
-
-  // Crear fecha de inicio en hora Colombia
-  const startDate = parseISO(`${dateStr}T${startTime}:00-05:00`)
-  const endDate = parseISO(`${dateStr}T${endTime}:00-05:00`)
-
-  let current = startDate
-  while (current < endDate) {
-    const slotEnd = addMinutes(current, durationMinutes)
-    // Solo agregar si el slot completo cabe antes del cierre
-    if (slotEnd <= endDate) {
-      slots.push({
-        utc: current.toISOString(),
-        display: formatTimeForPatient(current.toISOString()),
-      })
-    }
-    current = addMinutes(current, durationMinutes)
-  }
-
-  return slots
-}
+// generateTimeSlots vive en @/lib/calendar/time-slots (módulo puro, testeable).
+// Importado arriba.
 
 // ============================================================
 // CREATE APPOINTMENT — Crear cita nueva

@@ -48,6 +48,10 @@ interface AgentParams {
   existingPatient?: ExistingPatientData | null  // Datos si es paciente recurrente
   tratanteMode?: 'off' | 'blando' | 'duro'      // modo feature médico tratante
   tratantes?: ResolvedTratante[]                // tratantes activos resueltos (por especialidad)
+  // Re-run correctivo tras alucinación de confirmación (GUARD 4): el modelo dijo
+  // que la cita quedó agendada SIN llamar create_appointment. Reinyectamos su
+  // propio texto + una corrección para que llame la tool. La paciente NO ve esto.
+  selfCorrection?: { priorAssistantText: string; note: string }
 }
 
 export interface AppointmentData {
@@ -132,6 +136,14 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     role: 'user',
     content: patientMessage,
   })
+
+  // Re-run correctivo (GUARD 4): reinyectamos el texto alucinado del modelo +
+  // la corrección, para que en esta pasada SÍ llame create_appointment. La
+  // paciente no ve nada de esto — es una segunda vuelta interna.
+  if (params.selfCorrection) {
+    messages.push({ role: 'assistant', content: params.selfCorrection.priorAssistantText })
+    messages.push({ role: 'user', content: params.selfCorrection.note })
+  }
 
   // 3. Loop de tool-use: Claude puede usar hasta 5 tools antes de responder
   const toolsUsed: string[] = []

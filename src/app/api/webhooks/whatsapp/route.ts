@@ -862,8 +862,10 @@ async function processWebhook(body: unknown): Promise<void> {
           const icsLink = await hostICSAndGetLink({ appointmentId: aptData.id, icsContent: icsString })
           if (icsLink) {
             const icsText = isCancel
-              ? `📅 Quita esta cita de tu calendario de tu celular:\n${icsLink}\nSi no se abre solo, búscalo en tus descargas.`
-              : `📅 Guarda tu cita en el calendario de tu celular:\n${icsLink}\nSi no se abre solo, búscalo en tus descargas. El enlace funciona por 7 días.`
+              // Condicional y secundario: el METHOD:CANCEL solo hace algo si
+              // ella había agregado el evento (la mayoría no lo hizo).
+              ? `Si la habías guardado en tu calendario, aquí la quitas:\n${icsLink}`
+              : `📅 Guarda tu cita en el calendario de tu celular:\n${icsLink}\nSi no se abre solo, búscalo en tus descargas. El enlace funciona hasta el día de tu cita.`
             await sendWhatsAppMessageWithResult(message.from, icsText, clinicCreds, {
               clinicId: clinic.id, sendType: 'ics', conversationId: conversation.id,
             })

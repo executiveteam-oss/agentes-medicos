@@ -34,5 +34,39 @@ export async function GET(request: NextRequest) {
   }
 
   console.log(`[Cron:CleanupNotifs] Deleted ${count ?? 0} notifications older than 30 days`)
-  return NextResponse.json({ ok: true, deleted: count ?? 0 })
+
+  // Purga de .ics hosteados de citas que YA pasaron. El archivo tiene nombre
+  // de paciente + médico + hora → se borra cuando deja de ser útil. Post-purga,
+  // el link /cita/{token} muestra la página amable (no el error de Supabase).
+  // Solo toca el bucket calendar-invites (nunca dato clínico) — por eso NO va
+  // en el cron de retención de documentos (que además está en dry-run).
+  let icsPurged = 0
+  try {
+    const { data: pastWithICS } = await supabaseAdmin
+      .from('appointments')
+      .select('id, calendar_ics_path')
+      .not('calendar_ics_path', 'is', null)
+      .lt('starts_at', new Date().toISOString())
+      .limit(500)
+
+    if (pastWithICS && pastWithICS.length > 0) {
+      const paths = pastWithICS.map((a) => a.calendar_ics_path as string)
+      const { error: rmErr } = await supabaseAdmin.storage.from('calendar-invites').remove(paths)
+      if (rmErr) {
+        console.error('[Cron:CleanupNotifs] ICS storage remove error:', rmErr.message)
+      } else {
+        // Limpiar la ruta solo si el borrado del objeto no falló (si no, reintenta mañana).
+        await supabaseAdmin
+          .from('appointments')
+          .update({ calendar_ics_path: null })
+          .in('id', pastWithICS.map((a) => a.id))
+        icsPurged = paths.length
+      }
+    }
+  } catch (e) {
+    console.error('[Cron:CleanupNotifs] ICS purge failed:', e instanceof Error ? e.message : e)
+  }
+  console.log(`[Cron:CleanupNotifs] ICS purgados: ${icsPurged}`)
+
+  return NextResponse.json({ ok: true, deleted: count ?? 0, ics_purged: icsPurged })
 }

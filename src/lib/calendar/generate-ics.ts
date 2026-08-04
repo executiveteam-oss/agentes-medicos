@@ -26,7 +26,10 @@ export function generateConfirmICS(input: ICSInput): string {
 
   return buildICS({
     uid: `${input.appointmentId}@omuwan.co`,
-    method: 'REQUEST',
+    // PUBLISH (no REQUEST): el paciente AGREGA el evento a su calendario, no
+    // es una invitación con RSVP Aceptar/Rechazar. Mismo UID + SEQUENCE↑ hace
+    // que reagendar actualice el evento en su lugar. Cancelar usa CANCEL.
+    method: 'PUBLISH',
     status: 'CONFIRMED',
     summary,
     location,
@@ -137,7 +140,7 @@ function escapeICS(str: string): string {
 
 interface ICSEvent {
   uid: string
-  method: 'REQUEST' | 'CANCEL'
+  method: 'PUBLISH' | 'CANCEL'
   status: 'CONFIRMED' | 'CANCELLED'
   summary: string
   location: string | null

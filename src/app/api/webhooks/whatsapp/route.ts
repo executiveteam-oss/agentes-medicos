@@ -819,12 +819,14 @@ async function processWebhook(body: unknown): Promise<void> {
         clinicId: clinic.id, sendType: 'agent_reply', conversationId: conversation.id, messageId: agentMsgId ?? undefined,
       })
 
-      // 19.5 Calendar invite (.ics) — send after text confirmation
+      // 19.5 Calendar invite (.ics) — hosteado + link (NO adjunto: Meta no
+      // acepta text/calendar y text/plain se renombra a .TXT en WhatsApp).
+      // Ver src/lib/calendar/host-ics.ts y la ruta /cita/{token}.
       console.log(`[Webhook] appointmentData present: ${!!agentResponse.appointmentData}, toolsUsed: [${agentResponse.toolsUsed.join(', ')}]`)
       if (agentResponse.appointmentData) {
         try {
           const { generateConfirmICS, generateCancelICS } = await import('@/lib/calendar/generate-ics')
-          const { sendWhatsAppDocument } = await import('@/lib/whatsapp/client')
+          const { hostICSAndGetLink } = await import('@/lib/calendar/host-ics')
 
           const aptData = agentResponse.appointmentData
           const isCancel = agentResponse.toolsUsed.includes('cancel_appointment')
@@ -856,17 +858,19 @@ async function processWebhook(body: unknown): Promise<void> {
               })
 
           console.log(`[Webhook] ICS generated: ${icsString.length} bytes, isCancel=${isCancel}`)
-          const fileBuffer = Buffer.from(icsString, 'utf-8')
-          // MIME text/plain: WhatsApp NO acepta text/calendar en el upload de
-          // media (error #100) — el .ics venía fallando en silencio hace meses.
-          // text/plain SÍ está en la lista oficial de Meta y admite el contenido
-          // del .ics (es texto RFC 5545); el nombre cita.ics conserva la extensión
-          // para que el teléfono lo rutee al calendario. PENDIENTE: validar en
-          // dispositivo real (algunos clientes abren text/plain como texto).
-          const docResult = await sendWhatsAppDocument(message.from, fileBuffer, 'cita.ics', 'text/plain', clinicCreds, {
-            clinicId: clinic.id, sendType: 'ics', conversationId: conversation.id,
-          })
-          console.log(`[Webhook] ICS send result: ${docResult ? 'OK msgId=' + docResult : 'FAILED'}`)
+          // Subir a Storage privado y obtener el link a nuestra ruta /cita/{token}.
+          const icsLink = await hostICSAndGetLink({ appointmentId: aptData.id, icsContent: icsString })
+          if (icsLink) {
+            const icsText = isCancel
+              ? `📅 Quita esta cita de tu calendario de tu celular:\n${icsLink}\nSi no se abre solo, búscalo en tus descargas.`
+              : `📅 Guarda tu cita en el calendario de tu celular:\n${icsLink}\nSi no se abre solo, búscalo en tus descargas. El enlace funciona por 7 días.`
+            await sendWhatsAppMessageWithResult(message.from, icsText, clinicCreds, {
+              clinicId: clinic.id, sendType: 'ics', conversationId: conversation.id,
+            })
+            console.log(`[Webhook] ICS link enviado: ${icsLink}`)
+          } else {
+            console.error('[Webhook] ICS hosting failed — no link sent')
+          }
         } catch (icsErr) {
           console.error('[Webhook] ICS send failed (non-critical):', icsErr instanceof Error ? icsErr.message : icsErr)
         }

@@ -21,6 +21,18 @@ export const REMINDER_TEMPLATE_BODY =
 // Quick Reply buttons (texto estático, sin variables runtime)
 export const REMINDER_BUTTONS = ['Confirmar', 'Reagendar', 'Cancelar'] as const
 
+// --- Recordatorio V2: identifica a la clínica en la 1ª línea ---
+// Número nuevo sin reputación: la paciente que NO guardó el número ve solo el
+// TELÉFONO, no el display name (salvo Official Business Account). Por eso la 1ª
+// línea nombra a la clínica ({{2}}). Es un template NUEVO (otro nombre) a
+// propósito: editar `recordatorio_cita` lo manda a revisión de Meta y nos deja
+// sin ninguno usable — el viejo queda como fallback y se switchea cuando Meta
+// apruebe éste. Params: {{1}} paciente, {{2}} clínica, {{3}} médico, {{4}} fecha,
+// {{5}} hora, {{6}} dirección.
+export const REMINDER_TEMPLATE_NAME_V2 = 'recordatorio_cita_v2'
+export const REMINDER_TEMPLATE_BODY_V2 =
+  'Hola {{1}} 👋 Te escribimos de {{2}}. Te recordamos tu cita con {{3}} el {{4}} a las {{5}}.\n📍 {{6}}\nTe esperamos.'
+
 // --- Cancelación ---
 export const CANCEL_TEMPLATE_NAME = 'cancelacion_cita'
 export const CANCEL_TEMPLATE_BODY =

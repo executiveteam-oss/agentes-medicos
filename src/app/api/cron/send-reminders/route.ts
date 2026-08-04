@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, sendWhatsAppTemplate, getClinicCreds } from '@/lib/whatsapp/client'
-import { REMINDER_TEMPLATE_NAME, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
+import { REMINDER_TEMPLATE_NAME_V2, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
 import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import { calculateNoShowProbability } from '@/lib/utils/noshow'
 import { syncClinicSheet } from '@/lib/google-sheets'
@@ -175,9 +175,9 @@ async function send72hReminders(
     if (!creds) { console.warn(`[Cron:72h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
     const result = await sendWhatsAppTemplate(
       whatsappNumber,
-      REMINDER_TEMPLATE_NAME,
+      REMINDER_TEMPLATE_NAME_V2,
       TEMPLATE_LANGUAGE,
-      [patient.name, `${doctorPrefix} ${doctor.name}`, dateText, timeText, address],
+      [patient.name, clinic.name, `${doctorPrefix} ${doctor.name}`, dateText, timeText, address],
       null,   // Quick Reply buttons — sin param de URL
       creds,
       { clinicId: apt.clinic_id, sendType: 'reminder' },
@@ -289,9 +289,9 @@ async function send24hReminders(
     if (!creds24) { console.warn(`[Cron:24h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
     const result = await sendWhatsAppTemplate(
       whatsappNumber,
-      REMINDER_TEMPLATE_NAME,
+      REMINDER_TEMPLATE_NAME_V2,
       TEMPLATE_LANGUAGE,
-      [patient.name, doctor.name, dateText, timeText, clinic.address],
+      [patient.name, clinic.name, doctor.name, dateText, timeText, clinic.address],
       null,   // Quick Reply buttons — sin param de URL
       creds24,
       { clinicId: apt.clinic_id, sendType: 'reminder' },
@@ -445,9 +445,9 @@ async function send2hReminders(
     if (!creds2h) { console.warn(`[Cron:2h] Clínica sin WhatsApp: ${apt.clinic_id}`); continue }
     const result = await sendWhatsAppTemplate(
       whatsappNumber,
-      REMINDER_TEMPLATE_NAME,
+      REMINDER_TEMPLATE_NAME_V2,
       TEMPLATE_LANGUAGE,
-      [patient.name, doctor.name, 'hoy', timeText, address],
+      [patient.name, clinic.name, doctor.name, 'hoy', timeText, address],
       null,   // Quick Reply buttons — sin param de URL
       creds2h,
       { clinicId: apt.clinic_id, sendType: 'reminder' },

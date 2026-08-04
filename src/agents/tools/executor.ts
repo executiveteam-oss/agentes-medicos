@@ -466,7 +466,10 @@ async function createAppointment(
   let consultationTypeId: string | null = (input.consultation_type_id as string | undefined) ?? null
   const modality = (input.modality as string) ?? 'presencial'
   const freeTextReason = (input.free_text_reason as string) ?? null
-  const patientConditionAnswers = (input.patient_condition_answers as Record<string, 'yes' | 'no' | 'ambiguous'> | undefined) ?? {}
+  // Ahora son las PALABRAS LITERALES de la paciente (el LLM transcribe, el
+  // código clasifica de forma determinista más abajo). Antes era la etiqueta
+  // yes/no/ambiguous que producía el LLM (y a veces mal — F3).
+  const patientConditionAnswers = (input.patient_condition_answers as Record<string, string> | undefined) ?? {}
 
   // BACKSTOP — NUNCA agendar sin tipo de consulta. Si no vino, resolver el ÚNICO
   // tipo agendable por WhatsApp del médico y ESCRIBIRLO; si hay varios (o ninguno),
@@ -723,6 +726,7 @@ async function createAppointment(
 
     if (conditionRules && conditionRules.length > 0) {
       const { PatientConditionConfigSchema, evaluatePatientCondition } = await import('@/lib/rules/patient-condition-config')
+      const { classifyYesNo, classifyChoice } = await import('@/lib/rules/patient-answer-classifier')
 
       // Check 1: ¿Faltan respuestas?
       const missing: Array<{ ruleId: string; question: string }> = []
@@ -771,8 +775,33 @@ async function createAppointment(
         const parsed = PatientConditionConfigSchema.safeParse(r.condition_config)
         if (!parsed.success) continue
         const config = parsed.data
-        const answer = patientConditionAnswers[r.id]
-        const evalRes = evaluatePatientCondition(answer, config)
+        // El código clasifica la respuesta LITERAL (determinista), no confía
+        // en una etiqueta del LLM. Safe default = ambiguous → deriva.
+        const literalAnswer = patientConditionAnswers[r.id] ?? ''
+        const classification = config.question_type === 'yes_no'
+          ? classifyYesNo(literalAnswer)
+          : classifyChoice(literalAnswer, config.options)
+        const evalRes = evaluatePatientCondition(classification, config)
+
+        // LOG de recolección de frases (SIEMPRE, apt incluido): la respuesta
+        // LITERAL + la clasificación que produjo el código. En 2 semanas esto
+        // da la lista real de frases para que una doctora valide los bordes —
+        // no una lista inventada. Sin patient_phone: solo interesa la frase.
+        await supabaseAdmin.from('audit_log').insert({
+          clinic_id: clinicId,
+          action: 'patient_condition_answer',
+          actor_type: 'system',
+          target_type: 'consultation_type',
+          target_id: consultationTypeId,
+          details: {
+            rule_id: r.id,
+            question: config.question,
+            question_type: config.question_type,
+            literal_answer: literalAnswer,
+            classification,
+            outcome: evalRes.outcome,
+          },
+        })
 
         if (evalRes.outcome === 'apt') continue
 
@@ -783,7 +812,8 @@ async function createAppointment(
           rule_id: r.id,
           question_type: config.question_type,
           question: config.question,
-          answer_reported_by_llm: answer,
+          literal_answer: literalAnswer,
+          classification,
           outcome: evalRes.outcome,
           action_taken: evalRes.action,
           llm_attempted_anyway: true,
@@ -845,7 +875,7 @@ async function createAppointment(
               must_escalate: true,
               message_for_patient:
                 'Para este servicio en tu caso necesito que un asesor del consultorio lo confirme contigo. Ya les avisé y te contactan pronto.',
-              escalate_reason: `Paciente respondió "${answer}" a pregunta obligatoria "${config.question}" (dispara derivación según configuración de la clínica).`,
+              escalate_reason: `Paciente respondió "${literalAnswer}" (clasificada: ${classification}) a pregunta obligatoria "${config.question}" (dispara derivación según configuración de la clínica).`,
               escalate_urgency: 'medium',
             },
           }

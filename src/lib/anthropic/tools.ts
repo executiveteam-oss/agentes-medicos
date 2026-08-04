@@ -122,13 +122,13 @@ export const agentTools: Tool[] = [
           type: 'object',
           description:
             'Respuestas a preguntas obligatorias del tipo de consulta (bloque 3 reglas). ' +
-            'Objeto con rule_id como key y "yes"/"no"/"ambiguous" como value. ' +
+            'Objeto con rule_id como key y las PALABRAS LITERALES del paciente como value ' +
+            '(copiá TAL CUAL lo que dijo — NO tu interpretación, NO "yes"/"no", NO resumas). ' +
+            'El sistema clasifica la respuesta de forma determinista; tu trabajo es solo transcribir. ' +
             'OBLIGATORIO incluir TODAS las reglas patient_condition activas del tipo. ' +
-            'Si el sistema rechaza por BLOCKED_CONDITION_NOT_ASKED, indica qué rule_id falta — preguntá esa pregunta al paciente y volvé a llamar con la respuesta. ' +
-            'Categorías: "yes" si paciente respondió afirmativamente claro, "no" si negativamente claro, "ambiguous" si no se entendió bien o el paciente dijo "no sé".',
+            'Si el sistema rechaza por BLOCKED_CONDITION_NOT_ASKED, indica qué rule_id falta — preguntá esa pregunta al paciente y volvé a llamar con la respuesta literal.',
           additionalProperties: {
             type: 'string',
-            enum: ['yes', 'no', 'ambiguous'],
           },
         },
       },

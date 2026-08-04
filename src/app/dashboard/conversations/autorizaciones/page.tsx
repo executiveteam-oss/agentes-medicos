@@ -12,6 +12,7 @@ import { getUserSession } from '@/lib/session'
 import { redirect } from 'next/navigation'
 import { listPendingAuthorizations, getClinicDoctorsForReview } from '@/app/actions/authorization-review'
 import { AuthorizationReviewList } from '@/components/dashboard/authorization-review-list'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +40,13 @@ export default async function AuthorizationsInboxPage(): Promise<React.JSX.Eleme
   const r = await listPendingAuthorizations()
   const items = r.ok ? (r.items ?? []) : []
   const doctors = await getClinicDoctorsForReview()
+
+  // Flag por clínica: botón de descarga de la orden como PDF (ver
+  // /api/authorizations/download). Default OFF; prendido para Algia.
+  const { data: clinicFlag } = await supabaseAdmin
+    .from('clinics').select('feature_config').eq('id', session.clinicId).single()
+  const downloadEnabled = (clinicFlag as { feature_config?: Record<string, unknown> } | null)
+    ?.feature_config?.document_download_enabled === true
 
   return (
     <div style={{ padding: '24px', maxWidth: '1100px', margin: '0 auto' }}>
@@ -71,7 +79,7 @@ export default async function AuthorizationsInboxPage(): Promise<React.JSX.Eleme
       )}
 
       {r.ok && items.length > 0 && (
-        <AuthorizationReviewList items={items} doctors={doctors} />
+        <AuthorizationReviewList items={items} doctors={doctors} downloadEnabled={downloadEnabled} />
       )}
     </div>
   )

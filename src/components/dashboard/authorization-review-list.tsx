@@ -37,15 +37,17 @@ export function AuthorizationReviewList({
   items,
   doctors,
   minBookingAdvanceHours,
+  downloadEnabled,
 }: {
   items: PendingAuthorization[]
   doctors: DoctorOption[]
   minBookingAdvanceHours?: number
+  downloadEnabled?: boolean
 }): React.JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {items.map((item) => (
-        <AuthorizationCard key={item.media_id} item={item} doctors={doctors} minBookingAdvanceHours={minBookingAdvanceHours} />
+        <AuthorizationCard key={item.media_id} item={item} doctors={doctors} minBookingAdvanceHours={minBookingAdvanceHours} downloadEnabled={downloadEnabled} />
       ))}
     </div>
   )
@@ -55,10 +57,12 @@ function AuthorizationCard({
   item,
   doctors,
   minBookingAdvanceHours,
+  downloadEnabled,
 }: {
   item: PendingAuthorization
   doctors: DoctorOption[]
   minBookingAdvanceHours?: number
+  downloadEnabled?: boolean
 }): React.JSX.Element {
   const [fileUrl, setFileUrl] = useState<string | null>(null)
   const [loadingUrl, setLoadingUrl] = useState(false)
@@ -182,6 +186,18 @@ function AuthorizationCard({
             📎 {item.filename ?? (isPdf ? 'documento.pdf' : 'imagen')} ({item.mime_type})
             {item.size_bytes && ` — ${Math.round(item.size_bytes / 1024)}KB`}
           </div>
+          {downloadEnabled && (
+            <div style={{ marginBottom: '8px' }}>
+              {/* Descarga la orden ya nombrada para radicar. GET a la ruta con
+                  Content-Disposition attachment → baja sin salir de la página. */}
+              <a
+                href={`/api/authorizations/download?ids=${item.media_id}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: 600, color: 'var(--v2-primary)', textDecoration: 'none', padding: '4px 10px', border: '1px solid var(--v2-border-soft)', borderRadius: '6px' }}
+              >
+                ⬇ Descargar PDF
+              </a>
+            </div>
+          )}
           {loadingUrl && <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)' }}>Cargando archivo…</div>}
           {error && <div style={{ fontSize: '12px', color: 'var(--v2-red)' }}>Error: {error}</div>}
           {fileUrl && isImage && (

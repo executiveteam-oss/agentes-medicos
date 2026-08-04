@@ -20,7 +20,7 @@ export interface ICSInput {
  * Generate a CONFIRMED/REQUEST .ics for a new or rescheduled appointment.
  */
 export function generateConfirmICS(input: ICSInput): string {
-  const summary = buildSummary(input.consultationType, input.doctorName)
+  const summary = buildSummary(input.doctorName, input.clinicName)
   const location = input.isVirtual ? null : buildLocation(input.clinicAddress, input.clinicCity)
   const description = buildDescription(input.doctorName, input.consultationType, input.clinicName, location, input.isVirtual)
 
@@ -46,7 +46,7 @@ export function generateConfirmICS(input: ICSInput): string {
  * Generate a CANCELLED .ics to remove the event from patient's calendar.
  */
 export function generateCancelICS(input: ICSInput): string {
-  const summary = `CANCELADA: ${buildSummary(input.consultationType, input.doctorName)}`
+  const summary = `CANCELADA: ${buildSummary(input.doctorName, input.clinicName)}`
 
   return buildICS({
     uid: `${input.appointmentId}@omuwan.co`,
@@ -65,9 +65,28 @@ export function generateCancelICS(input: ICSInput): string {
 
 // ---- Internal helpers ----
 
-function buildSummary(consultationType: string | null | undefined, doctorName: string): string {
-  if (consultationType) return `Cita: ${consultationType} - ${doctorName}`
-  return `Cita médica - ${doctorName}`
+// Título corto y legible en el celular. NO incluye el nombre del servicio a
+// propósito: los nombres del catálogo son crudos, largos y con typos (ej.
+// "OBSTERICIA") que quedarían en el calendario de la paciente para siempre.
+// El servicio sigue en la DESCRIPTION (detalle), no en el título.
+function buildSummary(doctorName: string, clinicName: string): string {
+  return `Cita ${clinicName} — ${shortDoctorName(doctorName)}`
+}
+
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase())
+}
+
+// Primer nombre + primer apellido, Title Case.
+// "JUAN DIEGO VILLEGAS ECHEVERRI" → "Juan Villegas". Sin adivinar género
+// (no anteponemos Dr./Dra.). El primer apellido en nombres colombianos
+// (2 nombres + 2 apellidos, o 1+1) cae en el token del medio.
+function shortDoctorName(fullName: string): string {
+  const tokens = fullName.trim().split(/\s+/).filter(Boolean)
+  if (tokens.length <= 1) return titleCase(fullName.trim())
+  const given = tokens[0]
+  const surname = tokens[Math.floor(tokens.length / 2)]
+  return titleCase(`${given} ${surname}`)
 }
 
 function buildLocation(address: string | null | undefined, city: string | null | undefined): string | null {

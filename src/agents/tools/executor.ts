@@ -1151,6 +1151,11 @@ async function createAppointment(
         document_number: documentNumber,
         ...(patientEmail && { email: patientEmail }),
         ...(patientEps && { eps: patientEps }),
+        // Opt-in de canal WhatsApp: agendar por el agente ES la señal de opt-in
+        // (Ley 1581, opt-in de canal ≠ data_consent_at). Sin esto una paciente
+        // nueva que agenda no recibiría recordatorio (default false). Diseño del
+        // equipo — antes estaba pendiente de construir.
+        proactive_contact_opt_in: true,
       })
       .select('id, document_number, document_type, date_of_birth')
       .single()
@@ -1177,6 +1182,9 @@ async function createAppointment(
         ...(!p.document_number && documentNumber && { document_number: documentNumber }),
         ...(patientEmail && { email: patientEmail }),
         ...(patientEps && { eps: patientEps }),
+        // Agendar por el agente = opt-in de canal (ver insert). También para la
+        // recurrente: confirma que el canal WhatsApp sigue activo.
+        proactive_contact_opt_in: true,
       })
       .eq('id', patient.id)
   }

@@ -45,7 +45,7 @@ export default async function ConversationsPage() {
     .from('conversations')
     .select(`
       id, status, triage_state, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
-      patients(id, name, phone, eps, no_show_count, total_appointments),
+      patients(id, name, phone, eps, no_show_count, total_appointments, tratantes),
       messages(id, content, role, created_at)
     `)
     .eq('clinic_id', session.clinicId)
@@ -53,15 +53,18 @@ export default async function ConversationsPage() {
     .order('created_at', { referencedTable: 'messages', ascending: false })
     .limit(200)
 
-  // Especialidad por conversación (señal visual — punto 8). Se deriva del MÉDICO
-  // de la cita del paciente (structured, confiable). `patients.tratantes` está
-  // vacío en la práctica; el servicio/médico "hablado" vive en los mensajes (no
-  // estructurado) → no se adivina. Si no hay cita con médico, no se muestra nada.
+  // Especialidad por conversación (señal visual — punto 8). Orden de derivación
+  // del spec: médico de la cita del paciente (structured, refleja actividad
+  // reciente) → si no hay, el tratante en `patients.tratantes` (4.477 pacientes
+  // de Algia lo tienen poblado desde el sync iSalud). El servicio/médico
+  // "hablado" vive en los mensajes (no estructurado) → no se adivina. Si ninguna
+  // fuente aplica, no se muestra nada.
   const patientIds = (conversations ?? [])
     .map((c) => (c.patients as unknown as { id?: string } | null)?.id)
     .filter((x): x is string => !!x)
   const specByPatient = new Map<string, { specialty: string | null; doctor_name: string | null }>()
   if (patientIds.length > 0) {
+    // Fuente 1: médico de la cita más reciente.
     const { data: apts } = await supabaseAdmin
       .from('appointments')
       .select('patient_id, doctors(name, specialty)')
@@ -73,6 +76,34 @@ export default async function ConversationsPage() {
       if (!pid || specByPatient.has(pid)) continue // primero = cita más reciente (order desc)
       const d = a.doctors as unknown as { name: string; specialty: string | null } | null
       if (d && (d.specialty || d.name)) specByPatient.set(pid, { specialty: d.specialty ?? null, doctor_name: d.name ?? null })
+    }
+    // Fuente 2 (fallback): tratante. Las claves de `tratantes` son las
+    // especialidades; cada una trae doctor_id + updated_at. Para el nombre
+    // lindo de la especialidad y del médico se resuelve el doctor_id contra
+    // `doctors` (la clave viene en MAYÚSCULAS del sync). Si hay varias
+    // especialidades, se toma la más recientemente actualizada (sin adivinar
+    // de cuál trata la conversación).
+    const missing = patientIds.filter((pid) => !specByPatient.has(pid))
+    if (missing.length > 0) {
+      const { data: docs } = await supabaseAdmin
+        .from('doctors')
+        .select('id, name, specialty')
+        .eq('clinic_id', session.clinicId)
+      const docById = new Map<string, { name: string; specialty: string | null }>()
+      for (const d of docs ?? []) docById.set(d.id as string, { name: d.name as string, specialty: (d.specialty as string | null) ?? null })
+      const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+      for (const c of conversations ?? []) {
+        const p = c.patients as unknown as { id?: string; tratantes?: Record<string, { doctor_id?: string; updated_at?: string }> | null } | null
+        if (!p?.id || specByPatient.has(p.id)) continue
+        const t = p.tratantes
+        if (!t || typeof t !== 'object') continue
+        const keys = Object.keys(t)
+        if (keys.length === 0) continue
+        let bestKey = keys[0]
+        for (const k of keys) if ((t[k]?.updated_at ?? '') > (t[bestKey]?.updated_at ?? '')) bestKey = k
+        const doc = t[bestKey]?.doctor_id ? docById.get(t[bestKey].doctor_id as string) : null
+        specByPatient.set(p.id, { specialty: doc?.specialty ?? titleCase(bestKey), doctor_name: doc?.name ?? null })
+      }
     }
   }
 

@@ -50,7 +50,10 @@ export function Tooltip({ content, children, side = 'top' }: TooltipProps) {
             fontFamily: 'var(--font-manrope), sans-serif',
             lineHeight: 1.4,
             whiteSpace: 'pre-line',
-            maxWidth: '260px',
+            // Ancho FIJO, no heredado del disparador: dentro de una tarjeta angosta
+            // de la agenda el tooltip colapsaba a una palabra por renglón.
+            width: '300px',
+            maxWidth: '300px',
             boxShadow: 'var(--v2-shadow-lg)',
             pointerEvents: 'none',
           }}

@@ -20,6 +20,8 @@ export interface CalendarAppointment {
   documents_received: boolean
   free_text_reason: string | null
   consultation_type_name?: string | null
+  /** Origen de la cita. 'whatsapp_agent' es la única donde payment_type es un dato real. */
+  source?: string | null
   doctor_id: string | null
   patient: {
     id: string

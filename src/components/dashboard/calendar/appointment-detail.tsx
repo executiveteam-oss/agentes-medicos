@@ -62,13 +62,22 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '12px' }}>
           <InfoItem label="Teléfono" value={formatPhone(patient.phone)} />
           <InfoItem label="Documento" value={`${patient.document_type} ${patient.document_number ?? '-'}`} />
-          <InfoItem label="Motivo" value={apt.reason ?? 'No especificado'} />
+          {/* Tipo de consulta: el dato principal de la cita, faltaba. */}
+          <InfoItem label="Tipo de consulta" value={apt.consultation_type_name || 'Sin especificar'} valueColor={apt.consultation_type_name ? undefined : 'var(--v2-text-subtle)'} />
+          {/* Motivo solo si existe: "No especificado" ocupaba lugar sin decir nada. */}
+          {apt.reason && <InfoItem label="Motivo" value={apt.reason} />}
           <InfoItem label="Recordatorio"
             value={apt.reminder_confirmed === true ? 'Confirmo' : apt.reminder_confirmed === false ? 'No confirmo' : apt.reminder_24h_sent ? 'Enviado' : 'No enviado'}
             valueColor={apt.reminder_confirmed === true ? 'var(--v2-green-deep)' : apt.reminder_confirmed === false ? 'var(--v2-red)' : undefined}
           />
           <InfoItem label="Entidad" value={patient.entidad ?? 'Sin registrar'} valueColor={patient.entidad ? undefined : 'var(--v2-text-subtle)'} />
-          <InfoItem label="Tipo pago" value={apt.payment_type || '—'} />
+          {/* Tipo pago SOLO en citas del agente. En las importadas y las que carga
+              la secretaria es el DEFAULT 'Particular' de la columna, que nadie escribe:
+              decía "Particular" al lado de una entidad de prepagada y se contradecían
+              en pantalla. Un dato inventado es peor que un dato ausente. */}
+          {apt.source === 'whatsapp_agent' && apt.payment_type && (
+            <InfoItem label="Tipo pago" value={apt.payment_type} />
+          )}
           <InfoItem label="Historial" value={`${patient.total_appointments} citas, ${patient.no_show_count} no-shows`} />
           <InfoItem label="Riesgo"
             value={`${probability}%`}

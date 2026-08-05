@@ -3,7 +3,6 @@
 // Shows ONE doctor at a time (selected via DoctorSelector)
 // ============================================================
 
-import { formatTimeForPatient } from '@/lib/utils/dates'
 import { Tooltip } from '@/components/ui/tooltip'
 import { AppointmentDetail } from './appointment-detail'
 import type { CalendarAppointment } from './types'
@@ -27,6 +26,23 @@ function abbreviateName(fullName: string): string {
   // 4+ words: first + initial second + last
   return `${first} ${parts[1][0]}. ${last}`
 }
+
+// ============================================================
+// ESCALA DE LA GRILLA — un solo lugar.
+//
+// Antes era 1px = 1min. Con eso una cita de 20 min (la duración más común de
+// esta agenda) medía 18px, y en 18px no entran dos líneas de texto: el nombre
+// de la paciente se recortaba FUERA DE VISTA y quedaba visible solo la segunda
+// línea. Parecía un dato faltante y era un problema de altura.
+//
+// 1.6 px/min deja la cita de 20 min en 30px: 26px útiles descontando el padding,
+// que es lo que ocupan las dos líneas (13.2 + 12 = 25.2px). Con 1.5 quedaba en
+// 28px — entraba raspando y la segunda línea se cortaba por abajo.
+//
+// Costo: la grilla crece 60%. Cada hora pasa de 60px a 96px, así que el
+// contenedor scrollea antes (por eso maxHeight sube de 600 a 720px).
+const PX_PER_MIN = 1.6
+const HOUR_CELL_PX = 60 * PX_PER_MIN   // 96px
 
 // Status colors for single-doctor view (redesigned)
 const STATUS_CELL_COLORS: Record<string, { bg: string; border: string }> = {
@@ -96,12 +112,12 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
         </div>
 
         {/* Time grid */}
-        <div style={{ overflowY: 'auto', maxHeight: '600px' }}>
+        <div style={{ overflowY: 'auto', maxHeight: '720px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '56px repeat(7, 1fr)', position: 'relative' }}>
             {HOURS.map((hour) => (
               <div key={hour} style={{ display: 'contents' }}>
                 {/* Hour label */}
-                <div style={{ padding: '4px 6px', textAlign: 'right', borderBottom: '1px solid var(--v2-border-soft)', height: '60px' }}>
+                <div style={{ padding: '4px 6px', textAlign: 'right', borderBottom: '1px solid var(--v2-border-soft)', height: `${HOUR_CELL_PX}px` }}>
                   <span style={{ fontSize: '10px', fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 500, color: 'var(--v2-text-subtle)' }}>
                     {hour <= 12 ? hour : hour - 12}{hour < 12 ? ' AM' : ' PM'}
                   </span>
@@ -122,7 +138,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                       style={{
                         borderLeft: '1px solid var(--v2-border-soft)',
                         borderBottom: '1px solid var(--v2-border-soft)',
-                        height: '60px',
+                        height: `${HOUR_CELL_PX}px`,
                         position: 'relative',
                         padding: '1px',
                         background: isToday ? 'rgba(107,91,255,0.02)' : 'transparent',
@@ -152,13 +168,13 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                       {hourAppts.map((apt) => {
                         const colors = STATUS_CELL_COLORS[apt.status] ?? STATUS_CELL_COLORS.confirmed
                         const minutes = getColombiaMinutes(apt.starts_at)
-                        const topPx = minutes // 1 min = 1px (cell is 60px = 60 min)
+                        const topPx = minutes * PX_PER_MIN
 
                         // Calculate duration for height (1 min = 1px, -2px gap between consecutive)
                         const startMs = new Date(apt.starts_at).getTime()
                         const endMs = new Date(apt.ends_at).getTime()
                         const durationMin = Math.round((endMs - startMs) / 60000)
-                        const heightPx = Math.max(16, durationMin - 2) // -2px creates visual gap
+                        const heightPx = Math.max(16, durationMin * PX_PER_MIN - 2) // -2px = separación visual entre consecutivas
 
                         // Patient name: real patients have patient.name, iSalud uses reason
                         const rawName = apt.patient?.name ?? apt.reason ?? 'Sin nombre'
@@ -166,18 +182,29 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         const patientName = abbreviateName(fullName)
                         const consultType = apt.consultation_type_name ?? apt.free_text_reason ?? ''
 
-                        // Content matrix: name ALWAYS visible, hour + type conditional
-                        const showHour = durationMin >= 20
-                        const showType = durationMin >= 35
-                        const fontSize = durationMin < 20 ? '10px' : '11px'
+                        // La segunda línea se decide por ALTURA DISPONIBLE, no por duración:
+                        // el recorte lo causa el espacio, así que la condición tiene que
+                        // mirar el espacio. 30px = 26px útiles = las dos líneas justas.
+                        const showType = heightPx >= 30
+                        const fontSize = heightPx < 24 ? '10px' : '11px'
+                        const padY = heightPx < 34 ? '2px' : '3px'
 
-                        const tooltipContent = [
-                          fullName,
-                          consultType && `Tipo: ${consultType}`,
-                          `Estado: ${STATUS_LABELS[apt.status] ?? apt.status}`,
-                          apt.payment_type && `Pago: ${apt.payment_type}`,
-                          apt.doctor?.name && `Dr. ${apt.doctor.name}`,
-                        ].filter(Boolean).join('\n')
+                        // Orden: servicio (destacado) → paciente → médico → estado → pago.
+                        // El tipo de pago solo significa algo en las citas del agente: en el
+                        // resto es el DEFAULT 'Particular' de la columna, que nadie escribe.
+                        const tooltipContent = (
+                          <>
+                            <span style={{ fontWeight: 700, display: 'block', marginBottom: '4px' }}>
+                              {consultType || 'Sin tipo de consulta'}
+                            </span>
+                            <span style={{ display: 'block' }}>{fullName}</span>
+                            {apt.doctor?.name && <span style={{ display: 'block', opacity: 0.85 }}>Dr. {apt.doctor.name}</span>}
+                            <span style={{ display: 'block', opacity: 0.85 }}>Estado: {STATUS_LABELS[apt.status] ?? apt.status}</span>
+                            {apt.source === 'whatsapp_agent' && apt.payment_type && (
+                              <span style={{ display: 'block', opacity: 0.85 }}>Pago: {apt.payment_type}</span>
+                            )}
+                          </>
+                        )
 
                         return (
                           <Tooltip key={apt.id} content={tooltipContent} side="bottom">
@@ -192,7 +219,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                                 background: colors.bg,
                                 borderLeft: `3px solid ${colors.border}`,
                                 borderRadius: '4px',
-                                padding: '3px 6px',
+                                padding: `${padY} 6px`,
                                 cursor: 'pointer',
                                 overflow: 'hidden',
                                 zIndex: 10,
@@ -205,7 +232,11 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                                 borderLeftColor: colors.border,
                                 display: 'flex',
                                 flexDirection: 'column',
-                                justifyContent: 'center',
+                                // flex-start, NO center: con center el excedente se recorta
+                                // arriba Y abajo, y lo que desaparecía era la primera línea
+                                // — el nombre de la paciente. Anclado arriba, el nombre
+                                // sobrevive siempre y lo que se corta es lo de abajo.
+                                justifyContent: 'flex-start',
                               }}
                               onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)' }}
                               onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none' }}
@@ -213,11 +244,8 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                               <p style={{ fontSize, fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                                 {patientName}
                               </p>
-                              {showHour && (
-                                <p style={{ fontSize: '10px', fontFamily: 'var(--font-jetbrains), monospace', fontWeight: 500, color: colors.border, lineHeight: 1.2, opacity: 0.8 }}>
-                                  {formatTimeForPatient(apt.starts_at)}
-                                </p>
-                              )}
+                              {/* La hora ya la comunica la POSICIÓN en la grilla; el
+                                  servicio no se sabe sin abrir el detalle. */}
                               {showType && consultType && (
                                 <p style={{ fontSize: '10px', color: 'var(--v2-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                                   {consultType}
@@ -236,10 +264,33 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
         </div>
 
         {/* Expanded detail */}
+        {/* Detalle: panel lateral FIJO, no un bloque debajo de la grilla.
+            Antes había que scrollear para verlo — con la grilla más alta era peor. */}
         {expandedApt && (() => {
           const apt = appointments.find((a) => a.id === expandedApt)
           if (!apt) return null
-          return <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} />
+          return (
+            <>
+              {/* Velo: click afuera cierra */}
+              <div
+                onClick={() => setExpandedApt(null)}
+                style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.18)', zIndex: 90 }}
+              />
+              <aside
+                style={{
+                  position: 'fixed', top: 0, right: 0, bottom: 0,
+                  width: 'min(420px, 100vw)',
+                  background: 'var(--v2-bg-card)',
+                  borderLeft: '1px solid var(--v2-border-soft)',
+                  boxShadow: 'var(--v2-shadow-lg)',
+                  zIndex: 91,
+                  overflowY: 'auto',
+                }}
+              >
+                <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} />
+              </aside>
+            </>
+          )
         })()}
       </div>
     </div>

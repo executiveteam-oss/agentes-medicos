@@ -377,18 +377,34 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
           )}
 
           {/* Eje A — Quién responde. "Atender yo" pausa el agente + me reclama;
-              "Que siga el agente" lo retoma + libera el claim. SIEMPRE accesible. */}
+              "Que siga el agente" lo retoma + libera el claim. SIEMPRE accesible.
+
+              INVARIANTE: en estado escalado "Que siga el agente" se muestra
+              SIEMPRE, sin importar el claim. Son decisiones INDEPENDIENTES —
+              quién la atiende (claim) no puede condicionar si se le puede
+              devolver al agente. Gatearlo detrás del claim dejaba una
+              conversación escalada que nadie tomó sin ninguna forma de
+              devolvérsela al bot: había que reclamarla primero para poder
+              soltarla.
+
+              "Atender yo" se esconde SOLO cuando ya es mía: al lado del badge
+              "La atiendes tú" es ruido, y su único efecto (refrescar el
+              vencimiento del claim) es invisible — nadie aprieta un botón por
+              algo que no ve. */}
           {canWrite && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-              {status === 'escalated' && claimState.state === 'mine' ? (
+              {status === 'escalated' ? (
                 <>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-green-deep)', background: 'var(--v2-green-soft)', padding: '4px 8px', borderRadius: '6px', whiteSpace: 'nowrap' }}>✋ La atiendes tú</span>
+                  {claimState.state === 'mine' && (
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-green-deep)', background: 'var(--v2-green-soft)', padding: '4px 8px', borderRadius: '6px', whiteSpace: 'nowrap' }}>✋ La atiendes tú</span>
+                  )}
+                  {claimState.state === 'others' && (
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: '#b07d00', background: 'var(--v2-amber-soft)', padding: '4px 8px', borderRadius: '6px', whiteSpace: 'nowrap' }}>🙋 {claimState.byName}</span>
+                  )}
+                  {claimState.state !== 'mine' && (
+                    <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
+                  )}
                   <button onClick={handleReturnClick} disabled={isPending} style={{ fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', padding: '6px 12px', borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)', background: 'var(--v2-bg-card)', color: 'var(--v2-text)', cursor: isPending ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>🤖 Que siga el agente</button>
-                </>
-              ) : status === 'escalated' && claimState.state === 'others' ? (
-                <>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#b07d00', background: 'var(--v2-amber-soft)', padding: '4px 8px', borderRadius: '6px', whiteSpace: 'nowrap' }}>🙋 {claimState.byName}</span>
-                  <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
                 </>
               ) : status === 'active' ? (
                 <>
@@ -414,7 +430,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
           <div style={{ padding: '8px 18px', background: 'var(--v2-amber-soft)', borderBottom: '1px solid rgba(255,184,69,0.2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={14} style={{ color: '#b07d00' }} />
             <p style={{ fontSize: '12px', color: '#b07d00', fontWeight: 500 }}>
-              El agente escalo esta conversacion{conversation.escalated_to ? ` a ${conversation.escalated_to}` : ''}. El agente no responde hasta reabrir.
+              Esta conversación está escalada. El agente no responde hasta que alguien la atienda o se la devuelva.
             </p>
           </div>
         )}

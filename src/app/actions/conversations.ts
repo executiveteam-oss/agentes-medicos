@@ -172,7 +172,7 @@ export async function getConversationDetail(
 export async function sendStaffMessage(
   conversationId: string,
   content: string
-): Promise<{ ok: boolean; error?: string; message?: MessageItem }> {
+): Promise<{ ok: boolean; error?: string; message?: MessageItem; tookOver?: boolean }> {
   try {
     const clinicId = await checkWritePermission('conversations')
     // Quién responde — para atribuir el mensaje (display) + el audit (registro
@@ -185,7 +185,7 @@ export async function sendStaffMessage(
     // Obtener datos de la conversación (incluye claim) y credenciales de la clínica
     const { data: conv, error: convError } = await supabaseAdmin
       .from('conversations')
-      .select('id, whatsapp_phone, clinic_id, claimed_by, claimed_by_name, claimed_at')
+      .select('id, whatsapp_phone, clinic_id, status, claimed_by, claimed_by_name, claimed_at')
       .eq('id', conversationId)
       .eq('clinic_id', clinicId)
       .single()
@@ -245,13 +245,26 @@ export async function sendStaffMessage(
 
     if (msgError) return { ok: false, error: 'Mensaje enviado pero error guardando en DB' }
 
-    // Actualizar last_message_at
+    // ESCRIBIR = ATENDER YO. El mensaje PAUSA el agente (status='escalated' — el
+    // webhook solo corta ahí) + reclama la conversación a mi nombre + triage
+    // Atención. Sin esto el agente contestaba el próximo mensaje del paciente y
+    // había doble atención (el bug más grave). `tookOver` = venía con el agente.
+    const tookOver = (conv as { status?: string }).status === 'active'
     await supabaseAdmin
       .from('conversations')
-      .update({ last_message_at: new Date().toISOString() })
+      .update({
+        last_message_at: new Date().toISOString(),
+        status: 'escalated',
+        triage_state: 'atencion',
+        claimed_by: session.clinicUserId,
+        claimed_by_name: session.fullName,
+        claimed_at: new Date().toISOString(),
+      })
       .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
 
-    // Responder = atender: limpia la alerta de escalación de esta conversación.
+    // Responder = atender: limpia la alerta de escalación (la 🆘 de crisis
+    // sobrevive — resolveEscalationNotifications solo limpia conversation_escalated).
     await resolveEscalationNotifications(conversationId)
 
     // Audit log
@@ -270,6 +283,7 @@ export async function sendStaffMessage(
 
     return {
       ok: true,
+      tookOver,
       message: {
         id: msg.id,
         role: msg.role,
@@ -278,6 +292,54 @@ export async function sendStaffMessage(
         created_at: msg.created_at,
       },
     }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
+/**
+ * ATENDER YO (Eje A). Pausa el agente + reclama la conversación a mi nombre +
+ * triage Atención. Es la mitad "humano" del par con returnConversationToAgent.
+ * Disponible en CUALQUIER estado (no hay que escalar primero). Si otra persona
+ * la tenía tomada, la toma para mí (modelo blando — sin dueño formal). La 🆘 de
+ * crisis sobrevive (resolveEscalationNotifications no la toca).
+ */
+export async function takeOverConversation(
+  conversationId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('conversations')
+    const session = await getUserSession()
+    if (!session) return { ok: false, error: 'Error de permisos o sesión' }
+
+    const { error } = await supabaseAdmin
+      .from('conversations')
+      .update({
+        status: 'escalated',
+        triage_state: 'atencion',
+        claimed_by: session.clinicUserId,
+        claimed_by_name: session.fullName,
+        claimed_at: new Date().toISOString(),
+      })
+      .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
+    if (error) return { ok: false, error: 'Error tomando la conversación' }
+
+    await resolveEscalationNotifications(conversationId)
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'conversation_taken_over',
+      actor_type: 'staff',
+      actor_id: session.clinicUserId,
+      target_type: 'conversation',
+      target_id: conversationId,
+      details: {},
+    })
+
+    revalidatePath(`/dashboard/conversations/${conversationId}`)
+    revalidatePath('/dashboard/conversations')
+    return { ok: true }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }
   }
@@ -308,7 +370,7 @@ export async function setConversationTriageState(
       state === 'pendiente'
         ? { status: 'escalated', triage_state: 'pendiente' }            // vista pero abierta (sigue fuera del agente)
         : state === 'resuelta'
-          ? { status: 'resolved', triage_state: null }                  // resuelta se deriva de status
+          ? { status: 'resolved', triage_state: null, claimed_by: null, claimed_by_name: null, claimed_at: null } // resuelta = done, libera el claim (no huérfano)
           : { status: 'escalated', triage_state: null, escalated_at: new Date().toISOString() } // atención (deriva de escalated)
 
     const { error } = await supabaseAdmin
@@ -417,10 +479,12 @@ export async function returnConversationToAgent(
       return { ok: false, error: 'Para devolver una conversación de crisis, el motivo es obligatorio.' }
     }
 
-    // Flip a active — limpia la escalación (incluido escalation_reason del context).
+    // Flip a active — limpia la escalación (incluido escalation_reason del context)
+    // Y LIBERA el claim: que siga el agente = ningún humano la atiende (antes el
+    // claim quedaba huérfano). Es la mitad "agente" del par con takeOverConversation.
     const { error } = await supabaseAdmin
       .from('conversations')
-      .update({ status: 'active', escalated_to: null, escalated_at: null, triage_state: null, context: {} })
+      .update({ status: 'active', escalated_to: null, escalated_at: null, triage_state: null, context: {}, claimed_by: null, claimed_by_name: null, claimed_at: null })
       .eq('id', conversationId)
       .eq('clinic_id', clinicId)
     if (error) return { ok: false, error: 'Error devolviendo la conversación' }

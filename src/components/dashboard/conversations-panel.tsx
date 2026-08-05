@@ -28,6 +28,9 @@ interface ConversationEntry {
   last_message_role: string
   message_count: number
   claimed_active_label: string | null
+  is_mine: boolean
+  specialty: string | null
+  doctor_name: string | null
 }
 
 interface Props {
@@ -60,6 +63,9 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
   const [entries, setEntries] = useState(initialEntries)
   const [filter, setFilter] = useState<FilterKey>('atencion') // Atención por defecto
   const [search, setSearch] = useState('')
+  // Filtro de VISTA (no asignación): claimed_by = yo. La dirección pidió NO
+  // formalizar de quién es cada paciente, así que es solo un lente, sin dueño.
+  const [onlyMine, setOnlyMine] = useState(false)
 
   // Sync with server if props change (navigation)
   useEffect(() => {
@@ -107,6 +113,7 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
   const filtered = entries
     .filter((e) => {
       if (bucketOf(e) !== filter) return false
+      if (onlyMine && !e.is_mine) return false
       if (search.trim()) {
         const s = search.toLowerCase().trim()
         if (!e.patient_name.toLowerCase().includes(s) && !e.patient_phone.includes(s)) return false
@@ -202,6 +209,20 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
               </button>
             )
           })}
+          {/* Filtro de vista "solo las mías" (claimed_by = yo). NO es asignación. */}
+          <button
+            onClick={() => setOnlyMine((v) => !v)}
+            title="Ver solo las que estás atendiendo vos"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 12px', borderRadius: '999px',
+              fontSize: '12px', fontWeight: onlyMine ? 700 : 500, cursor: 'pointer', fontFamily: 'var(--font-manrope), sans-serif',
+              border: onlyMine ? 'none' : '1px solid var(--v2-border-soft)',
+              background: onlyMine ? 'var(--v2-green-soft)' : 'transparent',
+              color: onlyMine ? 'var(--v2-green-deep)' : 'var(--v2-text-subtle)',
+            }}
+          >
+            🙋 Solo las mías
+          </button>
         </div>
 
         {/* List */}
@@ -304,6 +325,13 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                       {entry.last_message_role === 'agent' && '🤖 '}
                       {entry.last_message_preview || 'Sin mensajes'}
                     </p>
+                    {/* Especialidad (señal visual, punto 8) — derivada del médico
+                        de la cita; si no se puede, no se muestra nada. */}
+                    {entry.specialty && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '3px', fontSize: '10.5px', fontWeight: 600, color: 'var(--v2-text-subtle)' }}>
+                        🩺 {entry.specialty}{entry.doctor_name ? ` · ${entry.doctor_name}` : ''}
+                      </span>
+                    )}
                     {entry.claimed_active_label !== null && (
                       <span
                         style={{

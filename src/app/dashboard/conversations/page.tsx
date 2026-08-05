@@ -53,6 +53,29 @@ export default async function ConversationsPage() {
     .order('created_at', { referencedTable: 'messages', ascending: false })
     .limit(200)
 
+  // Especialidad por conversación (señal visual — punto 8). Se deriva del MÉDICO
+  // de la cita del paciente (structured, confiable). `patients.tratantes` está
+  // vacío en la práctica; el servicio/médico "hablado" vive en los mensajes (no
+  // estructurado) → no se adivina. Si no hay cita con médico, no se muestra nada.
+  const patientIds = (conversations ?? [])
+    .map((c) => (c.patients as unknown as { id?: string } | null)?.id)
+    .filter((x): x is string => !!x)
+  const specByPatient = new Map<string, { specialty: string | null; doctor_name: string | null }>()
+  if (patientIds.length > 0) {
+    const { data: apts } = await supabaseAdmin
+      .from('appointments')
+      .select('patient_id, doctors(name, specialty)')
+      .eq('clinic_id', session.clinicId)
+      .in('patient_id', patientIds)
+      .order('starts_at', { ascending: false })
+    for (const a of apts ?? []) {
+      const pid = a.patient_id as string | null
+      if (!pid || specByPatient.has(pid)) continue // primero = cita más reciente (order desc)
+      const d = a.doctors as unknown as { name: string; specialty: string | null } | null
+      if (d && (d.specialty || d.name)) specByPatient.set(pid, { specialty: d.specialty ?? null, doctor_name: d.name ?? null })
+    }
+  }
+
   // Map to entries with last message extracted from joined messages
   const entries = (conversations ?? []).map((conv) => {
     const patient = conv.patients as unknown as { id: string; name: string; phone: string; eps: string | null; no_show_count: number; total_appointments: number } | null
@@ -89,6 +112,9 @@ export default async function ConversationsPage() {
       last_message_role: lastMsg?.role ?? '',
       message_count: msgCount,
       claimed_active_label,
+      is_mine: claimed_active_label === 'tú',
+      specialty: patient?.id ? (specByPatient.get(patient.id)?.specialty ?? null) : null,
+      doctor_name: patient?.id ? (specByPatient.get(patient.id)?.doctor_name ?? null) : null,
     }
   })
 

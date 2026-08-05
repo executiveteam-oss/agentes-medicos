@@ -7,8 +7,7 @@
 import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
 import { formatPhone } from '@/lib/utils/dates'
 import { getInitials } from '@/lib/utils/ui-helpers'
-import { sendStaffMessage, updateConversationStatus, reopenConversation, setConversationTriageState, returnConversationToAgent, getMessagesSince } from '@/app/actions/conversations'
-import { claimConversation, releaseConversation, overrideClaim } from '@/app/actions/claim'
+import { sendStaffMessage, setConversationTriageState, returnConversationToAgent, getMessagesSince, takeOverConversation } from '@/app/actions/conversations'
 import { PatientLabelsEditor } from '@/components/dashboard/patient-labels-editor'
 import type { ClinicLabel } from '@/lib/labels/patient-labels'
 import { resolveClaimState, type ClaimConfig, type ClaimRow } from '@/lib/rules/claim-logic'
@@ -17,7 +16,7 @@ import { RealtimeIndicator } from '@/components/dashboard/realtime-indicator'
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Link from 'next/link'
-import { ChevronLeft, Send, Info, MoreVertical, Image, FileText, Mic, User, Calendar, AlertTriangle, X, Lock, Unlock } from 'lucide-react'
+import { ChevronLeft, Send, Info, Image, FileText, Mic, User, Calendar, AlertTriangle, X, Unlock } from 'lucide-react'
 
 // ---- Types ----
 
@@ -106,13 +105,13 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   const [toast, setToast] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
   const [showContext, setShowContext] = useState(false)
-  const [showMenu, setShowMenu] = useState(false)
   // Devolver al agente (Etapa 3): crisis abre modal (checkbox + motivo obligatorio);
   // los demás motivos van con confirmación liviana.
   const [showCrisisReturn, setShowCrisisReturn] = useState(false)
   const [returnReason, setReturnReason] = useState('')
   const [crisisConfirmed, setCrisisConfirmed] = useState(false)
   const [claim, setClaim] = useState<ClaimRow>(initialClaim)
+  const [justTookOver, setJustTookOver] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -121,17 +120,9 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Auto-claim al abrir la conversación (si el feature está activo)
-  useEffect(() => {
-    if (!claimConfig.enabled) return
-    claimConversation(conversation.id).then((r) => {
-      if (r.ok && r.state === 'mine') {
-        setClaim({ claimed_by: myClinicUserId, claimed_by_name: staffName, claimed_at: new Date().toISOString() })
-      }
-      // si r.state==='others' NO tomamos; el banner ya lo refleja desde props/realtime
-    }).catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversation.id])
+  // Abrir la conversación NO reclama nada (antes auto-claim al abrir = reclamaba
+  // por MIRAR). Ahora el claim se toma con acción explícita: "Atender yo" o
+  // escribir un mensaje.
 
   // Realtime: listen for new messages
   // Backfill del detalle: al (re)conectar, traer los mensajes posteriores al
@@ -225,6 +216,11 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
         setMessages((prev) =>
           prev.map((m) => (m.id === optimisticMsg.id ? { ...msg, role: msg.role as Message['role'] } : m))
         )
+        // Escribir = atender: el backend pausó el agente + me reclamó. Reflejarlo
+        // en el acto (NO cambio silencioso). Si venía con el agente → banner.
+        setStatus('escalated'); setTriage('atencion')
+        setClaim({ claimed_by: myClinicUserId, claimed_by_name: staffName, claimed_at: new Date().toISOString() })
+        if (result.tookOver) setJustTookOver(true)
       } else {
         setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id))
         showToastMsg(result.error ?? 'Error enviando mensaje')
@@ -241,22 +237,15 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
     }
   }
 
-  function handleAction(action: 'resolve' | 'escalate' | 'reopen') {
-    setShowMenu(false)
+  // Eje A — ATENDER YO: pausa el agente + me reclama + triage Atención.
+  function handleTakeOver() {
     startTransition(async () => {
-      if (action === 'resolve') {
-        const r = await updateConversationStatus(conversation.id, 'resolved')
-        if (r.ok) { setStatus('resolved'); showToastMsg('Conversacion resuelta') }
-        else showToastMsg(r.error ?? 'Error')
-      } else if (action === 'escalate') {
-        const r = await updateConversationStatus(conversation.id, 'escalated', 'doctor')
-        if (r.ok) { setStatus('escalated'); showToastMsg('Conversacion escalada') }
-        else showToastMsg(r.error ?? 'Error')
-      } else {
-        const r = await reopenConversation(conversation.id)
-        if (r.ok) { setStatus('active'); showToastMsg('Conversacion reabierta') }
-        else showToastMsg(r.error ?? 'Error')
-      }
+      const r = await takeOverConversation(conversation.id)
+      if (r.ok) {
+        setStatus('escalated'); setTriage('atencion')
+        setClaim({ claimed_by: myClinicUserId, claimed_by_name: staffName, claimed_at: new Date().toISOString() })
+        showToastMsg('Ahora la estás atendiendo tú — el agente está en pausa')
+      } else showToastMsg(r.error ?? 'Error')
     })
   }
 
@@ -275,7 +264,6 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   // Devolver al agente. Crisis (escalation_reason==='crisis') → modal con
   // checkbox + motivo obligatorio. Otros motivos → confirm liviano.
   function handleReturnClick() {
-    setShowMenu(false)
     if (conversation.escalation_reason === 'crisis') {
       setReturnReason(''); setCrisisConfirmed(false); setShowCrisisReturn(true)
       return
@@ -304,30 +292,6 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
 
   const claimState = resolveClaimState(claim, myClinicUserId, claimConfig.expiryMinutes, Date.now())
   const lockedByOther = claimConfig.enabled && claimConfig.mode === 'hard' && claimState.state === 'others'
-
-  function handleReleaseClaim() {
-    startTransition(async () => {
-      const r = await releaseConversation(conversation.id)
-      if (r.ok) {
-        setClaim({ claimed_by: null, claimed_by_name: null, claimed_at: null })
-      } else {
-        showToastMsg('error' in r && r.error ? r.error : 'Error liberando la conversación')
-      }
-    })
-  }
-
-  function handleOverrideClaim() {
-    const byName = claimState.byName ?? 'Otro usuario'
-    if (!window.confirm(`${byName} tiene esta conversación tomada. ¿Entrar de todos modos?`)) return
-    startTransition(async () => {
-      const r = await overrideClaim(conversation.id)
-      if (r.ok) {
-        setClaim({ claimed_by: myClinicUserId, claimed_by_name: staffName, claimed_at: new Date().toISOString() })
-      } else {
-        showToastMsg('error' in r && r.error ? r.error : 'Error tomando la conversación')
-      }
-    })
-  }
 
   return (
     <div style={{ display: 'flex', flex: 1, overflow: 'hidden', fontFamily: 'var(--font-manrope), sans-serif' }}>
@@ -394,17 +358,17 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
             )}
           </div>
 
-          {/* Selector de estado (triage): Atención / Pendiente / Resuelta.
-              Solo cuando está en la cola humana (no 'active' = con el agente).
-              Abrir la conversación NO cambia el estado; solo este control. */}
-          {canWrite && status !== 'active' && (
+          {/* Eje B — Triage: Atención / Pendiente / Resuelta. SIEMPRE visible, sin
+              depender del status (nunca hay que escalar primero para triar). Un
+              solo camino a Resuelta: setConversationTriageState. */}
+          {canWrite && (
             <div style={{ display: 'flex', background: 'var(--v2-bg-deeper)', borderRadius: '8px', padding: '2px', gap: '2px', flexShrink: 0 }}>
               {([['atencion', 'Atención'], ['pendiente', 'Pendiente'], ['resuelta', 'Resuelta']] as const).map(([k, label]) => {
                 const on = triageState === k
                 const c = k === 'atencion' ? ['var(--v2-amber-soft)', '#b07d00'] : k === 'pendiente' ? ['rgba(62,116,232,0.14)', '#3E74E8'] : ['var(--v2-green-soft)', 'var(--v2-green-deep)']
                 return (
-                  <button key={k} onClick={() => handleTriage(k)} style={{
-                    border: 'none', fontFamily: 'inherit', fontSize: '11px', fontWeight: 700, padding: '5px 10px', borderRadius: '6px', cursor: 'pointer',
+                  <button key={k} onClick={() => handleTriage(k)} disabled={isPending} style={{
+                    border: 'none', fontFamily: 'inherit', fontSize: '11px', fontWeight: 700, padding: '5px 10px', borderRadius: '6px', cursor: isPending ? 'default' : 'pointer',
                     background: on ? c[0] : 'transparent', color: on ? c[1] : 'var(--v2-text-muted)',
                   }}>{label}</button>
                 )
@@ -412,64 +376,37 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
             </div>
           )}
 
-          {/* Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-            {status === 'escalated' && canWrite && (
+          {/* Eje A — Quién responde. "Atender yo" pausa el agente + me reclama;
+              "Que siga el agente" lo retoma + libera el claim. SIEMPRE accesible. */}
+          {canWrite && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+              {status === 'escalated' && claimState.state === 'mine' ? (
+                <>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-green-deep)', background: 'var(--v2-green-soft)', padding: '4px 8px', borderRadius: '6px', whiteSpace: 'nowrap' }}>✋ La atiendes tú</span>
+                  <button onClick={handleReturnClick} disabled={isPending} style={{ fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', padding: '6px 12px', borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)', background: 'var(--v2-bg-card)', color: 'var(--v2-text)', cursor: isPending ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>🤖 Que siga el agente</button>
+                </>
+              ) : status === 'escalated' && claimState.state === 'others' ? (
+                <>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#b07d00', background: 'var(--v2-amber-soft)', padding: '4px 8px', borderRadius: '6px', whiteSpace: 'nowrap' }}>🙋 {claimState.byName}</span>
+                  <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
+                </>
+              ) : status === 'active' ? (
+                <>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-text-subtle)', whiteSpace: 'nowrap' }}>🤖 El agente responde</span>
+                  <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
+                </>
+              ) : (
+                <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
+              )}
               <button
-                onClick={() => handleAction('reopen')}
-                disabled={isPending}
-                className="btn-v2-primary"
-                style={{ fontSize: '11px', padding: '6px 12px' }}
-              >
-                Tomar control
-              </button>
-            )}
-            {/* Etapa 3: ACCIÓN aparte del selector. Devuelve al agente Y contesta
-                el mensaje colgado. Fricción por motivo (crisis → modal). */}
-            {status === 'escalated' && canWrite && (
-              <button
-                onClick={handleReturnClick}
-                disabled={isPending}
-                style={{ fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', padding: '6px 12px', borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)', background: 'var(--v2-bg-card)', color: 'var(--v2-text)', cursor: isPending ? 'default' : 'pointer' }}
-              >
-                🤖 Devolver al agente
-              </button>
-            )}
-            <button
-              onClick={() => setShowContext(!showContext)}
-              className="lg:hidden"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '6px' }}
-            >
-              <Info size={18} />
-            </button>
-            <div style={{ position: 'relative' }}>
-              <button
-                onClick={() => setShowMenu(!showMenu)}
+                onClick={() => setShowContext(!showContext)}
+                className="lg:hidden"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '6px' }}
               >
-                <MoreVertical size={18} />
+                <Info size={18} />
               </button>
-              {showMenu && (
-                <div
-                  style={{
-                    position: 'absolute', right: 0, top: '100%', zIndex: 10,
-                    background: 'var(--v2-bg-card)', border: '1px solid var(--v2-border-soft)',
-                    borderRadius: 'var(--v2-radius)', boxShadow: 'var(--v2-shadow)', padding: '4px', minWidth: '180px',
-                  }}
-                >
-                  {status === 'active' && (
-                    <>
-                      <MenuBtn onClick={() => handleAction('resolve')} label="Marcar resuelta" color="var(--v2-green-deep)" />
-                      <MenuBtn onClick={() => handleAction('escalate')} label="Escalar a medico" color="var(--v2-red)" />
-                    </>
-                  )}
-                  {(status === 'resolved' || status === 'escalated') && (
-                    <MenuBtn onClick={() => handleAction('reopen')} label="Reabrir conversacion" color="var(--v2-primary)" />
-                  )}
-                </div>
-              )}
             </div>
-          </div>
+          )}
         </div>
 
         {/* Status banner */}
@@ -591,35 +528,22 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
           )}
         </div>
 
-        {/* Claim banner */}
-        {canWrite && claimConfig.enabled && claimState.state === 'mine' && (
-          <div style={{ padding: '8px 18px', background: 'var(--v2-green-soft)', borderTop: '1px solid var(--v2-border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--v2-green-deep)', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Unlock size={13} /> La estás atendiendo tú
+        {/* Take-over VISIBLE (punto 2): apenas escribís desde una conversación
+            que estaba con el agente, se ve que el bot quedó en pausa + "Que siga
+            el agente" acá mismo. Un cambio de estado silencioso es cómo se deja
+            al bot mudo sin darse cuenta. */}
+        {justTookOver && (
+          <div style={{ padding: '10px 18px', background: 'var(--v2-green-soft)', borderTop: '1px solid var(--v2-border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--v2-green-deep)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Unlock size={13} /> Ahora la estás atendiendo tú — el agente está en pausa
             </span>
             <button
-              onClick={handleReleaseClaim}
+              onClick={handleReturnClick}
               disabled={isPending}
-              style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-green-deep)', background: 'none', border: 'none', cursor: isPending ? 'not-allowed' : 'pointer', textDecoration: 'underline' }}
+              style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-green-deep)', background: 'none', border: '1px solid var(--v2-green-deep)', borderRadius: '6px', padding: '4px 10px', cursor: isPending ? 'not-allowed' : 'pointer' }}
             >
-              Liberar
+              🤖 Que siga el agente
             </button>
-          </div>
-        )}
-        {canWrite && claimConfig.enabled && claimState.state === 'others' && (
-          <div style={{ padding: '8px 18px', background: 'var(--v2-amber-soft)', borderTop: '1px solid var(--v2-border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '12px', color: '#b07d00', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Lock size={13} /> 🙋 {claimState.byName ?? 'Otro usuario'} está atendiendo (hace {claimState.heldMinutes ?? 0} min)
-            </span>
-            {claimConfig.mode === 'hard' && (
-              <button
-                onClick={handleOverrideClaim}
-                disabled={isPending}
-                style={{ fontSize: '11px', fontWeight: 600, color: '#b07d00', background: 'none', border: '1px solid #b07d00', borderRadius: '6px', padding: '4px 10px', cursor: isPending ? 'not-allowed' : 'pointer' }}
-              >
-                Tomar de todos modos
-              </button>
-            )}
           </div>
         )}
 
@@ -814,23 +738,6 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
 }
 
 // ---- Sub-components ----
-
-function MenuBtn({ onClick, label, color }: { onClick: () => void; label: string; color: string }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px',
-        fontSize: '12.5px', fontWeight: 600, color, background: 'none', border: 'none',
-        cursor: 'pointer', borderRadius: '6px', transition: 'background 0.1s',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--v2-bg-soft)' }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
-    >
-      {label}
-    </button>
-  )
-}
 
 function StatRow({ label, value }: { label: string; value: string }) {
   return (

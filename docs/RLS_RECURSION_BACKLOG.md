@@ -1,52 +1,78 @@
 # RLS Recursion Backlog
 
-**Fecha:** 2026-04-30
-**Estado:** Documentado, sin impacto funcional actual
+**Creado:** 2026-04-30 · **Actualizado:** 2026-08-05 (inventario releído de la DB, no del doc)
 
 ## Problema
 
-Varias tablas tienen RLS policies que hacen `SELECT clinic_id FROM clinic_users WHERE auth_user_id = auth.uid()`. La tabla `clinic_users` tiene su propia RLS policy que tambien referencia `clinic_users`, causando **infinite recursion** cuando se consulta desde un authenticated client (browser).
-
-## Tablas afectadas
-
-| Tabla | Migracion | Acceso browser? | Rota hoy? |
-|---|---|---|---|
-| `blocked_dates` | 00053 | No — solo supabaseAdmin | No |
-| `specialty_notifications` | 00056 | No — solo supabaseAdmin | No |
-| `consultation_types` | 00023 | No — solo supabaseAdmin | No |
-| `consultation_type_schedules` | 00060 | No — solo supabaseAdmin | No |
-| `api_usage` | 00009 | No — solo supabaseAdmin | No |
-| `pending_contacts` | 00066 | **Arreglada en 00067** | No (fixed) |
-
-## Fix aplicado a pending_contacts (migracion 00067)
+Casi todas las políticas RLS de este esquema resuelven la clínica por subconsulta a
+`clinic_users` o a `doctors`. **Esas dos tablas tienen políticas auto-referenciales:**
 
 ```sql
-CREATE OR REPLACE FUNCTION public.get_user_clinic_id()
-RETURNS UUID LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = '' AS $$
-  SELECT clinic_id FROM public.clinic_users
-  WHERE auth_user_id = auth.uid() LIMIT 1;
-$$;
+-- clinic_users → "Usuarios de mi clínica"
+clinic_id IN (SELECT clinic_id FROM clinic_users WHERE auth_user_id = auth.uid() AND is_active)
 
-GRANT EXECUTE ON FUNCTION public.get_user_clinic_id() TO authenticated;
-
--- Policy usa la funcion en vez de subquery directa
-CREATE POLICY "..." ON pending_contacts
-  USING (clinic_id = public.get_user_clinic_id());
+-- doctors → "Ver doctores de mi clínica"
+clinic_id IN (SELECT clinic_id FROM doctors WHERE email = auth.jwt() ->> 'email')
 ```
 
-La funcion `SECURITY DEFINER` ejecuta con privilegios del creador (postgres), bypaseando RLS de `clinic_users` dentro de la funcion. Sin recursion.
+Evaluarlas como `authenticated` levanta `42P17: infinite recursion detected in policy`.
 
-## Recomendacion
+**Lo que lo hace traicionero:** una política que lanza excepción **se ve igual que "no hay filas
+visibles"**. El cliente no recibe error; simplemente no llega nada. Y con `service_role` (que es
+como lee casi todo el dashboard) no se nota nunca, porque saltea RLS.
 
-Si en el futuro alguna de las 5 tablas restantes necesita acceso desde browser client (ej: Realtime subscription, o query directa sin server action):
+Las políticas permisivas se evalúan **todas** y se combinan con OR: alcanza con que **una** de las
+que aplican explote para tumbar la consulta entera.
 
-1. Reusar `public.get_user_clinic_id()` (ya existe)
-2. Reemplazar la policy con `USING (clinic_id = public.get_user_clinic_id())`
-3. No hace falta nueva migracion por la funcion — solo DROP + CREATE POLICY
+## Lo que ya nos costó
 
-**No aplicar el fix preventivamente** — las tablas funcionan correctamente con supabaseAdmin y cambiar policies innecesariamente agrega riesgo sin beneficio.
+**2026-08-05 — Realtime de la bandeja.** Se publicaron `conversations` y `messages` en
+`supabase_realtime` (migración 00068). El canal decía `SUBSCRIBED` y no entregaba una sola fila;
+había que recargar para ver un mensaje nuevo. Se persiguió por el lado del socket, de la
+autenticación del JWT y de la hidratación de React antes de encontrar esto. Arreglado en la
+migración **00099** con el patrón de abajo.
 
-## Multi-clinic
+Este documento **ya anticipaba ese caso por escrito** — "si alguna tabla necesita acceso desde
+browser client (ej: Realtime subscription)" — y lo pisamos igual, porque nadie lo abre antes de
+escribir una migración. Por eso la regla operativa ahora vive en `CLAUDE.md`, y este archivo queda
+solo como inventario.
 
-La funcion usa `LIMIT 1`. Verificado 2026-04-30: ningun usuario esta en multiples clinicas (0 en local, 0 en produccion). Si se implementa multi-clinic en el futuro, esta funcion necesita revision.
+## El fix (patrón establecido, migraciones 00067 / 00099)
+
+```sql
+-- public.get_user_clinic_id() es SECURITY DEFINER: adentro corre como postgres,
+-- así que no dispara la RLS de clinic_users. Sin recursión.
+DROP POLICY "..." ON tabla;
+CREATE POLICY "..." ON tabla FOR SELECT USING (clinic_id = public.get_user_clinic_id());
+```
+
+⚠ Esa función tiene su propia deuda abierta (`LIMIT 1` = un usuario, una clínica). Está anotada en
+`CLAUDE.md` como bloqueante previo a vender el segundo cliente.
+
+## Inventario al 2026-08-05
+
+Leído de `pg_policies`, no de memoria. **Publicada en Realtime** = ya está expuesta al navegador,
+así que el bug es alcanzable hoy.
+
+| Tabla | Recursa vía | ¿En Realtime? |
+|---|---|---|
+| **`appointments`** (2 políticas) | `doctors` | 🔴 **SÍ — es la próxima que va a chocar** |
+| `clinic_users` | auto-referencia (la raíz) | no |
+| `doctors` | auto-referencia (la raíz) | no |
+| `clinics` (2) | `doctors` | no |
+| `patients` (2) | `doctors` | no |
+| `audit_log`, `cartera`, `reminders`, `waitlist` | `doctors` | no |
+| `consultation_types` (3), `consultation_type_rules` (3), `consultation_type_schedules` (2) | `clinic_users` | no |
+| `conversation_media` (2), `isalud_import_staging` (3) | `clinic_users` | no |
+| `blocked_dates` (2), `specialty_notifications` (3) | `clinic_users` | no |
+| `clinic_roles`, `clinic_setup_progress` (2), `api_usage` | `clinic_users` | no |
+
+Ya arregladas y fuera de la lista: `pending_contacts` (00067), `conversations` y `messages` (00099).
+
+**No aplicar el fix preventivamente a las demás.** Funcionan con `service_role` y cambiar
+políticas sin necesidad agrega riesgo sin beneficio. La regla es al revés: **cuando una tabla
+vaya a leerse desde el navegador — Realtime o query directa con la anon key — se arregla su
+política primero.**
+
+Arreglar `clinic_users` y `doctors` en la raíz eliminaría la clase entera, pero toca el límite
+multi-tenant de todo el esquema: es un trabajo con su propia verificación, no un fix de paso.

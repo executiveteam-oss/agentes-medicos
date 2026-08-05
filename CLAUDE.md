@@ -267,6 +267,17 @@ bumpea en el mismo lugar o vuelve el mismo bug.
   server, pero Realtime evalúa RLS con el JWT del usuario: un canal puede decir `SUBSCRIBED` y no
   entregar ni una fila si el socket no está autenticado. Por eso se llama
   `realtime.setAuth(token)` **antes de cada suscripción**, no solo al refrescar el token.
+- **🚨 Antes de agregar una tabla a la publicación `supabase_realtime`, revisá su política RLS.**
+  La mayoría de las políticas de este esquema resuelven la clínica por subconsulta a
+  `clinic_users` o a `doctors`, y **esas dos tablas tienen políticas auto-referenciales**
+  (`clinic_users` consulta `clinic_users`). Evaluarlas como `authenticated` levanta
+  `42P17 infinite recursion`, y **una política que lanza excepción se ve idéntica a "no hay filas
+  visibles"**: el canal conecta, no llega nada, y no hay error en el cliente. Con `service_role`
+  no se nota nunca, porque saltea RLS.
+  La política de la tabla que se publique tiene que resolver la clínica con
+  `public.get_user_clinic_id()` (SECURITY DEFINER, corta la recursión). Inventario vivo de las que
+  siguen con el patrón roto: `docs/RLS_RECURSION_BACKLOG.md` — **`appointments` ya está publicada
+  en Realtime y todavía recursa**; es la próxima que va a chocar.
 - **Roles sembrados** (`src/lib/seed-roles.ts`): Admin, Doctor, Coordinadora, Secretaria,
   Contador. Cada permiso es `{read, write}` por área.
 - **⚠️ Deuda que NO se debe "ordenar":** las server actions de doctores, tipos de consulta,
@@ -342,6 +353,31 @@ de `feature_config.res256_enabled`. Lógica pura y testeable en
 ---
 
 ## 🚨 DEUDAS ESTRUCTURALES DEL PRODUCTO
+
+### 🔴 Un usuario, una clínica — RESOLVER ANTES DE VENDER EL SEGUNDO CLIENTE
+
+`public.get_user_clinic_id()` resuelve la clínica del usuario con **`LIMIT 1`**. Es la función de
+la que dependen las políticas RLS de `conversations`, `messages` y `pending_contacts`: es la que
+decide **qué tenant ve cada persona en el navegador**.
+
+Con dos membresías activas, **elige una y calla**. No falla, no avisa: muestra los datos de una
+clínica y esconde los de la otra, o al revés, sin nada en pantalla que lo delate.
+
+**Esto no es hipotético y tiene fecha:** el dueño del producto va a estar en dos clínicas el día
+que entre el segundo cliente. Ese día, esta función empieza a elegir tenant a dedo.
+
+Ya mordió una versión más chica del mismo problema: hasta el 2026-08-05 la función **no filtraba
+`is_active`**, y en producción devolvía la membresía **revocada** de un usuario que tenía una
+activa y una dada de baja. La migración 00100 tapó ese caso; **el del `LIMIT 1` sigue abierto**.
+
+Cuando se resuelva, el diseño tiene que contemplar que un usuario pertenezca a N clínicas y que
+haya una **clínica activa por sesión** (selector + claim en el JWT, o función que devuelva un
+conjunto y políticas con `IN`). No alcanza con cambiar el `ORDER BY`.
+
+**Por qué está acá y no solo en un doc:** la recursión de RLS estaba documentada desde abril en
+`docs/RLS_RECURSION_BACKLOG.md`, anticipaba textualmente el caso "Realtime subscription", y la
+pisamos igual — porque nadie abre ese archivo antes de escribir una migración. Si esta deuda
+también termina solo ahí, se repite.
 
 ### SEC-001 — Credenciales en texto plano
 

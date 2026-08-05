@@ -80,9 +80,11 @@ export default async function ConversationsPage() {
     // Fuente 2 (fallback): tratante. Las claves de `tratantes` son las
     // especialidades; cada una trae doctor_id + updated_at. Para el nombre
     // lindo de la especialidad y del médico se resuelve el doctor_id contra
-    // `doctors` (la clave viene en MAYÚSCULAS del sync). Si hay varias
-    // especialidades, se toma la más recientemente actualizada (sin adivinar
-    // de cuál trata la conversación).
+    // `doctors` (la clave viene en MAYÚSCULAS del sync).
+    // Con VARIAS especialidades (451 pacientes, ~10%): se muestran TODAS, sin
+    // médico. Elegir "la más reciente" sería inventar un dato y podría mandar
+    // la conversación al ojo de la secretaria equivocada. Una señal ambigua
+    // bien mostrada es útil; una inventada, no.
     const missing = patientIds.filter((pid) => !specByPatient.has(pid))
     if (missing.length > 0) {
       const { data: docs } = await supabaseAdmin
@@ -92,6 +94,8 @@ export default async function ConversationsPage() {
       const docById = new Map<string, { name: string; specialty: string | null }>()
       for (const d of docs ?? []) docById.set(d.id as string, { name: d.name as string, specialty: (d.specialty as string | null) ?? null })
       const titleCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+      const labelFor = (t: Record<string, { doctor_id?: string }>, k: string) =>
+        (t[k]?.doctor_id ? docById.get(t[k].doctor_id as string)?.specialty : null) ?? titleCase(k)
       for (const c of conversations ?? []) {
         const p = c.patients as unknown as { id?: string; tratantes?: Record<string, { doctor_id?: string; updated_at?: string }> | null } | null
         if (!p?.id || specByPatient.has(p.id)) continue
@@ -99,10 +103,14 @@ export default async function ConversationsPage() {
         if (!t || typeof t !== 'object') continue
         const keys = Object.keys(t)
         if (keys.length === 0) continue
-        let bestKey = keys[0]
-        for (const k of keys) if ((t[k]?.updated_at ?? '') > (t[bestKey]?.updated_at ?? '')) bestKey = k
-        const doc = t[bestKey]?.doctor_id ? docById.get(t[bestKey].doctor_id as string) : null
-        specByPatient.set(p.id, { specialty: doc?.specialty ?? titleCase(bestKey), doctor_name: doc?.name ?? null })
+        if (keys.length === 1) {
+          const doc = t[keys[0]]?.doctor_id ? docById.get(t[keys[0]].doctor_id as string) : null
+          specByPatient.set(p.id, { specialty: doc?.specialty ?? titleCase(keys[0]), doctor_name: doc?.name ?? null })
+        } else {
+          // varias especialidades → mostrar todas, sin médico (no atribuible a uno)
+          const uniq = Array.from(new Set(keys.map((k) => labelFor(t, k))))
+          specByPatient.set(p.id, { specialty: uniq.join(' · '), doctor_name: null })
+        }
       }
     }
   }

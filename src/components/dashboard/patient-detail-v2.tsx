@@ -10,8 +10,10 @@ import Link from 'next/link'
 import { ChevronRight, Calendar, MessageSquare, Phone, Mail, FileText, StickyNote, User, Plus } from 'lucide-react'
 import { ReactivationBanner } from '@/components/dashboard/reactivation-banner'
 import { formatPhone, formatTimeForPatient } from '@/lib/utils/dates'
-import { format, formatDistanceToNow } from 'date-fns'
+import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { formatUI } from '@/lib/utils/format-time-ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 // ---- Types ----
 
@@ -146,7 +148,7 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
             <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>
               {patient.document_type} {patient.document_number ?? 'Sin documento'}
               {patient.date_of_birth && ` · ${format(new Date(patient.date_of_birth + 'T12:00:00'), "d MMM yyyy", { locale: es })}`}
-              {' · '}Paciente desde {format(new Date(patient.created_at), "MMM yyyy", { locale: es })}
+              {' · '}Paciente desde {formatUI(patient.created_at, "MMM yyyy")}
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
               <span className="tag-v2 tag-v2-primary">{patient.entidad ?? patient.eps ?? 'Sin registrar'}</span>
@@ -208,10 +210,10 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
 
       {/* ===== KPI ROW ===== */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard label="Total citas" value={String(patient.total_appointments)} detail={`Desde ${format(new Date(patient.created_at), "MMM yyyy", { locale: es })}`} />
+        <KPICard label="Total citas" value={String(patient.total_appointments)} detail={`Desde ${formatUI(patient.created_at, "MMM yyyy")}`} />
         <KPICard label="Asistencia" value={`${assistanceRate}%`} detail={`${patient.total_appointments - patient.no_show_count} de ${patient.total_appointments}`} valueColor={assistanceRate >= 80 ? 'var(--v2-green)' : 'var(--v2-amber)'} />
         <KPICard label="Doctor frecuente" value={topDoctorName ?? '-'} detail={topDoctorName ? 'Mas citas con' : 'Sin datos'} isText />
-        <KPICard label="Ultima visita" value={patient.days_since_last_visit !== null ? `Hace ${patient.days_since_last_visit}d` : '-'} detail={patient.last_visit_at ? format(new Date(patient.last_visit_at), "d MMM yyyy", { locale: es }) : 'Sin visitas'} />
+        <KPICard label="Ultima visita" value={patient.days_since_last_visit !== null ? `Hace ${patient.days_since_last_visit}d` : '-'} detail={patient.last_visit_at ? formatUI(patient.last_visit_at, "d MMM yyyy") : 'Sin visitas'} />
       </div>
 
       {/* ===== TABS ===== */}
@@ -278,7 +280,7 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
               <SidebarCard title="Ultima conversacion">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                   <span style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>
-                    {formatDistanceToNow(new Date(conversations[0].last_message_at), { addSuffix: true, locale: es })}
+                    <RelativeTime iso={conversations[0].last_message_at} />
                   </span>
                   <span style={{ fontSize: '10px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', background: CONV_STATUS[conversations[0].status]?.bg ?? 'var(--v2-bg-soft)', color: CONV_STATUS[conversations[0].status]?.fg ?? 'var(--v2-text-subtle)' }}>
                     {CONV_STATUS[conversations[0].status]?.label ?? conversations[0].status}
@@ -342,7 +344,7 @@ function HistoriaTab({ appointments }: { appointments: Appointment[] }) {
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '4px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 700, fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-subtle)', textTransform: 'uppercase' }}>
-                  {format(new Date(a.starts_at), "d MMM yyyy", { locale: es })} · {formatTimeForPatient(a.starts_at)}
+                  {formatUI(a.starts_at, "d MMM yyyy")} · {formatTimeForPatient(a.starts_at)}
                 </span>
                 <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: st.bg, color: st.fg }}>
                   {st.label}
@@ -390,7 +392,7 @@ function ConversacionesTab({ conversations }: { conversations: Conversation[] })
               <span style={{ fontSize: '13px', color: 'var(--v2-text-muted)' }}>{c.message_count} mensajes</span>
             </div>
             <span style={{ fontSize: '11px', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-subtle)' }}>
-              {formatDistanceToNow(new Date(c.last_message_at), { addSuffix: true, locale: es })}
+              <RelativeTime iso={c.last_message_at} />
             </span>
           </Link>
         )

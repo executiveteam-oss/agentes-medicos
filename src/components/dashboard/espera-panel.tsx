@@ -8,12 +8,11 @@
 import { useState, useTransition, useMemo } from 'react'
 import { WaitlistFormModal } from '@/components/dashboard/waitlist-form-modal'
 import { notifyWaitlistEntry, updateWaitlistEntry, removeWaitlistEntry, confirmManualBooking, discardManualRequest } from '@/app/actions/waitlist'
-import { format } from 'date-fns'
-import { es } from 'date-fns/locale'
 import { PriorityBadge } from '@/components/dashboard/priority-badge'
 import type { WaitlistPriority } from '@/types/database'
 import type { PriorityScore } from '@/app/actions/priority'
 import Link from 'next/link'
+import { formatUI } from '@/lib/utils/format-time-ui'
 
 interface WaitlistRow {
   id: string
@@ -390,12 +389,12 @@ export function EsperaPanel({
                         <span className={`badge ${statusInfo.class}`}>{statusInfo.label}</span>
                         {entry.status === 'notified' && entry.notified_at && (
                           <p className="text-[10px] text-slate-400 mt-0.5">
-                            {format(new Date(entry.notified_at), "d MMM, h:mm a", { locale: es })}
+                            {formatUI(entry.notified_at, "d MMM, h:mm a")}
                           </p>
                         )}
                       </td>
                       <td className="py-3.5 px-5 text-slate-400 text-xs">
-                        {format(new Date(entry.created_at), "d MMM", { locale: es })}
+                        {formatUI(entry.created_at, "d MMM")}
                       </td>
                       <td className="py-3.5 px-5 text-right">
                         <div className="flex gap-1 justify-end items-center">
@@ -513,7 +512,7 @@ export function EsperaPanel({
                     </div>
 
                     <p className="text-xs text-slate-400 mt-2">
-                      Solicitado {format(new Date(entry.created_at), "d MMM, h:mm a", { locale: es })}
+                      Solicitado {formatUI(entry.created_at, "d MMM, h:mm a")}
                     </p>
                   </div>
 

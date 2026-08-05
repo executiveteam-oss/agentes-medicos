@@ -10,9 +10,8 @@ import { useRouter } from 'next/navigation'
 import { Bell, Check } from 'lucide-react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useUserSession } from '@/context/user-session'
-import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
 import type { StaffNotification } from '@/lib/notifications/types'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 const TYPE_EMOJI: Record<string, string> = {
   appointment_canceled: '❌',
@@ -241,7 +240,7 @@ export function NotificationBell() {
                         </p>
                       )}
                       <p style={{ fontSize: '10px', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-subtle)', marginTop: '3px' }}>
-                        {formatDistanceToNow(new Date(notif.created_at), { addSuffix: true, locale: es })}
+                        <RelativeTime iso={notif.created_at} />
                       </p>
                     </div>
                     {isUnread && (

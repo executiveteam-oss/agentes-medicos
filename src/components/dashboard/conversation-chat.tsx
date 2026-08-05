@@ -13,8 +13,8 @@ import type { ClinicLabel } from '@/lib/labels/patient-labels'
 import { resolveClaimState, type ClaimConfig, type ClaimRow } from '@/lib/rules/claim-logic'
 import { useRealtimeConnection } from '@/hooks/use-realtime-connection'
 import { RealtimeIndicator } from '@/components/dashboard/realtime-indicator'
-import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { formatTimeUI, formatDaySeparatorUI, isDifferentDayUI, formatUI } from '@/lib/utils/format-time-ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 import Link from 'next/link'
 import { ChevronLeft, Send, Info, Image, FileText, Mic, User, Calendar, AlertTriangle, X, Unlock } from 'lucide-react'
 
@@ -73,21 +73,23 @@ interface Props {
 }
 
 // ---- Helpers ----
+// Todo el formateo de tiempo pasa por format-time-ui: fija America/Bogota
+// explícitamente y da el MISMO string en el servidor (UTC) y en el navegador.
+// Con `format()` de date-fns a secas, cada hora de mensaje se renderizaba con 5
+// horas de diferencia entre los dos lados → mismatch de hidratación (React
+// #418). Ver el encabezado de src/lib/utils/format-time-ui.ts.
 
 function formatTime(dateStr: string): string {
-  return format(new Date(dateStr), 'h:mm a')
+  return formatTimeUI(dateStr)
 }
 
 function formatDateSep(dateStr: string): string {
-  const date = new Date(dateStr)
-  if (isToday(date)) return 'HOY'
-  if (isYesterday(date)) return 'AYER'
-  return format(date, "EEE d MMM", { locale: es }).toUpperCase()
+  return formatDaySeparatorUI(dateStr)
 }
 
 function needsDateSep(current: string, previous: string | null): boolean {
   if (!previous) return true
-  return new Date(current).toDateString() !== new Date(previous).toDateString()
+  return isDifferentDayUI(current, previous)
 }
 
 
@@ -342,7 +344,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
               {conversation.patient_eps && <span> &middot; {conversation.patient_eps}</span>}
               {nextAppointment && (
                 <span style={{ color: 'var(--v2-pink)', fontWeight: 600 }}>
-                  {' '}&middot; Cita {formatDistanceToNow(new Date(nextAppointment.starts_at), { addSuffix: true, locale: es })}
+                  {' '}&middot; Cita <RelativeTime iso={nextAppointment.starts_at} fallbackPattern="EEE d MMM, h:mm a" />
                 </span>
               )}
             </p>
@@ -670,13 +672,13 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
             {nextAppointment ? (
               <div style={{ padding: '14px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-primary-soft)', border: '1px solid var(--v2-primary-soft)' }}>
                 <p style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-primary)', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  {formatDistanceToNow(new Date(nextAppointment.starts_at), { addSuffix: true, locale: es })}
+                  <RelativeTime iso={nextAppointment.starts_at} fallbackPattern="EEE d MMM, h:mm a" />
                 </p>
                 <p style={{ fontSize: '13px', fontWeight: 600, color: 'var(--v2-text)' }}>
                   {nextAppointment.reason ?? 'Consulta'}
                 </p>
                 <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginTop: '2px' }}>
-                  {format(new Date(nextAppointment.starts_at), "EEEE d MMM · h:mm a", { locale: es })}
+                  {formatUI(nextAppointment.starts_at, "EEEE d MMM · h:mm a")}
                   {nextAppointment.doctor_name && ` · ${nextAppointment.doctor_name}`}
                 </p>
               </div>
@@ -698,7 +700,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
               <StatRow label="No-shows" value={String(conversation.patient_no_show_count)} />
               <StatRow label="Asistencia" value={`${assistanceRate}%`} />
               {conversation.patient_created_at && (
-                <StatRow label="Paciente desde" value={format(new Date(conversation.patient_created_at), "MMM yyyy", { locale: es })} />
+                <StatRow label="Paciente desde" value={formatUI(conversation.patient_created_at, "MMM yyyy")} />
               )}
             </div>
           </div>

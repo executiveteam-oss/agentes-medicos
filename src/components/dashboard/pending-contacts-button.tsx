@@ -10,9 +10,9 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { ClipboardCheck, ExternalLink, Check, ChevronDown } from 'lucide-react'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useUserSession } from '@/context/user-session'
-import { formatDistanceToNow, format, parseISO } from 'date-fns'
-import { es } from 'date-fns/locale'
 import { markPendingContactResolved, getPendingContacts } from '@/app/actions/pending-contacts'
+import { formatUI } from '@/lib/utils/format-time-ui'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 interface PendingContact {
   id: string
@@ -52,8 +52,8 @@ function getPrefilledMessage(contact: PendingContact, clinicName: string): strin
     return `Hola ${name}, te escribimos de ${clinicName}. No pudimos comunicarnos contigo por WhatsApp. Por favor escribenos cuando puedas.`
   }
 
-  const date = format(parseISO(contact.appointment_date), "EEEE d 'de' MMMM", { locale: es })
-  const time = format(parseISO(contact.appointment_date), 'h:mm a')
+  const date = formatUI(contact.appointment_date, "EEEE d 'de' MMMM")
+  const time = formatUI(contact.appointment_date, 'h:mm a')
 
   if (contact.reason_type === 'cancellation_no_delivery') {
     return `Hola ${name}, te escribimos de ${clinicName} para avisarte que tu cita del ${date} a las ${time} con ${doctor} fue cancelada. Disculpa las molestias. Podemos reagendarte?`
@@ -261,7 +261,7 @@ export function PendingContactsButton() {
                         </p>
                         <p style={{ fontSize: '11.5px', color: 'var(--v2-text-muted)', marginTop: '2px' }}>
                           {contact.appointment_date
-                            ? format(parseISO(contact.appointment_date), "EEE d MMM, h:mm a", { locale: es })
+                            ? formatUI(contact.appointment_date, "EEE d MMM, h:mm a")
                             : 'Sin fecha'}
                           {contact.consultation_type && ` · ${contact.consultation_type}`}
                         </p>
@@ -401,7 +401,7 @@ export function PendingContactsButton() {
                           </span>
                         </div>
                         <p style={{ fontSize: '10px', color: 'var(--v2-text-subtle)', marginTop: '2px' }}>
-                          {contact.resolved_at && formatDistanceToNow(new Date(contact.resolved_at), { addSuffix: true, locale: es })}
+                          {contact.resolved_at && <RelativeTime iso={contact.resolved_at} />}
                         </p>
                       </div>
                     ))}

@@ -8,8 +8,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import Link from 'next/link'
-import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { RelativeTime } from '@/components/ui/relative-time'
 import { Search, MessageCircle } from 'lucide-react'
 import { useRealtimeConnection } from '@/hooks/use-realtime-connection'
 import { RealtimeIndicator } from '@/components/dashboard/realtime-indicator'
@@ -240,7 +239,6 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
           <div>
             {filtered.map((entry, idx) => {
               const isUnread = entry.last_message_role === 'patient'
-              const timeAgo = formatDistanceToNow(new Date(entry.last_message_at), { addSuffix: true, locale: es })
 
               return (
                 <Link
@@ -306,7 +304,7 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                           Ordena la cola sola y distingue una escalada normal de una caída. */}
                       {isUnread && bucketOf(entry) !== 'agente' ? (
                         <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 7px', borderRadius: '4px', background: 'var(--v2-amber-soft)', color: '#b07d00' }}>
-                          ⏳ Esperando {timeAgo}
+                          ⏳ Esperando <RelativeTime iso={entry.last_message_at} />
                         </span>
                       ) : null}
                       {entry.last_message_role === 'staff' && (
@@ -360,7 +358,7 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                       fontWeight: 500,
                       color: isUnread ? 'var(--v2-primary)' : 'var(--v2-text-subtle)',
                     }}>
-                      {timeAgo}
+                      <RelativeTime iso={entry.last_message_at} />
                     </p>
                     {isUnread && (
                       <div

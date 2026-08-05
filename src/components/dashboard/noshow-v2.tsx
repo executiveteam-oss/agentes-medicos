@@ -9,9 +9,8 @@ import { formatCOPCompact as formatCOP } from '@/lib/utils/ui-helpers'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { NoShowCharts } from '@/components/dashboard/noshow-charts'
 import { TrendingDown, DollarSign, AlertTriangle, Calendar, Zap } from 'lucide-react'
-import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
 import Link from 'next/link'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 // ---- Types ----
 
@@ -427,7 +426,7 @@ export function NoShowDashboard(props: Props) {
                       {p.name}
                     </p>
                     <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>
-                      {formatDistanceToNow(new Date(p.lastNoShow), { addSuffix: true, locale: es })}
+                      <RelativeTime iso={p.lastNoShow} />
                     </p>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>

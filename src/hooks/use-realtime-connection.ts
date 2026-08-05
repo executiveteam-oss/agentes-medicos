@@ -42,6 +42,9 @@ export function useRealtimeConnection(opts: {
   resyncRef.current = onResync
 
   useEffect(() => {
+    // Primera señal de vida del efecto. Si la hidratación se cae, este log NO
+    // aparece — y ahí se sabe que el problema es de render, no de websocket.
+    console.log(`[Realtime] montando canal ${channelName}`)
     const supabase = createSupabaseBrowserClient()
     let channel: RealtimeChannel | null = null
     let disposed = false
@@ -58,6 +61,10 @@ export function useRealtimeConnection(opts: {
       const ch = bindRef.current(supabase.channel(channelName))
       ch.subscribe((status) => {
         if (disposed) return
+        // Log SIEMPRE: sin esto, "el realtime no anda" y "el efecto nunca corrió"
+        // se ven EXACTAMENTE IGUAL en la consola (silencio). No es ruido: es la
+        // única señal que distingue las dos causas.
+        console.log(`[Realtime] ${channelName} → ${status}`)
         if (status === 'SUBSCRIBED') {
           setConnected(true)
           resyncRef.current?.() // backfill al (re)conectar

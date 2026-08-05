@@ -43,6 +43,7 @@ import type { WhatsAppConfig, WhatsAppDoctorConfig, ConsultationType } from '@/t
 import type { DoctorForConfig } from '@/app/actions/whatsapp'
 import { saveVacationMessage } from '@/app/actions/vacation'
 import { formatCOP } from '@/lib/utils/dates'
+import { formatUI } from '@/lib/utils/format-time-ui'
 
 const DAY_LABELS = [
   { value: 0, label: 'Dom' },
@@ -2174,7 +2175,7 @@ function BlockedDatesSection({ doctorId, doctorName }: { doctorId: string; docto
             <div className="border border-amber-300 bg-amber-50 rounded-lg p-4 space-y-3">
               <p className="text-sm font-semibold text-amber-900">⚠️ Hay {affected.length} cita{affected.length > 1 ? 's' : ''} agendada{affected.length > 1 ? 's' : ''} en este rango:</p>
               <div className="max-h-32 overflow-y-auto space-y-1">
-                {affected.map((a) => (<p key={a.id} className="text-xs text-slate-700">{a.patient_name} — {new Date(a.starts_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })} {new Date(a.starts_at).toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit', hour12: true })} con {a.doctor_name}</p>))}
+                {affected.map((a) => (<p key={a.id} className="text-xs text-slate-700">{a.patient_name} — {formatUI(a.starts_at, 'd MMM')} {formatUI(a.starts_at, 'h:mm a')} con {a.doctor_name}</p>))}
               </div>
               <div className="text-xs text-amber-800 space-y-1"><p>Si confirmas:</p><p>- Estas citas se cancelarán automáticamente</p><p>- Se enviará WhatsApp a cada paciente con disculpa + opciones de reagendamiento</p></div>
               <div className="flex gap-2 pt-1">

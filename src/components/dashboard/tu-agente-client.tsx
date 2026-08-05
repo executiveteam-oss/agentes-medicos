@@ -9,8 +9,7 @@ import Link from 'next/link'
 import { MessageSquare, Zap, Calendar, CheckCircle, Sparkles, Play, ExternalLink, Clock, AlertTriangle, Shield } from 'lucide-react'
 import { updateAgentPersonality, updateEscalationKeywords, updateAutomations } from '@/app/actions/agent-config'
 import type { WhatsAppAutomations } from '@/types/database'
-import { formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { RelativeTime } from '@/components/ui/relative-time'
 
 interface Props {
   agentName: string
@@ -217,7 +216,7 @@ export function TuAgenteClient(props: Props) {
             {props.whatsappConnected && (
               <div style={{ fontSize: '12px', color: 'var(--v2-text-muted)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                 {props.whatsappPhoneDisplay && <p>Número: {props.whatsappPhoneDisplay}</p>}
-                {props.whatsappConnectedAt && <p>Conectado {formatDistanceToNow(new Date(props.whatsappConnectedAt), { addSuffix: true, locale: es })}</p>}
+                {props.whatsappConnectedAt && <p>Conectado <RelativeTime iso={props.whatsappConnectedAt} /></p>}
               </div>
             )}
             <Link href="/dashboard/settings/whatsapp" style={{ display: 'inline-block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-primary)', textDecoration: 'none', marginTop: '10px' }}>

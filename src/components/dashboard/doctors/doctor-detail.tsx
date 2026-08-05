@@ -52,8 +52,7 @@ import { getConsultationTypes } from '@/app/actions/consultation-types'
 import { TypesImportPanel } from '@/components/dashboard/doctors/types-import-panel'
 import type { ConsultationType, Res256Category } from '@/types/database'
 import type { BlockedDate } from '@/app/actions/blocked-dates'
-import { format, formatDistanceToNow } from 'date-fns'
-import { es } from 'date-fns/locale'
+import { formatUI } from '@/lib/utils/format-time-ui'
 
 // ---- Types ----
 
@@ -203,7 +202,7 @@ export function DoctorDetailClient({
           <div style={{ flex: 1 }}>
             <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--v2-text)', letterSpacing: '-0.02em' }}>{doctor.name}</h1>
             {doctor.specialty && <p style={{ fontSize: '13px', color: 'var(--v2-text-muted)', marginTop: '2px' }}>{doctor.specialty}</p>}
-            <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>Doctor desde {format(new Date(doctor.created_at), "MMM yyyy", { locale: es })}</p>
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>Doctor desde {formatUI(doctor.created_at, "MMM yyyy")}</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '10px' }}>
               {doctor.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--v2-text-muted)' }}><Phone size={11} />{doctor.phone}</span>}
               {doctor.email && <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--v2-text-muted)' }}><Mail size={11} />{doctor.email}</span>}

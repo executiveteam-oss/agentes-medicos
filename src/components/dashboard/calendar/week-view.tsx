@@ -3,6 +3,7 @@
 // Shows ONE doctor at a time (selected via DoctorSelector)
 // ============================================================
 
+import { formatTimeForPatient } from '@/lib/utils/dates'
 import { Tooltip } from '@/components/ui/tooltip'
 import { AppointmentDetail } from './appointment-detail'
 import type { CalendarAppointment } from './types'
@@ -185,7 +186,11 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         // La segunda línea se decide por ALTURA DISPONIBLE, no por duración:
                         // el recorte lo causa el espacio, así que la condición tiene que
                         // mirar el espacio. 30px = 26px útiles = las dos líneas justas.
-                        const showType = heightPx >= 30
+                        const showSecondLine = heightPx >= 30
+                        // Hora · servicio en UNA línea. Sin tipo de consulta (las
+                        // importadas del HIS) queda solo la hora, sin separador colgando.
+                        const secondLine = [formatTimeForPatient(apt.starts_at), consultType]
+                          .filter(Boolean).join(' · ')
                         const fontSize = heightPx < 24 ? '10px' : '11px'
                         const padY = heightPx < 34 ? '2px' : '3px'
 
@@ -244,11 +249,9 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                               <p style={{ fontSize, fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
                                 {patientName}
                               </p>
-                              {/* La hora ya la comunica la POSICIÓN en la grilla; el
-                                  servicio no se sabe sin abrir el detalle. */}
-                              {showType && consultType && (
+                              {showSecondLine && (
                                 <p style={{ fontSize: '10px', color: 'var(--v2-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
-                                  {consultType}
+                                  {secondLine}
                                 </p>
                               )}
                             </button>

@@ -1,7 +1,7 @@
 // ============================================================
 // Cliente Anthropic (Claude AI) — Singleton
 // Se crea UNA vez y se reutiliza en toda la app
-// Modelo: claude-sonnet-5 para balance entre calidad y costo
+// Modelo: el único lugar donde se define es CLAUDE_CONFIG.model, abajo.
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk'

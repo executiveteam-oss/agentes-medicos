@@ -95,7 +95,7 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
     // Citas de HOY de ESTE médico (todo el día), con nombre del paciente, por hora.
     const { data: appts } = await supabaseAdmin
       .from('appointments')
-      .select('starts_at, patients(name)')
+      .select('starts_at, external_data, patients(name)')
       .eq('clinic_id', clinicId)
       .eq('doctor_id', doctor.id)
       .in('status', ['confirmed', 'rescheduled'])
@@ -111,7 +111,13 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
 
     const listItems = rows.map((a) => {
       const time = formatTimeForPatient(a.starts_at as string)
-      const patientName = (a.patients as unknown as { name: string } | null)?.name ?? 'Paciente'
+      // Las citas importadas del HIS que todavía no tienen ficha vinculada
+      // salían como el literal "Paciente" — 1 de cada 3 de la semana. El nombre
+      // NO estaba perdido: viaja en external_data.nombre_paciente desde el
+      // scrape. Se usa como fallback antes de rendirse al genérico.
+      const linkedName = (a.patients as unknown as { name: string } | null)?.name
+      const externalName = ((a.external_data as { nombre_paciente?: string } | null)?.nombre_paciente ?? '').trim()
+      const patientName = linkedName || externalName || 'Paciente'
       return `${time} ${patientName}`
     })
 

@@ -4,6 +4,7 @@
 // (variable no al inicio/final del body, límites de longitud, conteo de vars).
 import {
   REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_BODY, REMINDER_BUTTONS,
+  REMINDER_TEMPLATE_NAME_V2, REMINDER_TEMPLATE_BODY_V2,
   CANCEL_TEMPLATE_NAME, CANCEL_TEMPLATE_BODY, CANCEL_BUTTON,
   RESUMEN_TEMPLATE_NAME, RESUMEN_TEMPLATE_BODY,
   TEMPLATE_LANGUAGE,
@@ -53,6 +54,16 @@ assert(
 )
 
 assert('recordatorio: 5 variables', countVars(REMINDER_TEMPLATE_BODY) === 5, `${countVars(REMINDER_TEMPLATE_BODY)}`)
+
+// Recordatorio V2 (nombra a la clínica). Protege contra editar el body sin
+// re-someter a Meta. {{2}} = clínica → 6 variables.
+assert('nombre recordatorio v2', REMINDER_TEMPLATE_NAME_V2 === 'recordatorio_cita_v2')
+assert(
+  'body recordatorio v2 (nombra a la clínica en {{2}})',
+  REMINDER_TEMPLATE_BODY_V2 === 'Hola {{1}} 👋 Te escribimos de {{2}}. Te recordamos tu cita con {{3}} el {{4}} a las {{5}}.\n📍 {{6}}\nTe esperamos.',
+  JSON.stringify(REMINDER_TEMPLATE_BODY_V2),
+)
+assert('recordatorio v2: 6 variables', countVars(REMINDER_TEMPLATE_BODY_V2) === 6, `${countVars(REMINDER_TEMPLATE_BODY_V2)}`)
 assert('cancelación: 5 variables', countVars(CANCEL_TEMPLATE_BODY) === 5, `${countVars(CANCEL_TEMPLATE_BODY)}`)
 assert('resumen: 2 variables', countVars(RESUMEN_TEMPLATE_BODY) === 2, `${countVars(RESUMEN_TEMPLATE_BODY)}`)
 

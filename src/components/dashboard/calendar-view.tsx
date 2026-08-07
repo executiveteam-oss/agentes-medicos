@@ -54,6 +54,23 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
   const [showNewAptModal, setShowNewAptModal] = useState(false)
   const [newAptPrefill, setNewAptPrefill] = useState<{ date: string; time: string; doctor_id: string } | null>(null)
 
+  // En celular la agenda abre en vista DÍA. La semana es una grilla de 8
+  // columnas (56px + 7 días): en 390px cada día mide ~48px y es ilegible.
+  //
+  // La decisión se toma DESPUÉS de montar, nunca en el useState inicial: leer
+  // el ancho durante el render daría un HTML distinto en el servidor y rompería
+  // la hidratación — el mismo bug que nos tumbó el realtime. El primer render
+  // es igual en los dos lados y recién el efecto ajusta.
+  //
+  // Si la URL trae ?view=, manda la URL: el usuario pidió esa vista.
+  useEffect(() => {
+    if (urlView) return
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
+      setView('day')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const isDoctor = userRole.toLowerCase() === 'doctor' || userRole.toLowerCase() === 'médico'
   const [doctorFilter, setDoctorFilter] = useState<string>(() => {
     return urlDoctor ?? getStoredDoctorId(doctors, restrictDoctorId)

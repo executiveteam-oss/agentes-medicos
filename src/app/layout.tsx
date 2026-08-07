@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -29,6 +29,19 @@ export const metadata: Metadata = {
     ],
     apple: '/apple-touch-icon.png',
   },
+  // Safari todavía ignora parte del manifest: sin estos dos, "Agregar a inicio"
+  // abre la app DENTRO del navegador, con la barra de direcciones y sin volver
+  // a la bandeja. Son el equivalente iOS de `display: standalone`.
+  appleWebApp: {
+    capable: true,
+    title: 'Omuwan',
+    statusBarStyle: 'default',
+  },
+};
+
+// La barra de estado del teléfono toma este color en modo standalone.
+export const viewport: Viewport = {
+  themeColor: '#6B5BFF',
 };
 
 export default function RootLayout({

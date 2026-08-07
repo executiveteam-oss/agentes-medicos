@@ -342,3 +342,46 @@ body {
   background: var(--v2-red-soft) !important;
   color: var(--v2-red) !important;
 }
+
+/* ============================================================
+   Targets táctiles del celular — bandeja de conversaciones.
+   POR QUÉ: en la barra del chat, tocar mal no es inocuo. "Atender yo"
+   pausa al agente y "Resuelta" saca la conversación de la cola. A las 10
+   de la noche, con una mano, un botón de 25px con letra de 11px es un
+   mis-tap garantizado.
+   Por debajo de lg (1024px) los controles pasan a 44px de alto, el mínimo
+   que recomiendan Apple y Google. En computador queda EXACTAMENTE igual.
+   Los componentes que usan esto tienen que quitar `padding` y `fontSize`
+   de su estilo inline: un style inline le gana a la clase.
+   ============================================================ */
+.v2-tap {
+  padding: 6px 12px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 1023px) {
+  .v2-tap {
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
+  }
+}
+
+/* Grupo de triage (Atención/Pendiente/Resuelta): mismo criterio. */
+.v2-tap-seg {
+  padding: 5px 10px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 1023px) {
+  .v2-tap-seg {
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 13px;
+    flex: 1;
+  }
+}

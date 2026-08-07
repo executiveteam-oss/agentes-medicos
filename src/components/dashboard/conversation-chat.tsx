@@ -310,6 +310,11 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
             background: 'var(--v2-bg-card)',
             borderBottom: '1px solid var(--v2-border-soft)',
             flexShrink: 0,
+            // En celular los grupos de botones (triage + eje A) no entran en la
+            // misma fila que el nombre: ~480px de contenido que no encoge en una
+            // pantalla de 390. Con wrap bajan a una segunda línea en vez de
+            // desbordarse. En computador la fila entra y el wrap nunca dispara.
+            flexWrap: 'wrap',
           }}
         >
           <Link href="/dashboard/conversations" style={{ color: 'var(--v2-text-subtle)', display: 'flex', textDecoration: 'none' }}>
@@ -364,13 +369,13 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
               depender del status (nunca hay que escalar primero para triar). Un
               solo camino a Resuelta: setConversationTriageState. */}
           {canWrite && (
-            <div style={{ display: 'flex', background: 'var(--v2-bg-deeper)', borderRadius: '8px', padding: '2px', gap: '2px', flexShrink: 0 }}>
+            <div className="max-lg:w-full" style={{ display: 'flex', background: 'var(--v2-bg-deeper)', borderRadius: '8px', padding: '2px', gap: '2px', flexShrink: 0 }}>
               {([['atencion', 'Atención'], ['pendiente', 'Pendiente'], ['resuelta', 'Resuelta']] as const).map(([k, label]) => {
                 const on = triageState === k
                 const c = k === 'atencion' ? ['var(--v2-amber-soft)', '#b07d00'] : k === 'pendiente' ? ['rgba(62,116,232,0.14)', '#3E74E8'] : ['var(--v2-green-soft)', 'var(--v2-green-deep)']
                 return (
-                  <button key={k} onClick={() => handleTriage(k)} disabled={isPending} style={{
-                    border: 'none', fontFamily: 'inherit', fontSize: '11px', fontWeight: 700, padding: '5px 10px', borderRadius: '6px', cursor: isPending ? 'default' : 'pointer',
+                  <button key={k} onClick={() => handleTriage(k)} disabled={isPending} className="v2-tap-seg" style={{
+                    border: 'none', fontFamily: 'inherit', fontWeight: 700, borderRadius: '6px', cursor: isPending ? 'default' : 'pointer',
                     background: on ? c[0] : 'transparent', color: on ? c[1] : 'var(--v2-text-muted)',
                   }}>{label}</button>
                 )
@@ -394,7 +399,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
               vencimiento del claim) es invisible — nadie aprieta un botón por
               algo que no ve. */}
           {canWrite && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+            <div className="max-lg:w-full" style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
               {status === 'escalated' ? (
                 <>
                   {claimState.state === 'mine' && (
@@ -404,17 +409,17 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
                     <span style={{ fontSize: '11px', fontWeight: 700, color: '#b07d00', background: 'var(--v2-amber-soft)', padding: '4px 8px', borderRadius: '6px', whiteSpace: 'nowrap' }}>🙋 {claimState.byName}</span>
                   )}
                   {claimState.state !== 'mine' && (
-                    <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
+                    <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary v2-tap max-lg:flex-1" style={{ whiteSpace: 'nowrap' }}>✋ Atender yo</button>
                   )}
-                  <button onClick={handleReturnClick} disabled={isPending} style={{ fontSize: '11px', fontWeight: 600, fontFamily: 'inherit', padding: '6px 12px', borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)', background: 'var(--v2-bg-card)', color: 'var(--v2-text)', cursor: isPending ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>🤖 Que siga el agente</button>
+                  <button onClick={handleReturnClick} disabled={isPending} className="v2-tap max-lg:flex-1" style={{ fontWeight: 600, fontFamily: 'inherit', borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)', background: 'var(--v2-bg-card)', color: 'var(--v2-text)', cursor: isPending ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>🤖 Que siga el agente</button>
                 </>
               ) : status === 'active' ? (
                 <>
                   <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-text-subtle)', whiteSpace: 'nowrap' }}>🤖 El agente responde</span>
-                  <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
+                  <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary v2-tap max-lg:flex-1" style={{ whiteSpace: 'nowrap' }}>✋ Atender yo</button>
                 </>
               ) : (
-                <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '11px', padding: '6px 12px', whiteSpace: 'nowrap' }}>✋ Atender yo</button>
+                <button onClick={handleTakeOver} disabled={isPending} className="btn-v2-primary v2-tap max-lg:flex-1" style={{ whiteSpace: 'nowrap' }}>✋ Atender yo</button>
               )}
               <button
                 onClick={() => setShowContext(!showContext)}
@@ -558,7 +563,8 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
             <button
               onClick={handleReturnClick}
               disabled={isPending}
-              style={{ fontSize: '11px', fontWeight: 700, color: 'var(--v2-green-deep)', background: 'none', border: '1px solid var(--v2-green-deep)', borderRadius: '6px', padding: '4px 10px', cursor: isPending ? 'not-allowed' : 'pointer' }}
+              className="v2-tap"
+              style={{ fontWeight: 700, color: 'var(--v2-green-deep)', background: 'none', border: '1px solid var(--v2-green-deep)', borderRadius: '6px', cursor: isPending ? 'not-allowed' : 'pointer' }}
             >
               🤖 Que siga el agente
             </button>

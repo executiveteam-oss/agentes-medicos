@@ -123,12 +123,12 @@ export function NotificationBell() {
       {/* Bell button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
+        className="v2-tap-icon"
         style={{
           position: 'relative',
           background: 'none',
           border: 'none',
           cursor: 'pointer',
-          padding: '6px',
           color: isOpen ? 'var(--v2-primary)' : 'var(--v2-text-muted)',
           transition: 'color 0.15s',
         }}
@@ -166,8 +166,13 @@ export function NotificationBell() {
             top: '100%',
             right: 0,
             marginTop: '8px',
-            width: '360px',
-            maxHeight: '480px',
+            // Desde que se quitó el aviso por WhatsApp al staff, esta campana es
+            // el ÚNICO canal por el que se entera una escalación — tiene que
+            // entrar entera en un teléfono. Con 360px fijos se salía del
+            // viewport: quedan 358px útiles en un iPhone de 390 (topbar px-4) y
+            // 328px en un Android de 360. El min() la acota al ancho real.
+            width: 'min(360px, calc(100vw - 32px))',
+            maxHeight: 'min(480px, calc(100vh - 96px))',
             background: 'var(--v2-bg-card)',
             border: '1px solid var(--v2-border-soft)',
             borderRadius: 'var(--v2-radius-lg)',

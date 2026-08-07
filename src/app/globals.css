@@ -385,3 +385,19 @@ body {
     flex: 1;
   }
 }
+
+/* Botón-ícono táctil (campana de alertas). Mismo criterio que .v2-tap, pero
+   sin padding horizontal: acá lo que importa es el área, no el texto. */
+.v2-tap-icon {
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 1023px) {
+  .v2-tap-icon {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+}

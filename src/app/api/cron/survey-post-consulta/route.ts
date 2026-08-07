@@ -33,6 +33,7 @@ import {
   SURVEY_CONFIG_DEFAULTS,
   canSendSurvey,
   extractFirstName,
+  SURVEY_BUTTON_URL_SUFFIX,
   type SurveyConfig,
 } from '@/lib/rules/survey-config'
 
@@ -163,15 +164,14 @@ async function processClinicSurveys(
 
     const whatsappNumber = patient.phone.replace('+', '')
 
-    // form_url ya validada por canSendSurvey — es string no-null aquí
-    const formUrl = cfg.form_url as string
-
+    // El parámetro del botón NO es la URL: Meta la CONCATENA a la base aprobada,
+    // que ya contiene el formulario entero. Ver SURVEY_BUTTON_URL_SUFFIX.
     const result = await sendWhatsAppTemplate(
       whatsappNumber,
       cfg.template_name,
       LANGUAGE_CODE,
       [firstName, clinicDisplayName],
-      formUrl,
+      SURVEY_BUTTON_URL_SUFFIX,
       clinicCreds,
       { clinicId: apt.clinic_id, sendType: 'survey' },
     )
@@ -203,7 +203,11 @@ async function processClinicSurveys(
           language_code: LANGUAGE_CODE,
           phone_last4: whatsappNumber.slice(-4),
           message_id: result.messageId ?? null,
-          form_url_domain: safeDomain(formUrl),
+          // El formulario del envío automático vive en la BASE del template
+          // aprobado en Meta, no en la config: acá se audita el sufijo que se
+          // mandó como parámetro, que es lo único que controla el código.
+          button_url_suffix: SURVEY_BUTTON_URL_SUFFIX,
+          form_url_config_domain: safeDomain(cfg.form_url ?? ''),
         },
       })
 

@@ -124,6 +124,30 @@ function capitalize(s: string): string {
  *   2. Actualizar TEMPLATE_BODY_TEXT en survey-form.tsx (o al revés)
  *   3. Actualizar el snapshot test
  */
+/**
+ * SUFIJO que se manda como parámetro {{1}} del botón URL del template.
+ *
+ * NO es la URL del formulario. En un botón de URL dinámica, Meta CONCATENA el
+ * parámetro a la base aprobada — no la reemplaza. La base aprobada de Algia ya
+ * trae el formulario entero y termina en `?usp=header`:
+ *
+ *   https://docs.google.com/forms/d/e/1FAIp…/viewform?usp=header{{1}}
+ *
+ * Mandar la URL completa como parámetro la duplicaba y producía un link roto.
+ * Con `&src=wa` queda una URL válida y además marca el origen del tráfico.
+ *
+ * ⚠ CONSECUENCIA A TENER PRESENTE: para el envío AUTOMÁTICO, el formulario está
+ * horneado en el template aprobado en Meta, no en la config. Cambiar `form_url`
+ * en Automatizaciones cambia el envío MANUAL (wa.me) pero NO el automático.
+ * Para cambiar de formulario en el automático hay que re-aprobar el template.
+ *
+ * DEUDA: lo correcto es re-aprobar con la base cortada en el prefijo estable
+ * (`.../forms/d/e/{{1}}`) y mandar como parámetro el ID + `/viewform`. Así se
+ * cambia de formulario sin pasar por Meta. No se hizo hoy porque implica
+ * esperar la aprobación.
+ */
+export const SURVEY_BUTTON_URL_SUFFIX = '&src=wa'
+
 export const SURVEY_MESSAGE_TEMPLATE =
   'Buen día {firstName}. Sería tan amable de diligenciar la encuesta de satisfacción de {clinicName}. Gracias por ayudarnos a mejorar nuestra atención.'
 

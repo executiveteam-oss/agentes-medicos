@@ -296,7 +296,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
   const lockedByOther = claimConfig.enabled && claimConfig.mode === 'hard' && claimState.state === 'others'
 
   return (
-    <div style={{ display: 'flex', flex: 1, overflow: 'hidden', fontFamily: 'var(--font-manrope), sans-serif' }}>
+    <div style={{ display: 'flex', flex: 1, minWidth: 0, overflow: 'hidden', fontFamily: 'var(--font-manrope), sans-serif' }}>
       {/* ===== Chat column ===== */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <RealtimeIndicator connected={connected} />
@@ -451,6 +451,7 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
         <div
           style={{
             flex: 1,
+            minWidth: 0,
             overflowY: 'auto',
             padding: '16px 18px',
             background: 'var(--v2-bg-tinted)',

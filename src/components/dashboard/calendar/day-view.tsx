@@ -52,7 +52,11 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }} className="space-y-4">
       {/* Stat cards + bulk cancel button */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ flex: 1 }}>
+        {/* minWidth:0 — sin esto la grilla no se achica por debajo del ancho de
+            sus tarjetas y se pelea por el espacio con el botón de cancelar, que
+            tampoco cedía (nowrap + flexShrink:0). Ninguno de los dos entregaba
+            ancho: se superponían y empujaban la página más allá del viewport. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" style={{ flex: 1, minWidth: 0 }}>
         <StatCard label="Total" value={total} color="var(--v2-text)" />
         <StatCard label="Pendientes" value={pending} color="var(--v2-primary)" />
         <StatCard label="Completadas" value={completed} color="var(--v2-green)" />
@@ -61,19 +65,25 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
         {pending > 0 && (
           <button
             onClick={() => setShowBulkCancel(true)}
+            className="max-lg:w-full"
             style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              fontSize: '12px', fontWeight: 600, padding: '8px 14px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              fontSize: '12px', fontWeight: 600, padding: '10px 14px',
               borderRadius: 'var(--v2-radius)', border: '1px solid rgba(255,87,87,0.3)',
               background: 'var(--v2-red-soft)', color: 'var(--v2-red)',
               cursor: 'pointer', fontFamily: 'var(--font-manrope), sans-serif',
-              whiteSpace: 'nowrap', flexShrink: 0,
+              // Sin nowrap: "Cancelar citas de JUAN DIEGO VILLEGAS ECHEVERRI" son
+              // ~330px indivisibles, más que un teléfono entero. En celular el botón
+              // toma su propia fila completa; en computador la fila sigue entrando.
+              minWidth: 0,
             }}
           >
             <XCircle size={14} />
-            {isFilteredDoctor && doctorName
-              ? `Cancelar citas de ${doctorName}`
-              : 'Cancelar todas las citas'}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+              {isFilteredDoctor && doctorName
+                ? `Cancelar citas de ${doctorName}`
+                : 'Cancelar todas las citas'}
+            </span>
           </button>
         )}
       </div>

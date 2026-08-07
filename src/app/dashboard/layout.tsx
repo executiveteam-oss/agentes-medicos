@@ -336,7 +336,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <SidebarOverlay />
 
         {/* ===== Main content ===== */}
-        <div className="flex-1 lg:ml-[252px] min-h-screen flex flex-col">
+        {/* min-w-0: un hijo de flex arranca en min-width:auto, o sea que NO se
+            achica por debajo del ancho mínimo de su contenido. Cualquier
+            descendiente ancho e indivisible (un botón con whiteSpace:nowrap, una
+            tabla) ensanchaba ESTA columna y con ella la página entera → barra de
+            scroll horizontal en TODAS las pantallas del dashboard en celular.
+            Con min-w-0 la columna se ajusta al viewport y el contenido de adentro
+            se hace cargo de truncar o envolver. */}
+        <div className="flex-1 lg:ml-[252px] min-h-screen flex flex-col min-w-0">
           {/* Top header */}
           <header
             className="sticky top-0 z-20 flex items-center h-14 px-4 lg:px-8"
@@ -355,7 +362,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
           {/* Page content */}
           <main
-            className="flex-1 px-4 py-6 lg:px-8 lg:py-8"
+            className="flex-1 px-4 py-6 lg:px-8 lg:py-8 min-w-0"
             style={{
               backgroundImage: 'radial-gradient(circle at 0% 0%, rgba(107, 91, 255, 0.04), transparent 40%), radial-gradient(circle at 100% 100%, rgba(255, 107, 170, 0.03), transparent 40%)',
             }}

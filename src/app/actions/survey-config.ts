@@ -23,6 +23,10 @@ export interface SurveyConfigResult {
   config: SurveyConfig
   featureFlagEnabled: boolean
   clinicName: string
+  /** Hay algo guardado pero NO parsea contra el schema. Distinto de "no
+   *  configurada": reconfigurar desde la UI no lo arregla, hay que mirar el
+   *  JSON. Sin esta señal los dos casos se ven idénticos en pantalla. */
+  malformed: boolean
 }
 
 /**
@@ -39,8 +43,20 @@ export async function getSurveyConfig(): Promise<SurveyConfigResult> {
     .single()
 
   const rawSurvey = (clinic?.whatsapp_config as Record<string, unknown> | null)?.automations as Record<string, unknown> | undefined
-  const parsed = SurveyConfigSchema.safeParse(rawSurvey?.survey ?? {})
+  const stored = rawSurvey?.survey
+  const parsed = SurveyConfigSchema.safeParse(stored ?? {})
   const config: SurveyConfig = parsed.success ? parsed.data : SURVEY_CONFIG_DEFAULTS
+
+  // FALLA SILENCIOSA, cerrada: si hay algo guardado y NO parsea, caer a los
+  // defaults deja form_url en null y la UI dice "Encuesta no configurada" —
+  // idéntico a no haber configurado nunca. La secretaria ve una advertencia
+  // que no puede resolver, porque configurar de nuevo no arregla un JSON mal
+  // formado. Se marca como malformada para que la pantalla lo diga.
+  const malformed = stored != null && !parsed.success
+  if (malformed) {
+    console.error('[getSurveyConfig] config de encuesta MAL FORMADA — se ignora:',
+      JSON.stringify(parsed.success ? null : parsed.error.issues))
+  }
 
   const featureFlagEnabled =
     (clinic?.feature_config as Record<string, unknown> | null)?.survey_post_consulta_enabled === true
@@ -49,6 +65,7 @@ export async function getSurveyConfig(): Promise<SurveyConfigResult> {
     config,
     featureFlagEnabled,
     clinicName: (clinic?.name as string) ?? '',
+    malformed,
   }
 }
 

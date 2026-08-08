@@ -34,6 +34,8 @@ interface SurveyConfigForRow {
   enabled: boolean
   form_url: string | null
   clinic_display_name: string
+  /** Hay config guardada pero mal formada. Ver getSurveyConfig. */
+  malformed?: boolean
 }
 
 interface QuickActionsProps {
@@ -147,6 +149,22 @@ function SurveyRow({ appointmentId, state, config }: SurveyRowProps) {
           {sentAtStr && (
             <span style={{ fontSize: 11, color: '#047857' }}>· {sentAtStr}</span>
           )}
+        </div>
+      </div>
+    )
+  }
+
+  // === Estado E — HAY config guardada pero está mal formada.
+  // Distinto de "no configurada": volver a guardar desde la UI no lo arregla.
+  // Antes caía en el estado D y se veía idéntico a no haber configurado nunca,
+  // así que la secretaria veía una advertencia que no podía resolver.
+  if (config?.malformed) {
+    return (
+      <div style={surveyBoxStyle('#fee2e2', '#fecaca')}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#991b1b' }}>⚠ Encuesta mal configurada</div>
+        <div style={{ fontSize: 11, color: '#991b1b', marginTop: 3 }}>
+          Hay una configuración guardada que el sistema no puede leer. Volver a guardarla no
+          lo resuelve — avisale a soporte.
         </div>
       </div>
     )

@@ -63,9 +63,12 @@ interface Props {
   expandedApt: string | null
   setExpandedApt: (id: string | null) => void
   onEmptySlotClick?: (date: string, hour: number) => void
+  /** Config de la encuesta para QuickActions. Sin esto el panel dice
+      "Encuesta no configurada" aunque esté perfectamente configurada. */
+  surveyConfig?: React.ComponentProps<typeof AppointmentDetail>['surveyConfig']
 }
 
-export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick }: Props) {
+export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick, surveyConfig }: Props) {
   const monday = getMonday(selectedDate)
   const weekDates = getWeekDates(monday)
 
@@ -290,7 +293,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                   overflowY: 'auto',
                 }}
               >
-                <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} />
+                <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} surveyConfig={surveyConfig} />
               </aside>
             </>
           )

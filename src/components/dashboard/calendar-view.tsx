@@ -25,6 +25,8 @@ export interface SurveyConfigForCalendar {
   enabled: boolean
   form_url: string | null
   clinic_display_name: string
+  /** Hay config guardada pero mal formada. Ver getSurveyConfig. */
+  malformed?: boolean
 }
 
 interface Props {
@@ -372,6 +374,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           expandedApt={expandedApt}
           setExpandedApt={setExpandedApt}
           onEmptySlotClick={handleEmptySlotClick}
+          surveyConfig={surveyConfig}
         />
       )}
       {view === 'month' && (

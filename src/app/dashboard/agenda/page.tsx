@@ -140,6 +140,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
     enabled: surveyRaw.config.enabled,
     form_url: surveyRaw.config.form_url,
     clinic_display_name: surveyRaw.config.clinic_display_name || surveyRaw.clinicName,
+    malformed: surveyRaw.malformed,
   }
 
   return (

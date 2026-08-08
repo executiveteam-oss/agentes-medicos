@@ -13,6 +13,8 @@ export interface SurveyPropsForQuickActions {
   enabled: boolean
   form_url: string | null
   clinic_display_name: string
+  /** Hay config guardada pero mal formada. Ver getSurveyConfig. */
+  malformed?: boolean
 }
 
 interface Props {

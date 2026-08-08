@@ -41,7 +41,7 @@ assert(
 )
 assert(
   'body cancelación EXACTO',
-  CANCEL_TEMPLATE_BODY === 'Hola {{1}} 👋 Lamentamos informarte que tu cita con {{2}} del {{3}} a las {{4}} fue cancelada {{5}}. Queremos reagendarte lo antes posible.',
+  CANCEL_TEMPLATE_BODY === 'Hola {{1}} 👋 Lamentamos informarte que tu cita con {{2}} del {{3}} a las {{4}} fue cancelada. Motivo: {{5}}. Queremos reagendarte lo antes posible.',
   JSON.stringify(CANCEL_TEMPLATE_BODY),
 )
 

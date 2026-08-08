@@ -34,9 +34,14 @@ export const REMINDER_TEMPLATE_BODY_V2 =
   'Hola {{1}} 👋 Te escribimos de {{2}}. Te recordamos tu cita con {{3}} el {{4}} a las {{5}}.\n📍 {{6}}\nTe esperamos.'
 
 // --- Cancelación ---
+// El motivo va en su PROPIA oración. Antes era "fue cancelada {{5}}", y las
+// secretarias escriben solo el motivo ("se enfermó", "tuvo un accidente"), así
+// que salía "fue cancelada se enfermó". Con "Motivo: {{5}}." funciona con
+// cualquier redacción. Es el mensaje que recibe una paciente a la que le
+// cancelan: tiene que leerse profesional.
 export const CANCEL_TEMPLATE_NAME = 'cancelacion_cita'
 export const CANCEL_TEMPLATE_BODY =
-  'Hola {{1}} 👋 Lamentamos informarte que tu cita con {{2}} del {{3}} a las {{4}} fue cancelada {{5}}. Queremos reagendarte lo antes posible.'
+  'Hola {{1}} 👋 Lamentamos informarte que tu cita con {{2}} del {{3}} a las {{4}} fue cancelada. Motivo: {{5}}. Queremos reagendarte lo antes posible.'
 export const CANCEL_BUTTON = 'Reagendar'
 
 // --- Resumen diario del médico (cron 6am, sin botones) ---

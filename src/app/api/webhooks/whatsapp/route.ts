@@ -501,7 +501,7 @@ async function processWebhook(body: unknown): Promise<void> {
       // marca 🚨 del prompt (capa A). El executor sigue como backstop (capa B).
       const escSvc = detectEscalateService(sanitizedText)
       if (escSvc.matched && !isPriceOnlyQuestion(sanitizedText)) {
-        await handleEscalateService(clinic, patient, conversation, message.from, escSvc.label ?? 'ese servicio', clinicCreds)
+        await handleEscalateService(clinic, patient, conversation, message.from, escSvc.label ?? 'ese servicio', escSvc.key ?? 'desconocido', clinicCreds)
         return
       }
       // Si matcheó el servicio PERO es solo una pregunta de precio/cobertura, no
@@ -1267,33 +1267,59 @@ async function handleCrisis(
 async function handleEscalateService(
   clinic: Clinic,
   patient: { id: string; name: string | null },
-  conversation: { id: string; status: string },
+  conversation: { id: string; status: string; context?: Record<string, unknown> | null },
   patientPhone: string,
   serviceLabel: string,
+  serviceKey: string,
   clinicCreds: ClinicWhatsAppCredentials | null,
 ): Promise<void> {
-  const msg = `Para ${serviceLabel}, un asesor del consultorio confirma los detalles contigo antes de agendar. Ya les avisé y te contactan pronto. 🙂`
+  // ¿Este servicio YA estaba marcado en esta conversación?
+  const ctx = (conversation.context ?? {}) as Record<string, unknown>
+  const marcados = Array.isArray(ctx.servicios_marcados) ? (ctx.servicios_marcados as string[]) : []
+  const yaMarcado = marcados.includes(serviceKey)
+
+  // Si insiste, NO repetir el mismo mensaje ni quedarse mudo: reconocer que ya
+  // quedó marcado y seguir disponible para lo demás.
+  const msg = yaMarcado
+    ? `Ya le pasé tu solicitud de ${serviceLabel} al equipo, te contactan pronto. 🙂 Mientras tanto, ¿te ayudo con algo más?`
+    : `Para ${serviceLabel}, un asesor del consultorio confirma los detalles contigo antes de agendar. Ya les avisé y te contactan pronto. 🙂`
   await saveMessage(conversation.id, 'agent', msg)
   await sendWhatsAppMessage(patientPhone, msg, clinicCreds)
 
-  if (conversation.status !== 'escalated') {
+  if (!yaMarcado) {
+    // NO se toca `status`. Un servicio ruleado NO es una conversación tomada por
+    // una persona: es un ítem marcado dentro de una conversación VIVA. Va a la
+    // pestaña Atención por el eje B (triage_state) y el agente sigue respondiendo
+    // por el eje A. Son los dos ejes de la bandeja, que acá venían fusionados: al
+    // escalar el status, la paciente que preguntaba OTRA cosa se quedaba sin
+    // respuesta (caso real: pidió mapeo → escaló; dijo "o una transvaginal" →
+    // nadie le contestó, y esa sí se puede agendar).
+    //
+    // La seguridad no depende de esto: el executor bloquea create_appointment de
+    // un servicio ruleado SIN mirar el estado de la conversación
+    // (executor.ts:532, sin flags y sin acceso al status). Callar al agente era
+    // redundante para la garantía y caro para la conversación.
     await supabaseAdmin
       .from('conversations')
-      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'servicio_escalate_human' } })
+      .update({
+        triage_state: 'atencion',
+        context: { ...ctx, escalation_reason: 'servicio_escalate_human', servicios_marcados: [...marcados, serviceKey] },
+      })
       .eq('id', conversation.id)
     await notifyStaffOfEscalation({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, reason: `Servicio que requiere validación humana: ${serviceLabel}` })
   } else {
-    await refreshEscalationNotifications({ conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name, latestMessage: `Servicio que requiere validación humana: ${serviceLabel}` })
+    await refreshEscalationNotifications({ conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name, latestMessage: `Insiste con ${serviceLabel}` })
   }
 
   try {
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinic.id, action: 'escalate_service_deterministic', actor_type: 'system',
-      target_type: 'conversation', target_id: conversation.id, details: { service: serviceLabel },
+      target_type: 'conversation', target_id: conversation.id,
+      details: { service: serviceLabel, service_key: serviceKey, ya_marcado: yaMarcado, corta_el_agente: false },
     })
   } catch { /* no crítico */ }
 
-  console.log(`[CAPA0][ESCALATE-SVC] "${serviceLabel}" escalado determinista. conv ${conversation.id}`)
+  console.log(`[CAPA0][ESCALATE-SVC] "${serviceLabel}" marcado (yaMarcado=${yaMarcado}). Agente SIGUE activo. conv ${conversation.id}`)
 }
 
 /**

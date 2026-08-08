@@ -44,7 +44,7 @@ export default async function ConversationsPage() {
   const { data: conversations } = await supabaseAdmin
     .from('conversations')
     .select(`
-      id, status, triage_state, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
+      id, status, triage_state, context, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
       patients(id, name, phone, eps, no_show_count, total_appointments, tratantes),
       messages(id, content, role, created_at)
     `)
@@ -144,6 +144,9 @@ export default async function ConversationsPage() {
       patient_eps: patient?.eps ?? null,
       status: conv.status as 'active' | 'escalated' | 'resolved',
       triage_state: (conv.triage_state as 'atencion' | 'pendiente' | 'resuelta' | null) ?? null,
+      // Servicios ruleados marcados en esta conversación. Alimentan el badge de
+      // la fila: sin esto la secretaria ve "Atención" sin saber QUÉ resolver.
+      servicios_marcados: (((conv.context as Record<string, unknown> | null)?.servicios_marcados) as string[] | undefined) ?? [],
       last_message_at: conv.last_message_at as string,
       last_message_preview: lastMsg
         ? lastMsg.content.length > 80 ? lastMsg.content.slice(0, 80) + '...' : lastMsg.content

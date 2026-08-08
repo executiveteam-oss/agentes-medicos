@@ -30,6 +30,8 @@ interface ConversationEntry {
   is_mine: boolean
   specialty: string | null
   doctor_name: string | null
+  /** Keys de servicios ruleados marcados (Capa 0) sobre una conversación VIVA. */
+  servicios_marcados: string[]
 }
 
 interface Props {
@@ -44,9 +46,33 @@ type FilterKey = 'atencion' | 'pendiente' | 'resuelta' | 'agente'
 function bucketOf(e: ConversationEntry): FilterKey {
   if (e.status === 'resolved') return 'resuelta'
   if (e.triage_state === 'pendiente') return 'pendiente'
-  if (e.status === 'escalated') return 'atencion'
+  // Atención por DOS caminos, que son los dos ejes:
+  //   · status='escalated' con triage sin tocar → escalación clásica (crisis,
+  //     pedido de humano): un humano se hizo cargo y el agente está callado.
+  //   · triage_state='atencion' → servicio ruleado marcado sobre una
+  //     conversación VIVA: hay algo que resolver Y el agente sigue respondiendo.
+  // Antes solo existía el primero, así que marcar un servicio obligaba a callar
+  // al agente para que la conversación apareciera en la cola.
+  if ((e.status === 'escalated' && e.triage_state === null) || e.triage_state === 'atencion') return 'atencion'
   return 'agente' // active — el bot lo maneja
 }
+
+/**
+ * Nombre CORTO del servicio marcado, para la fila. El label que se guarda para
+ * la paciente es largo ("la ecografía de mapeo") y no entra en una fila.
+ * Las keys salen de ESCALATE_SERVICE_KEYWORDS.
+ */
+const NOMBRE_SERVICIO: Record<string, string> = {
+  colposcopia: 'Colposcopia',
+  vulvoscopia: 'Vulvoscopia',
+  biopsia_histeroscopia: 'Histeroscopia/biopsia',
+  mapeo: 'Mapeo',
+  citologia: 'Citología',
+  posquirurgico: 'Control posquirúrgico',
+  diu: 'DIU',
+  sedacion: 'Sedación',
+}
+const nombreServicio = (k: string) => NOMBRE_SERVICIO[k] ?? k
 
 const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
   { key: 'atencion', label: 'Atención', emoji: '⚠️' },
@@ -328,6 +354,16 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                     {entry.specialty && (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '3px', fontSize: '10.5px', fontWeight: 600, color: 'var(--v2-text-subtle)' }}>
                         🩺 {entry.specialty}{entry.doctor_name ? ` · ${entry.doctor_name}` : ''}
+                      </span>
+                    )}
+                    {entry.servicios_marcados.length > 0 && (
+                      <span
+                        style={{
+                          fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px',
+                          background: 'var(--v2-amber-soft)', color: '#b07d00', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        🚨 {entry.servicios_marcados.map(nombreServicio).join(' · ')} — requiere confirmación
                       </span>
                     )}
                     {entry.claimed_active_label !== null && (

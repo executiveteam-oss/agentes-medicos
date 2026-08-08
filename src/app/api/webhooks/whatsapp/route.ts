@@ -32,7 +32,7 @@ import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
 import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery, normalizeForSafety } from '@/lib/safety/crisis-patterns'
-import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
+import { detectEscalateService, isPriceOnlyQuestion } from '@/lib/safety/escalate-service-matcher'
 import { buildPrivacyNotice } from '@/lib/legal/privacy-notice'
 import { buildContainmentMessage, DEFAULT_CRISIS_CONFIG, type CrisisConfig } from '@/lib/safety/crisis-config'
 import { buildDataRightsAck } from '@/lib/safety/data-rights-config'
@@ -500,10 +500,15 @@ async function processWebhook(body: unknown): Promise<void> {
       // Determinista, model-independent — tapa el hueco de que el modelo no lea la
       // marca 🚨 del prompt (capa A). El executor sigue como backstop (capa B).
       const escSvc = detectEscalateService(sanitizedText)
-      if (escSvc.matched) {
+      if (escSvc.matched && !isPriceOnlyQuestion(sanitizedText)) {
         await handleEscalateService(clinic, patient, conversation, message.from, escSvc.label ?? 'ese servicio', clinicCreds)
         return
       }
+      // Si matcheó el servicio PERO es solo una pregunta de precio/cobertura, no
+      // se escala: sigue al LLM, que sabe dar el precio particular. Una paciente
+      // preguntó "¿qué vale el mapeo?" y se quedó sin respuesta — escalar eso es
+      // un falso positivo caro. Ante cualquier señal de agendar, escala igual
+      // (ver BOOKING_INTENT). El executor sigue como backstop si deriva a cita.
       if (crisisCfg.detection_enabled && detectHumanRequest(sanitizedText).matched) {
         await handleHumanRequest(clinic, patient, conversation, message.from, sanitizedText, clinicCreds, crisisCfg)
         return

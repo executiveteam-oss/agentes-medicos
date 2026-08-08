@@ -73,3 +73,44 @@ export function findUncoveredEscalateServices(activeCtNames: string[]): string[]
   }
   return uncovered
 }
+
+// ============================================================
+// COMPUERTA DE INTENCIÓN INFORMATIVA (versión acotada: precio y cobertura).
+//
+// POR QUÉ: el detector de arriba mira la PALABRA, no la intención. Una paciente
+// escribió "¿me puede informar qué vale el mapeo?" y la conversación se escaló
+// sin que nadie le respondiera — solo quería un precio, y el precio particular
+// el agente lo sabe dar.
+//
+// El principio de sobre-escalar sigue en pie para todo lo demás. Esto abre UNA
+// sola puerta: preguntas de PRECIO o COBERTURA, y solo cuando NO hay ninguna
+// señal de querer agendar.
+//
+// Deliberadamente NO incluye "qué es" ni "en qué consiste": esas respuestas
+// rozan lo clínico y esa puerta no se abre sin decisión médica.
+// ============================================================
+
+/** Pregunta por plata o por cobertura. */
+const PRICE_INTENT = /\b(cuanto (vale|cuesta|sale|es)|que (vale|precio|valor|costo)|precio|valor|costo|tarifa|cubre|cubierto|cobertura|copago|cuota moderadora)\b/
+
+/**
+ * Señales de querer AGENDAR. Si aparece alguna, manda ésta: la escalación
+ * ocurre aunque también haya preguntado el precio.
+ * "¿Cuánto vale el mapeo y me lo agendás?" → escala.
+ */
+// Se usan RAÍCES, no formas exactas: con \bagenda\b se escapaba "me lo agendas",
+// que es justo el caso que tiene que escalar. Errar hacia escalar es el lado
+// barato del error.
+const BOOKING_INTENT = /\b(agend\w*|cita\w*|citar\w*|separ\w*|reserv\w*|program\w*|disponibilidad|cupo\w*|horario\w*|hora dispon\w*|quiero|quisiera|necesito|me lo (pueden|puede) hacer|para cuando|cuando (puedo|pueden|hay))\b/
+
+/**
+ * ¿Este mensaje es SOLO una consulta de precio/cobertura sobre un servicio
+ * ruleado? Si sí, el call site NO escala y deja que el agente responda.
+ * Puro texto, sin DB — testeable en aislamiento.
+ */
+export function isPriceOnlyQuestion(text: string): boolean {
+  const n = normalizeForSafety(text)
+  if (!PRICE_INTENT.test(n)) return false
+  if (BOOKING_INTENT.test(n)) return false
+  return true
+}

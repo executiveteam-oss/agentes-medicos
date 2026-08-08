@@ -121,6 +121,28 @@ async function processClinicSurveys(
 
   const guardrailIso = new Date(Date.now() - cfg.guardrail_hours * 60 * 60 * 1000).toISOString()
 
+  // GUARDA DE RESCATE — la ventana residual del envío inmediato.
+  // sendSurveyNow reclama la fila (survey_sent=true) ANTES de enviar y la
+  // devuelve si el envío falla. Si el proceso muere entre esos dos pasos, la
+  // fila queda reclamada sin que la encuesta haya salido nunca. La huella es
+  // reconocible: survey_sent=true con survey_sent_at NULL — que ningún camino
+  // sano produce, porque los tres escriben las dos columnas juntas.
+  // Se liberan a los RESCUE_STALE_MINUTES para no pisar un envío en curso.
+  const RESCUE_STALE_MINUTES = 15
+  const staleIso = new Date(Date.now() - RESCUE_STALE_MINUTES * 60 * 1000).toISOString()
+  const { data: rescued } = await supabaseAdmin
+    .from('appointments')
+    .update({ survey_sent: false })
+    .eq('clinic_id', clinic.id)
+    .eq('attendance_outcome', 'facturado')
+    .eq('survey_sent', true)
+    .is('survey_sent_at', null)
+    .lt('updated_at', staleIso)
+    .select('id')
+  if (rescued && rescued.length > 0) {
+    console.warn(`[Cron:Survey] Rescatadas ${rescued.length} citas reclamadas sin envío (murió el proceso a mitad)`)
+  }
+
   // Citas facturadas SIN encuesta, dentro del guardrail
   const { data: appointments, error } = await supabaseAdmin
     .from('appointments')

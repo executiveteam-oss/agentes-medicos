@@ -7,6 +7,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import type { PaymentType, AttendanceOutcome } from '@/types/database'
 import { getSessionClinicId, checkWritePermission } from '@/lib/actions-helpers'
 import { computeNoShowDelta } from '@/lib/utils/attendance-outcome'
@@ -115,9 +116,30 @@ export async function markAsAdmitido(appointmentId: string): Promise<void> {
   await setAttendanceOutcomeInternal(appointmentId, 'admitido')
 }
 
-/** Marcar cita como FACTURADA — consulta cobrada/facturada */
+/**
+ * Marcar cita como FACTURADA.
+ *
+ * En Omuwan el único rol de este botón es DISPARAR LA ENCUESTA — la facturación
+ * real vive en el HIS. Y el equipo lo marca apenas la paciente sale, así que la
+ * encuesta sale acá mismo en vez de esperar hasta 59 minutos a la corrida del
+ * cron.
+ *
+ * El envío va dentro de `after()`: corre DESPUÉS de responderle al navegador,
+ * así que el click no espera el round-trip a Meta. Si el envío falla, la
+ * secretaria no lo ve en el momento — queda en audit_log y el cron reintenta.
+ */
 export async function markAsFacturado(appointmentId: string): Promise<void> {
   const { clinicId, previous } = await setAttendanceOutcomeInternal(appointmentId, 'facturado')
+
+  // Solo en la TRANSICIÓN a facturado. Re-marcar una cita ya facturada no
+  // reintenta el envío: de eso se encarga el cron con su propia idempotencia.
+  if (previous !== 'facturado') {
+    after(async () => {
+      const { sendSurveyNow } = await import('@/lib/survey/send-survey-now')
+      const r = await sendSurveyNow(appointmentId, clinicId)
+      if (!r.sent) console.log(`[markAsFacturado] encuesta no enviada (${r.reason}) — queda para el cron`)
+    })
+  }
 
   if (previous !== 'facturado') {
     const { data: apt } = await supabaseAdmin

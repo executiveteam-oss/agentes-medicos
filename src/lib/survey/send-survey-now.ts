@@ -32,11 +32,9 @@ import {
   SurveyConfigSchema,
   SURVEY_CONFIG_DEFAULTS,
   canSendSurvey,
-  extractFirstName,
-  SURVEY_BUTTON_URL_SUFFIX,
+  buildSurveyTemplateArgs,
 } from '@/lib/rules/survey-config'
 
-const LANGUAGE_CODE = 'es'
 
 export type SendSurveyNowResult =
   | { sent: true }
@@ -102,16 +100,18 @@ export async function sendSurveyNow(
     if (claimErr) return { sent: false, reason: 'error_reclamando' }
     if (!claimed || claimed.length === 0) return { sent: false, reason: 'reclamada_por_otro_flujo' }
 
-    const firstName = extractFirstName({ first_name: patient.first_name, name: patient.name })
-    const clinicDisplayName = cfg.clinic_display_name?.trim() || (clinic.name as string)
+    const args = buildSurveyTemplateArgs({
+      cfg,
+      clinicName: clinic.name as string,
+      patient: { name: patient.name, first_name: patient.first_name },
+    })
 
     const result = await sendWhatsAppTemplate(
       patient.phone.replace('+', ''),
-      cfg.template_name,
-      LANGUAGE_CODE,
-      [firstName, clinicDisplayName],
-      // NO es la URL: Meta concatena esto a la base aprobada. Ver la constante.
-      SURVEY_BUTTON_URL_SUFFIX,
+      args.templateName,
+      args.languageCode,
+      args.bodyParams,
+      args.buttonParam,
       creds,
       { clinicId, sendType: 'survey' },
     )
@@ -125,9 +125,9 @@ export async function sendSurveyNow(
         target_id: appointmentId,
         details: {
           via: 'inmediato_al_facturar',
-          template_name: cfg.template_name,
+          template_name: args.templateName,
           message_id: result.messageId ?? null,
-          button_url_suffix: SURVEY_BUTTON_URL_SUFFIX,
+          button_url_suffix: args.buttonParam,
         },
       })
       return { sent: true }

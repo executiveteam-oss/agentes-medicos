@@ -11,6 +11,7 @@
 // ============================================================
 
 import { z } from 'zod'
+import { TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
 
 export const SurveyConfigSchema = z.object({
   /**
@@ -147,6 +148,38 @@ function capitalize(s: string): string {
  * esperar la aprobación.
  */
 export const SURVEY_BUTTON_URL_SUFFIX = '&src=wa'
+
+/**
+ * FUENTE ÚNICA de los argumentos del template de encuesta.
+ *
+ * Existe porque los DOS caminos de envío —el inmediato al marcar Facturado y el
+ * cron de rescate— los armaban por separado, y ya habían divergido: el cron
+ * mandaba el idioma `es_CO` y el inmediato `es`. Con el template aprobado en
+ * Spanish (COL), TODO envío inmediato habría fallado con 132001 ("no existe la
+ * traducción"), invisible porque va dentro de after(), y el cron lo habría
+ * tapado una hora más tarde. El síntoma habría sido "el envío inmediato no
+ * funciona y no se sabe por qué".
+ *
+ * Cualquier camino nuevo que mande esta encuesta tiene que pasar por acá.
+ */
+export function buildSurveyTemplateArgs(params: {
+  cfg: SurveyConfig
+  clinicName: string
+  patient: { name: string; first_name?: string | null }
+}): { templateName: string; languageCode: string; bodyParams: string[]; buttonParam: string } {
+  const { cfg, clinicName, patient } = params
+  return {
+    templateName: cfg.template_name,
+    // Mismo idioma que el resto de los templates de la app. NO se redeclara
+    // por archivo: así fue como se separaron.
+    languageCode: TEMPLATE_LANGUAGE,
+    bodyParams: [
+      extractFirstName({ first_name: patient.first_name ?? null, name: patient.name }),
+      cfg.clinic_display_name?.trim() || clinicName,
+    ],
+    buttonParam: SURVEY_BUTTON_URL_SUFFIX,
+  }
+}
 
 export const SURVEY_MESSAGE_TEMPLATE =
   'Buen día {firstName}. Sería tan amable de diligenciar la encuesta de satisfacción de {clinicName}. Gracias por ayudarnos a mejorar nuestra atención.'

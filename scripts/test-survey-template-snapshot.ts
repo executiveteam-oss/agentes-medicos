@@ -28,7 +28,14 @@ import {
   TEMPLATE_BUTTON_TEXT,
   TEMPLATE_DEFAULT_NAME,
 } from '../src/app/dashboard/settings/automations/survey/survey-form'
-import { SURVEY_MESSAGE_TEMPLATE, buildSurveyMessage } from '../src/lib/rules/survey-config'
+import { TEMPLATE_LANGUAGE } from '../src/lib/whatsapp/appointment-templates'
+import {
+  SURVEY_MESSAGE_TEMPLATE,
+  buildSurveyMessage,
+  buildSurveyTemplateArgs,
+  SURVEY_CONFIG_DEFAULTS,
+  SURVEY_BUTTON_URL_SUFFIX,
+} from '../src/lib/rules/survey-config'
 
 let pass = 0
 let fail = 0
@@ -103,6 +110,52 @@ test('buildSurveyMessage produce texto = body renderizado + \\n\\n + URL', () =>
   const expectedBody = TEMPLATE_BODY_TEXT.replace('{{1}}', 'María').replace('{{2}}', 'Algia')
   assertEq(msg, `${expectedBody}\n\nhttps://forms.gle/xxx`, 'Manual concatena bien')
 })
+
+
+
+// ============================================================
+// REGRESIÓN: los dos caminos de envío deben producir argumentos IDÉNTICOS.
+//
+// Se agregó después de encontrar que ya habían divergido: el cron mandaba el
+// idioma 'es_CO' y el envío inmediato 'es'. Con el template aprobado en
+// Spanish (COL), TODO envío inmediato habría fallado con 132001 — invisible,
+// porque va dentro de after() — y el cron lo habría tapado una hora después.
+// ============================================================
+test('buildSurveyTemplateArgs: idioma = el de los demás templates (es_CO)', () => {
+  const args = buildSurveyTemplateArgs({
+    cfg: { ...SURVEY_CONFIG_DEFAULTS, template_name: 'encuesta_satisfaccion', form_url: 'https://x.co/f' },
+    clinicName: 'ALGIA',
+    patient: { name: 'JUAN LONDOÑO', first_name: null },
+  })
+  assertEq(args.languageCode, TEMPLATE_LANGUAGE, 'Idioma divergente del resto de los templates')
+  assertEq(args.languageCode, 'es_CO', 'El template está aprobado en Spanish (COL)')
+})
+
+test('buildSurveyTemplateArgs: el botón lleva el SUFIJO, nunca una URL', () => {
+  const args = buildSurveyTemplateArgs({
+    cfg: { ...SURVEY_CONFIG_DEFAULTS, template_name: 't', form_url: 'https://docs.google.com/forms/d/e/XYZ/viewform' },
+    clinicName: 'ALGIA',
+    patient: { name: 'Ana Pérez', first_name: null },
+  })
+  assertEq(args.buttonParam, SURVEY_BUTTON_URL_SUFFIX, 'El parámetro del botón cambió')
+  if (args.buttonParam.startsWith('http')) {
+    throw new Error('El parámetro del botón es una URL — Meta la concatena y la duplica')
+  }
+})
+
+test('buildSurveyTemplateArgs: clinic_display_name pisa el nombre de la clínica', () => {
+  const conNombre = buildSurveyTemplateArgs({
+    cfg: { ...SURVEY_CONFIG_DEFAULTS, template_name: 't', form_url: 'https://x.co/f', clinic_display_name: 'ALGIA UNIDAD' },
+    clinicName: 'ALGIA', patient: { name: 'Ana Pérez', first_name: null },
+  })
+  assertEq(conNombre.bodyParams[1], 'ALGIA UNIDAD', 'No respetó clinic_display_name')
+  const sinNombre = buildSurveyTemplateArgs({
+    cfg: { ...SURVEY_CONFIG_DEFAULTS, template_name: 't', form_url: 'https://x.co/f' },
+    clinicName: 'ALGIA', patient: { name: 'Ana Pérez', first_name: null },
+  })
+  assertEq(sinNombre.bodyParams[1], 'ALGIA', 'No cayó al nombre de la clínica')
+})
+
 
 console.log(`\n${pass} pass · ${fail} fail`)
 process.exit(fail > 0 ? 1 : 0)

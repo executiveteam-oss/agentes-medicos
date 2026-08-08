@@ -32,14 +32,13 @@ import {
   SurveyConfigSchema,
   SURVEY_CONFIG_DEFAULTS,
   canSendSurvey,
-  extractFirstName,
+  buildSurveyTemplateArgs,
   SURVEY_BUTTON_URL_SUFFIX,
   type SurveyConfig,
 } from '@/lib/rules/survey-config'
 
 export const maxDuration = 60
 
-const LANGUAGE_CODE = 'es_CO'
 
 interface ClinicRow {
   id: string
@@ -168,7 +167,6 @@ async function processClinicSurveys(
     return { sent: 0, failed: 0 }
   }
 
-  const clinicDisplayName = cfg.clinic_display_name?.trim() || clinic.name
 
   for (const raw of (appointments ?? []) as unknown[]) {
     const apt = raw as PendingAppointment
@@ -179,21 +177,17 @@ async function processClinicSurveys(
     }
     if ((patient as { proactive_contact_opt_in?: boolean }).proactive_contact_opt_in !== true) continue // opt-in de canal proactivo
 
-    const firstName = extractFirstName({
-      first_name: patient.first_name ?? null,
-      name: patient.name,
-    })
-
     const whatsappNumber = patient.phone.replace('+', '')
+    const args = buildSurveyTemplateArgs({ cfg, clinicName: clinic.name, patient })
 
     // El parámetro del botón NO es la URL: Meta la CONCATENA a la base aprobada,
     // que ya contiene el formulario entero. Ver SURVEY_BUTTON_URL_SUFFIX.
     const result = await sendWhatsAppTemplate(
       whatsappNumber,
-      cfg.template_name,
-      LANGUAGE_CODE,
-      [firstName, clinicDisplayName],
-      SURVEY_BUTTON_URL_SUFFIX,
+      args.templateName,
+      args.languageCode,
+      args.bodyParams,
+      args.buttonParam,
       clinicCreds,
       { clinicId: apt.clinic_id, sendType: 'survey' },
     )
@@ -222,7 +216,7 @@ async function processClinicSurveys(
         target_id: apt.id,
         details: {
           template_name: cfg.template_name,
-          language_code: LANGUAGE_CODE,
+          language_code: args.languageCode,
           phone_last4: whatsappNumber.slice(-4),
           message_id: result.messageId ?? null,
           // El formulario del envío automático vive en la BASE del template

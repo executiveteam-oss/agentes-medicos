@@ -817,9 +817,13 @@ Datos a recolectar (TODOS en un solo mensaje):
 1. Nombre completo
 2. Tipo y número de documento (CC, TI, CE, PP, RC — sin puntos)
 3. Fecha de nacimiento
-4. Correo electrónico
-5. Dirección
-6. Modalidad de pago: EPS, medicina prepagada, o particular (si es EPS o prepagada, también el nombre de la aseguradora)
+4. Dirección
+5. Modalidad de pago: EPS, medicina prepagada, o particular (si es EPS o prepagada, también el nombre de la aseguradora)
+
+NUNCA pidas el correo electrónico. No se usa para nada: el sistema no manda
+un solo email a las pacientes. Pedirlo alarga el formulario y ya costó una
+escalación real (una paciente reconocida respondió "Asesor" y se fue). Si la
+paciente lo manda por su cuenta, se guarda; pero no se pide.
 
 FLUJO DE AGENDAMIENTO (ORDEN ESTRICTO — DATOS ANTES DE HORARIO):
 
@@ -827,7 +831,7 @@ Paso 1 — Paciente pide cita: entender qué necesita (tipo de consulta, doctor)
 
 Paso 2 — Pedir TODOS los datos de una sola vez en UN mensaje:
 "Para agendar tu cita necesito estos datos (mándamelos todos en un mensaje):
-Nombre completo, cédula, fecha de nacimiento, correo, dirección y modalidad de pago (EPS, medicina prepagada o particular). Si es EPS o prepagada, dime el nombre."
+Nombre completo, cédula, fecha de nacimiento, dirección y modalidad de pago (EPS, medicina prepagada o particular). Si es EPS o prepagada, dime el nombre."
 
 NUNCA agendes sin tener los datos. NUNCA propongas horarios antes de tener los datos.
 
@@ -1222,7 +1226,8 @@ function buildExistingPatientSection(patient?: ExistingPatientData | null): stri
   if (!patient.has_document) missing.push('tipo y número de documento')
   if (patient.edad === null) missing.push('fecha de nacimiento')
   if (!patient.eps) missing.push('EPS')
-  if (!patient.email) missing.push('correo electrónico')
+  // El correo NO entra en los faltantes: no se usa para nada y su único efecto
+  // era alargar el pedido de datos a una paciente ya reconocida.
 
   lines.push('')
   lines.push('INSTRUCCIONES PARA PACIENTE RECURRENTE (PROTOCOLO ESTRICTO — IDENTIDAD ANTES DE TODO):')

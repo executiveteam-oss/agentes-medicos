@@ -1905,28 +1905,50 @@ async function checkEpsConvenio(
   // Normalizar para búsqueda flexible
   const searchTerm = epsName.toLowerCase()
 
-  // Buscar en consultation_types.eps_name (convenios importados de iSalud)
-  let query = supabaseAdmin
+  // ⚠️ EL TIPO NO FILTRA. DESEMPATA.
+  //
+  // Antes esta query hacía `.eq('insurer_type', insurerTypeFilter)`, y como el
+  // 64% de los convenios de una clínica real tiene `insurer_type` NULL (nadie
+  // los clasificó nunca), el filtro los borraba del resultado ANTES de comparar
+  // el nombre. Una paciente de 8 años y 13 citas dijo "Medplus", el modelo lo
+  // clasificó como Prepagada, MEDPLUS estaba cargado con tipo NULL, y la tool
+  // contestó "no tenemos convenio". El nombre matcheaba perfecto; nunca llegó a
+  // compararse.
+  //
+  // El criterio es ASIMÉTRICO a propósito: decirle "no tenemos convenio" a
+  // alguien que sí lo tiene la manda a colgar —y no deja rastro, porque no es
+  // un error, es una respuesta—. Ofrecer un convenio que después la secretaria
+  // corrige cuesta una llamada. Ante la duda, se devuelve el convenio.
+  const { data: matches } = await supabaseAdmin
     .from('consultation_types')
     .select('eps_name, insurer_type')
     .eq('clinic_id', clinicId)
     .not('eps_name', 'is', null)
-  if (insurerTypeFilter) {
-    query = query.eq('insurer_type', insurerTypeFilter)
-  }
-  const { data: matches } = await query
 
   // Match flexible: partial match case-insensitive
   type Row = { eps_name: string; insurer_type: 'EPS' | 'Prepagada' | null }
   const rows = (matches ?? []) as Row[]
-  const found = rows.find((r) => {
+  const porNombre = rows.filter((r) => {
     const lower = r.eps_name.toLowerCase()
     return lower.includes(searchTerm) || searchTerm.includes(lower.replace(/[.\s]+/g, ''))
   })
 
-  // También buscar en isalud_import_staging (puede haber convenios no importados aún)
-  // Solo si no se filtró por insurer_type — staging no tiene clasificación
-  if (!found && !insurerTypeFilter) {
+  // Con varios homónimos (una aseguradora que opera EPS y prepagada a la vez,
+  // como SURA), el tipo elige cuál. Si ninguno coincide, gana el primero igual:
+  // el convenio existe, y el tipo lo corrige una persona.
+  const found =
+    (insurerTypeFilter ? porNombre.find((r) => r.insurer_type === insurerTypeFilter) : undefined)
+    ?? porNombre[0]
+
+  // Cuando el tipo pedido no coincide con el que está cargado, el modelo tiene
+  // que saberlo para no afirmar de más.
+  const tipoNoCoincide =
+    !!found && !!insurerTypeFilter && found.insurer_type !== null && found.insurer_type !== insurerTypeFilter
+
+  // También buscar en isalud_import_staging (puede haber convenios no importados aún).
+  // El guard `!insurerTypeFilter` se sacó por lo mismo: era la segunda red que
+  // el filtro de tipo desactivaba justo cuando más falta hacía.
+  if (!found) {
     const { data: staging } = await supabaseAdmin
       .from('isalud_import_staging')
       .select('convenio_nombre_abreviado')
@@ -1957,11 +1979,22 @@ async function checkEpsConvenio(
         insurerType: found.insurer_type,
         needsClassification: found.insurer_type === null,
         source: 'consultation_types',
+        // El convenio existe, pero está cargado como otro tipo. No es motivo
+        // para negarlo: es motivo para no afirmar la modalidad.
+        ...(tipoNoCoincide
+          ? {
+              tipoDistintoAlPreguntado: true,
+              message: `Sí hay convenio con "${found.eps_name}", pero está cargado como ${found.insurer_type}, no como ${insurerTypeFilter}. Confirma el convenio SIN afirmar la modalidad; el consultorio valida el plan.`,
+            }
+          : {}),
       },
     }
   }
 
-  // No encontrado — listar los que SÍ tiene para referencia (filtrados por tipo si aplica)
+  // No encontrado — listar los que SÍ tiene para referencia.
+  // Se listan TODOS, sin filtrar por tipo: la lista es para que el modelo
+  // reconozca una variante de escritura, y filtrarla escondía justo los que no
+  // están clasificados.
   const uniqueAvailable = [...new Set(rows.map((r) => r.eps_name))]
   return {
     success: true,
@@ -1969,10 +2002,8 @@ async function checkEpsConvenio(
       hasConvenio: false,
       epsSearched: epsName,
       insurerTypeFilter,
-      availableConvenios: uniqueAvailable.slice(0, 10),
-      message: insurerTypeFilter
-        ? `No se encontró convenio ${insurerTypeFilter} con "${epsName}". Informa al paciente y ofrece particular.`
-        : `No se encontró convenio con "${epsName}". Informa al paciente y ofrece agendar como particular.`,
+      availableConvenios: uniqueAvailable.slice(0, 20),
+      message: `No se encontró convenio con "${epsName}" (se buscó en TODOS los convenios, sin importar el tipo). Si alguno de availableConvenios es el mismo con otra escritura, úsalo. Si no, informa al paciente y ofrece agendar como particular.`,
     },
   }
 }

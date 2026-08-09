@@ -45,6 +45,7 @@ import {
 } from '@/lib/whatsapp/agent-guards'
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
+import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 
 // Máximo tiempo de ejecución en Vercel (en segundos)
 // El plan gratuito de Vercel permite hasta 60s para serverless functions
@@ -647,7 +648,7 @@ async function processWebhook(body: unknown): Promise<void> {
       const existingPatient = buildExistingPatient(patient)
       const { tratanteMode, tratantes: resolvedTratantes } = await resolveTratantesForClinic(clinic, patient, conversation.id)
 
-      let agentResponse: { text: string; toolsUsed: string[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string } }
+      let agentResponse: { text: string; toolsUsed: string[]; toolCalls: ToolCallAudit[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string } }
 
       const agentParams = {
         patientMessage: sanitizedText,
@@ -1023,6 +1024,10 @@ async function processWebhook(body: unknown): Promise<void> {
             actor_type: 'agent',
             details: {
               tools_used: agentResponse.toolsUsed,
+              // Los ARGUMENTOS, con los campos sensibles ocultos. Sin esto, para
+              // auditar el caso MEDPLUS hubo que deducir el insurer_type leyendo
+              // el texto de la respuesta — y una deducción no es una traza.
+              tool_calls: agentResponse.toolCalls,
               conversation_id: conversation.id,
             },
           })

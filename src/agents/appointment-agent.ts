@@ -21,6 +21,7 @@ import { formatTimestampColombia } from '@/lib/utils/dates'
 import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
 import type { Clinic, ConsultationType, Doctor, Message, WhatsAppConfig } from '@/types/database'
 import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
+import { auditableToolCall, type ToolCallAudit } from '@/lib/safety/tool-input-audit'
 
 const MAX_TOOL_ITERATIONS = 5 // Máximo de veces que Claude puede usar tools en una conversación
 
@@ -66,6 +67,10 @@ export interface AppointmentData {
 interface AgentResponse {
   text: string                // Respuesta para enviar por WhatsApp
   toolsUsed: string[]         // Qué tools se usaron (para auditoría)
+  // Los ARGUMENTOS de cada llamada, con los campos sensibles ocultos. Saber que
+  // se llamó check_eps_convenio no alcanzaba para auditar el caso MEDPLUS: la
+  // causa estaba en el argumento (insurer_type), no en el nombre de la tool.
+  toolCalls: ToolCallAudit[]
   tokenUsage: {               // Tokens consumidos (para tracking de costos)
     input: number
     output: number
@@ -147,6 +152,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
 
   // 3. Loop de tool-use: Claude puede usar hasta 5 tools antes de responder
   const toolsUsed: string[] = []
+  const toolCalls: ToolCallAudit[] = []
   let totalInputTokens = 0
   let totalOutputTokens = 0
 
@@ -227,6 +233,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       return {
         text: finalText,
         toolsUsed,
+        toolCalls,
         tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
         appointmentData,
       }
@@ -250,6 +257,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
 
       for (const toolUse of toolUseBlocks) {
         toolsUsed.push(toolUse.name)
+        toolCalls.push(auditableToolCall(toolUse.name, toolUse.input as Record<string, unknown>))
 
         // Marcar si se llamó escalate_to_human para descartar texto subsecuente.
         // El mensaje al paciente ya se emitió pre-tool (regla del prompt) —
@@ -295,6 +303,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
               ? 'Uy, tuve un inconveniente para agendar tu cita 🙁 Ya avisé a una persona del equipo para que lo revise y te confirme enseguida. Disculpá la demora 🙏'
               : 'Uy, tuve un inconveniente técnico revisando eso 🙁 Ya avisé a una persona del equipo para que lo revise y te ayude enseguida. Disculpá 🙏',
             toolsUsed,
+            toolCalls,
             tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
             escalate: { reason: bookingFail ? 'booking_failure' : 'tool_technical_error', code },
           }
@@ -328,6 +337,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
     return {
       text: fallbackJoined,
       toolsUsed,
+      toolCalls,
       tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
       appointmentData,
     }
@@ -337,6 +347,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   return {
     text: 'Disculpa, estoy teniendo dificultades. Escribe "hablar con humano" y alguien del consultorio te ayudará.',
     toolsUsed,
+    toolCalls,
     tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
     appointmentData,
   }

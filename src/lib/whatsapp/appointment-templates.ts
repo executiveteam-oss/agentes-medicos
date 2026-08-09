@@ -51,3 +51,22 @@ export const CANCEL_BUTTON = 'Reagendar'
 export const RESUMEN_TEMPLATE_NAME = 'resumen_diario_medico'
 export const RESUMEN_TEMPLATE_BODY =
   'Buenos días, {{1}} 👋 Estas son sus citas de hoy: {{2}}. Que tenga un buen día.'
+
+// --- Solicitud de ORDEN MÉDICA externa (post-consulta) ---
+// La clínica necesita la orden para radicar la cuenta con la entidad, y a veces
+// la paciente ya se fue sin dejarla. Es proactivo y casi siempre FUERA de la
+// ventana de 24h, así que va por template.
+// Sin botones: la respuesta esperada es un ARCHIVO, y un Quick Reply no manda
+// archivos — un botón solo agregaría un camino muerto.
+// "Sobre tu cita del ..." en pasado: la consulta YA ocurrió.
+export const ORDEN_TEMPLATE_NAME = 'solicitud_orden_medica'
+export const ORDEN_TEMPLATE_BODY =
+  'Hola {{1}} 👋 Te escribimos de {{2}}. Sobre tu cita del {{3}} a las {{4}} necesitamos la orden médica de tu {{5}}.\n\nPuedes enviárnosla por aquí como foto o PDF. Sin ella no podemos radicar la cuenta con tu entidad.'
+
+// --- Contacto general (cualquier motivo, con o sin cita) ---
+// El motivo va en su PROPIA línea después de dos puntos — misma lección que la
+// cancelación: así funciona con cualquier redacción que escriba la secretaria.
+// Meta lo categorizó UTILITY al someterlo (2026-08-09).
+export const CONTACTO_TEMPLATE_NAME = 'contacto_general'
+export const CONTACTO_TEMPLATE_BODY =
+  'Hola {{1}} 👋 Te escribimos de {{2}}.\n\nQueremos comentarte algo sobre tu atención:\n{{3}}\n\n¿Nos respondes por aquí cuando puedas?'

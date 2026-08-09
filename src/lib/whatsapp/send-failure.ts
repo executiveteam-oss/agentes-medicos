@@ -16,6 +16,7 @@ export type WhatsAppSendType =
   | 'escalate_service' | 'data_rights_ack' | 'privacy_link' | 'new_patient'
   | 'reminder' | 'ics' | 'reactivation' | 'survey' | 'waitlist'
   | 'auth_rejection' | 'staff_appointment' | 'weekly_report' | 'morning_report'
+  | 'contacto_general' | 'solicitud_orden'
   | 'other'
 
 // ÚNICO lugar que decide qué fallo ALERTA vs solo AUDITA. Mismo patrón que

@@ -12,11 +12,11 @@
 
 type FilterKey = 'atencion' | 'pendiente' | 'resuelta' | 'agente'
 interface E { status: 'active' | 'escalated' | 'resolved'; triage_state: 'atencion' | 'pendiente' | 'resuelta' | null }
-interface F extends E { servicios_marcados: string[]; servicios_marcados_at: string | null; last_message_role: string; last_message_at: string }
+interface F extends E { pendientes: { tipo: string; desde: string }[]; last_message_role: string; last_message_at: string }
 
 // COPIA EXACTA de waitingMs en conversations-panel.tsx.
 function waitingMs(e: F): number {
-  if (e.servicios_marcados.length > 0 && e.servicios_marcados_at) return new Date(e.servicios_marcados_at).getTime()
+  if (e.pendientes.length > 0) return new Date(e.pendientes[0].desde).getTime()
   return e.last_message_role === 'patient' ? new Date(e.last_message_at).getTime() : Infinity
 }
 
@@ -59,11 +59,11 @@ if (bucketOf(vivaConServicio) !== 'atencion') {
 }
 
 console.log('\nEL ORDEN DE LA COLA — el servicio marcado no puede caer al final')
-const viejo: F = { status:'active', triage_state:'atencion', servicios_marcados:['mapeo'],
-  servicios_marcados_at:'2026-08-08T10:00:00Z', last_message_role:'agent', last_message_at:'2026-08-08T18:00:00Z' }
-const reciente: F = { status:'escalated', triage_state:null, servicios_marcados:[], servicios_marcados_at:null,
+const viejo: F = { status:'active', triage_state:'atencion', pendientes:[{tipo:'servicio',desde:'2026-08-08T10:00:00Z'}],
+  last_message_role:'agent', last_message_at:'2026-08-08T18:00:00Z' }
+const reciente: F = { status:'escalated', triage_state:null, pendientes:[],
   last_message_role:'patient', last_message_at:'2026-08-08T17:00:00Z' }
-const contestada: F = { status:'active', triage_state:null, servicios_marcados:[], servicios_marcados_at:null,
+const contestada: F = { status:'active', triage_state:null, pendientes:[],
   last_message_role:'agent', last_message_at:'2026-08-08T17:30:00Z' }
 
 if (waitingMs(viejo) === Infinity) { fail++; console.log('  ❌ el servicio marcado cae al final (Infinity)') }

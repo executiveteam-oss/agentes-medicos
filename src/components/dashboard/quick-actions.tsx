@@ -18,6 +18,7 @@ import {
   revertAttendanceOutcome,
 } from '@/app/actions/appointments'
 import { markSurveySentManually } from '@/app/actions/survey-config'
+import { solicitarOrdenMedica } from '@/app/actions/contactar-paciente'
 import { buildSurveyMessage } from '@/lib/rules/survey-config'
 import { buildWhatsAppUrl, isValidColombianMobile } from '@/lib/utils/whatsapp-url'
 import type { AppointmentStatus, AttendanceOutcome } from '@/types/database'
@@ -44,10 +45,54 @@ interface QuickActionsProps {
   attendanceOutcome: AttendanceOutcome | null
   surveyState?: SurveyState
   surveyConfig?: SurveyConfigForRow | null
+  /** Estado del pedido de orden médica para esta cita. */
+  documentsRequested?: boolean
+  documentsReceived?: boolean
 }
 
-export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, surveyState, surveyConfig }: QuickActionsProps) {
+export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, surveyState, surveyConfig, documentsRequested = false, documentsReceived = false }: QuickActionsProps) {
   const [isPending, startTransition] = useTransition()
+
+  // Pedido de ORDEN MÉDICA — post-consulta, para radicar la cuenta.
+  // Vive acá porque es el único lugar con el contexto completo: paciente,
+  // teléfono, fecha, hora y tipo de consulta. Y porque el pedido se registra en
+  // la cita (documents_requested), que es lo que después ata el archivo que
+  // llegue por WhatsApp.
+  function BotonOrdenMedica() {
+    const [pending, start] = useTransition()
+    const [msg, setMsg] = useState<string | null>(null)
+    if (documentsReceived) {
+      return <div style={surveyBoxStyle('#ecfdf5', '#a7f3d0')}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#065f46' }}>✅ Orden médica recibida</span>
+      </div>
+    }
+    return (
+      <div style={surveyBoxStyle('#eff6ff', '#bfdbfe')}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#1e3a8a' }}>
+          {documentsRequested ? '📄 Orden médica pedida — sin recibir' : '📄 Orden médica'}
+        </div>
+        <div style={{ fontSize: 11, color: '#1e3a8a', marginTop: 3, marginBottom: 6 }}>
+          {documentsRequested
+            ? 'Ya se le pidió. Podés volver a pedirla si no respondió.'
+            : 'Pedila por WhatsApp para radicar la cuenta con la entidad.'}
+        </div>
+        <button
+          className="v2-tap"
+          disabled={pending}
+          onClick={() => start(async () => {
+            const r = await solicitarOrdenMedica(appointmentId)
+            setMsg(r.ok ? '✅ Pedido enviado' : (r.error ?? 'No se pudo enviar'))
+          })}
+          style={{ fontWeight: 700, borderRadius: 6, border: '1px solid #1e3a8a',
+                   background: 'transparent', color: '#1e3a8a', cursor: pending ? 'default' : 'pointer' }}
+        >
+          {pending ? 'Enviando…' : documentsRequested ? 'Volver a pedir' : 'Pedir orden médica'}
+        </button>
+        {msg && <div style={{ fontSize: 11, marginTop: 6, color: '#1e3a8a' }}>{msg}</div>}
+      </div>
+    )
+  }
+
 
   // Si la cita está cancelada o bloqueo externo, no aplica marca de asistencia
   if (currentStatus === 'cancelled' || currentStatus === 'blocked_external') {
@@ -111,6 +156,10 @@ export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, 
           ↺ Revertir a Programado
         </button>
       )}
+
+      {/* Orden médica: se pide DESPUÉS de la consulta, para radicar la cuenta.
+          Por eso aparece cuando la cita ya se atendió. */}
+      {(attendanceOutcome === 'facturado' || attendanceOutcome === 'admitido') && <BotonOrdenMedica />}
 
       {/* SurveyRow: solo cuando la cita quedó Facturada */}
       {attendanceOutcome === 'facturado' && surveyState && (

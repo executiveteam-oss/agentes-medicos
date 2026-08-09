@@ -353,9 +353,18 @@ async function processWebhook(body: unknown): Promise<void> {
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle()
-          const isAuthContext = lastAgentMsg?.content
-            ? /autorizaci[oó]n|autorizad[oa]/i.test(lastAgentMsg.content as string)
-            : false
+          // Si la clínica PIDIÓ un documento para una cita, eso manda sobre la
+          // heurística del texto: el template dice "orden médica", no
+          // "autorización", así que buscar esa palabra lo clasificaría mal.
+          // Y si hay EXACTAMENTE una cita esperando, el archivo se ata sola;
+          // con varias queda sin atar y la secretaria elige — adivinar sería peor.
+          const citasEsperando = await citasEsperandoDocumento(patient.id, clinic.id)
+          const aptDelDocumento = citasEsperando.length === 1 ? citasEsperando[0] : null
+          const isAuthContext = citasEsperando.length > 0
+            ? true
+            : lastAgentMsg?.content
+              ? /autorizaci[oó]n|autorizad[oa]/i.test(lastAgentMsg.content as string)
+              : false
 
           // Guardar mensaje en la conversación que el agente verá como historial.
           // Hacemos insert directo (no saveMessage) para obtener el id de retorno.
@@ -386,6 +395,7 @@ async function processWebhook(body: unknown): Promise<void> {
             storagePath: upload.storagePath,
             sizeBytes: download.sizeBytes,
             context: isAuthContext ? 'authorization' : 'document_general',
+            appointmentId: aptDelDocumento,
           })
 
           // Si es contexto de autorización: escalamos directamente.
@@ -467,6 +477,10 @@ async function processWebhook(body: unknown): Promise<void> {
         .from('conversations')
         .update({ last_message_at: new Date().toISOString() })
         .eq('id', conversation.id)
+
+      // La paciente RESPONDIÓ: se apaga el reloj del contacto general. Ese
+      // pendiente existe para hacer visible el silencio, y ya no hay silencio.
+      await limpiarPendiente(conversation.id, 'contacto_enviado_at')
 
       // 14.5. CAPA 0 DE SEGURIDAD — determinista, corre ANTES de la regla 15
       //       (escalada) y del gate de consentimiento (paso 16). No depende del LLM.
@@ -1640,6 +1654,18 @@ async function handleNpsResponse(
  * Verifica si el paciente tiene alguna cita futura con documentos pendientes
  */
 async function patientHasPendingDocuments(patientId: string, clinicId: string): Promise<boolean> {
+  return (await citasEsperandoDocumento(patientId, clinicId)).length > 0
+}
+
+/**
+ * Citas de esta paciente que están ESPERANDO un documento.
+ *
+ * Sin filtro de fecha a propósito: la orden médica se pide DESPUÉS de la
+ * consulta —para radicar la cuenta—, así que la cita que la espera casi siempre
+ * ya pasó. El filtro `starts_at >= now()` original servía para el caso previo
+ * (documentos antes de agendar) y dejaba afuera justo este.
+ */
+async function citasEsperandoDocumento(patientId: string, clinicId: string): Promise<string[]> {
   const { data } = await supabaseAdmin
     .from('appointments')
     .select('id')
@@ -1647,11 +1673,43 @@ async function patientHasPendingDocuments(patientId: string, clinicId: string): 
     .eq('patient_id', patientId)
     .eq('documents_requested', true)
     .eq('documents_received', false)
-    .in('status', ['confirmed', 'rescheduled'])
-    .gte('starts_at', new Date().toISOString())
-    .limit(1)
+    .in('status', ['confirmed', 'rescheduled', 'completed'])
+    .order('starts_at', { ascending: false })
+    .limit(5)
+  return (data ?? []).map((a) => (a as { id: string }).id)
+}
 
-  return (data?.length ?? 0) > 0
+
+/**
+ * Apaga un reloj de pendiente en la conversación. Lo llama el webhook cuando
+ * llega lo que se estaba esperando: la orden médica (archivo recibido) o la
+ * respuesta al contacto general (cualquier mensaje de la paciente).
+ *
+ * Si no queda ningún pendiente, la conversación sale de la cola de Atención —
+ * salvo que esté escalada de verdad, donde el triage lo decide el status.
+ */
+async function limpiarPendiente(
+  conversationId: string,
+  campo: 'orden_medica_pedida_at' | 'contacto_enviado_at',
+): Promise<void> {
+  try {
+    const { data } = await supabaseAdmin
+      .from('conversations').select('context, status, triage_state').eq('id', conversationId).maybeSingle()
+    const ctx = { ...((data?.context ?? {}) as Record<string, unknown>) }
+    if (!ctx[campo]) return
+    delete ctx[campo]
+
+    const { pendientesDe } = await import('@/lib/conversations/pendientes')
+    const quedan = pendientesDe(ctx as never).length
+    const patch: Record<string, unknown> = { context: ctx }
+    // Sin pendientes y sin escalación real → vuelve a la vista del agente.
+    if (quedan === 0 && data?.status !== 'escalated' && data?.triage_state === 'atencion') {
+      patch.triage_state = null
+    }
+    await supabaseAdmin.from('conversations').update(patch).eq('id', conversationId)
+  } catch (err) {
+    console.error('[limpiarPendiente] no crítico:', err instanceof Error ? err.message : err)
+  }
 }
 
 /**
@@ -1674,11 +1732,13 @@ async function handleDocumentReceived(
     .eq('patient_id', patientId)
     .eq('documents_requested', true)
     .eq('documents_received', false)
-    .in('status', ['confirmed', 'rescheduled'])
-    .gte('starts_at', new Date().toISOString())
-    .order('starts_at', { ascending: true })
+    // Sin filtro de futuro: la orden médica se pide DESPUÉS de la consulta, para
+    // radicar la cuenta. Con `starts_at >= now()` la cita que la espera —que ya
+    // pasó— quedaba afuera y el documento nunca se marcaba como recibido.
+    .in('status', ['confirmed', 'rescheduled', 'completed'])
+    .order('starts_at', { ascending: false })
     .limit(1)
-    .single()
+    .maybeSingle()
 
   if (!appointment) return
 
@@ -1691,8 +1751,11 @@ async function handleDocumentReceived(
     })
     .eq('id', appointment.id)
 
+  // Se apaga el reloj de la orden médica: ya llegó lo que se estaba esperando.
+  await limpiarPendiente(conversationId, 'orden_medica_pedida_at')
+
   const response =
-    `✅ ¡Recibimos tu documento, ${patientName}! Ya lo tenemos en tu expediente para tu próxima cita. ` +
+    `✅ ¡Recibimos tu documento, ${patientName}! Ya lo tenemos en tu expediente. ` +
     `Si necesitas enviar algo más, hazlo por este mismo chat.`
 
   await saveMessage(conversationId, 'agent', response)

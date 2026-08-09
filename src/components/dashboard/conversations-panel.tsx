@@ -13,6 +13,7 @@ import { Search, MessageCircle } from 'lucide-react'
 import { useRealtimeConnection } from '@/hooks/use-realtime-connection'
 import { RealtimeIndicator } from '@/components/dashboard/realtime-indicator'
 import { useNow } from '@/hooks/use-now'
+import type { Pendiente } from '@/lib/conversations/pendientes'
 
 interface ConversationEntry {
   id: string
@@ -30,10 +31,9 @@ interface ConversationEntry {
   is_mine: boolean
   specialty: string | null
   doctor_name: string | null
-  /** Keys de servicios ruleados marcados (Capa 0) sobre una conversación VIVA. */
-  servicios_marcados: string[]
-  /** Cuándo se marcó el primero. Es el reloj de la cola para estas. */
-  servicios_marcados_at: string | null
+  /** Lo que esta conversación tiene esperando: servicio ruleado, orden médica
+   *  o contacto sin responder. Fuente única en lib/conversations/pendientes. */
+  pendientes: Pendiente[]
 }
 
 interface Props {
@@ -56,25 +56,9 @@ function bucketOf(e: ConversationEntry): FilterKey {
   // Antes solo existía el primero, así que marcar un servicio obligaba a callar
   // al agente para que la conversación apareciera en la cola.
   if ((e.status === 'escalated' && e.triage_state === null) || e.triage_state === 'atencion') return 'atencion'
+  if (e.pendientes.length > 0) return 'atencion'
   return 'agente' // active — el bot lo maneja
 }
-
-/**
- * Nombre CORTO del servicio marcado, para la fila. El label que se guarda para
- * la paciente es largo ("la ecografía de mapeo") y no entra en una fila.
- * Las keys salen de ESCALATE_SERVICE_KEYWORDS.
- */
-const NOMBRE_SERVICIO: Record<string, string> = {
-  colposcopia: 'Colposcopia',
-  vulvoscopia: 'Vulvoscopia',
-  biopsia_histeroscopia: 'Histeroscopia/biopsia',
-  mapeo: 'Mapeo',
-  citologia: 'Citología',
-  posquirurgico: 'Control posquirúrgico',
-  diu: 'DIU',
-  sedacion: 'Sedación',
-}
-const nombreServicio = (k: string) => NOMBRE_SERVICIO[k] ?? k
 
 const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
   { key: 'atencion', label: 'Atención', emoji: '⚠️' },
@@ -142,9 +126,11 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
   // alguien la vea, y quedaba donde nadie mira. Para esas, el reloj corre
   // desde que se MARCÓ el servicio, no desde el último mensaje.
   const waitingMs = (e: ConversationEntry) => {
-    if (e.servicios_marcados.length > 0 && e.servicios_marcados_at) {
-      return new Date(e.servicios_marcados_at).getTime()
-    }
+    // El pendiente MÁS VIEJO manda: lo que lleva más tiempo sin resolverse va
+    // arriba, sea un servicio marcado, una orden pedida o un contacto sin
+    // respuesta. Ninguno de los tres deja mensaje sin responder —el agente o la
+    // secretaria ya escribieron—, así que sin esto caían todos a Infinity.
+    if (e.pendientes.length > 0) return new Date(e.pendientes[0].desde).getTime()
     return e.last_message_role === 'patient' ? new Date(e.last_message_at).getTime() : Infinity
   }
   const filtered = entries
@@ -368,19 +354,17 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                         🩺 {entry.specialty}{entry.doctor_name ? ` · ${entry.doctor_name}` : ''}
                       </span>
                     )}
-                    {entry.servicios_marcados.length > 0 && (
+                    {entry.pendientes.map((p) => (
                       <span
+                        key={p.tipo}
                         style={{
                           fontSize: '10px', fontWeight: 700, padding: '2px 7px', borderRadius: '4px',
                           background: 'var(--v2-amber-soft)', color: '#b07d00', whiteSpace: 'nowrap',
                         }}
                       >
-                        🚨 {entry.servicios_marcados.map(nombreServicio).join(' · ')} — marcado{' '}
-                        {entry.servicios_marcados_at
-                          ? <RelativeTime iso={entry.servicios_marcados_at} />
-                          : 'sin resolver'}
+                        {p.etiqueta} — <RelativeTime iso={p.desde} />
                       </span>
-                    )}
+                    ))}
                     {entry.claimed_active_label !== null && (
                       <span
                         style={{

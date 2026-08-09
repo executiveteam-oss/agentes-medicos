@@ -238,6 +238,8 @@ export async function recordConversationMedia(params: {
   storagePath: string
   sizeBytes: number
   context?: 'authorization' | 'document_general' | 'other' | null
+  /** Cita a la que pertenece el documento. NULL si hay ambigüedad. */
+  appointmentId?: string | null
 }): Promise<{ ok: true; mediaRowId: string } | { ok: false; error: string }> {
   const { data, error } = await supabaseAdmin
     .from('conversation_media')
@@ -252,6 +254,7 @@ export async function recordConversationMedia(params: {
       storage_path: params.storagePath,
       size_bytes: params.sizeBytes,
       context: params.context ?? null,
+      appointment_id: params.appointmentId ?? null,
     })
     .select('id')
     .single()

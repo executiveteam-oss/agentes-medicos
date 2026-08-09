@@ -11,6 +11,7 @@ import { ConversationsPanel } from '@/components/dashboard/conversations-panel'
 import { ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
+import { pendientesDe, type ContextPendientes } from '@/lib/conversations/pendientes'
 
 export const dynamic = 'force-dynamic'
 
@@ -146,8 +147,10 @@ export default async function ConversationsPage() {
       triage_state: (conv.triage_state as 'atencion' | 'pendiente' | 'resuelta' | null) ?? null,
       // Servicios ruleados marcados en esta conversación. Alimentan el badge de
       // la fila: sin esto la secretaria ve "Atención" sin saber QUÉ resolver.
-      servicios_marcados: (((conv.context as Record<string, unknown> | null)?.servicios_marcados) as string[] | undefined) ?? [],
-      servicios_marcados_at: (((conv.context as Record<string, unknown> | null)?.servicios_marcados_at) as string | undefined) ?? null,
+      // Pendientes (servicio ruleado / orden médica / contacto): fuente única en
+      // src/lib/conversations/pendientes.ts. La fila y el orden de la cola salen
+      // de acá, no de leer el context por separado en cada lugar.
+      pendientes: pendientesDe(conv.context as ContextPendientes | null),
       last_message_at: conv.last_message_at as string,
       last_message_preview: lastMsg
         ? lastMsg.content.length > 80 ? lastMsg.content.slice(0, 80) + '...' : lastMsg.content

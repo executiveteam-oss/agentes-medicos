@@ -14,6 +14,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { formatUI } from '@/lib/utils/format-time-ui'
 import { RelativeTime } from '@/components/ui/relative-time'
+import { ContactarPacienteModal } from '@/components/dashboard/contactar-paciente-modal'
 
 // ---- Types ----
 
@@ -88,6 +89,9 @@ const CONV_STATUS: Record<string, { label: string; bg: string; fg: string }> = {
 
 export function PatientDetailV2({ patient, appointments, conversations, topDoctorName, conversationId, frequencyLabel }: Props) {
   const [activeTab, setActiveTab] = useState<TabKey>('historia')
+  // Contacto por iniciativa de la clínica. Vive en la ficha porque el caso
+  // incluye pacientes SIN cita agendada — desde la agenda no se llega a ellas.
+  const [contactando, setContactando] = useState(false)
 
   const noShowRate = patient.total_appointments > 0
     ? Math.round((patient.no_show_count / patient.total_appointments) * 100)
@@ -98,6 +102,17 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
     ? `/dashboard/conversations/${conversationId}`
     : `https://wa.me/${patient.phone.replace('+', '')}?text=Hola%20${encodeURIComponent(patient.name.split(' ')[0])}`
 
+  const BotonContactar = () => conversationId ? (
+    <button
+      onClick={() => setContactando(true)}
+      className="v2-tap"
+      style={{ fontWeight: 600, borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)',
+               background: 'var(--v2-bg-card)', color: 'var(--v2-text)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+    >
+      💬 Escribirle
+    </button>
+  ) : null
+
   const TABS: { key: TabKey; label: string; icon: React.ReactNode; count: number }[] = [
     { key: 'historia', label: 'Historia', icon: <Calendar size={14} />, count: appointments.length },
     { key: 'conversaciones', label: 'Conversaciones', icon: <MessageSquare size={14} />, count: conversations.length },
@@ -107,6 +122,13 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
 
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }} className="space-y-6">
+      {contactando && conversationId && (
+        <ContactarPacienteModal
+          conversationId={conversationId}
+          patientName={patient.name.split(' ')[0]}
+          onClose={() => setContactando(false)}
+        />
+      )}
       {/* Breadcrumb */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
         <Link href="/dashboard/patients" style={{ color: 'var(--v2-primary)', fontWeight: 600, textDecoration: 'none' }}>Pacientes</Link>
@@ -194,6 +216,7 @@ export function PatientDetailV2({ patient, appointments, conversations, topDocto
             >
               <MessageSquare size={14} /> WhatsApp
             </a>
+            <BotonContactar />
           </div>
         </div>
       </div>

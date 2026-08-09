@@ -126,6 +126,8 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
             patientPhone: apt.patient?.phone ?? null,
           }}
           surveyConfig={surveyConfig ?? null}
+          documentsRequested={apt.documents_requested}
+          documentsReceived={apt.documents_received}
         />
       </div>
       {(apt.status === 'confirmed' || apt.status === 'rescheduled') && (

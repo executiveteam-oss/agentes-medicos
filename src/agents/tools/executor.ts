@@ -24,6 +24,7 @@ import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, Working
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toZonedTime } from 'date-fns-tz'
+import { mismoConvenioPorAlias } from '@/lib/rules/convenio-aliases'
 
 const TIMEZONE = 'America/Bogota'
 const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -1930,7 +1931,10 @@ async function checkEpsConvenio(
   const rows = (matches ?? []) as Row[]
   const porNombre = rows.filter((r) => {
     const lower = r.eps_name.toLowerCase()
-    return lower.includes(searchTerm) || searchTerm.includes(lower.replace(/[.\s]+/g, ''))
+    if (lower.includes(searchTerm) || searchTerm.includes(lower.replace(/[.\s]+/g, ''))) return true
+    // Alias: la paciente dice "SOS" y está cargado como la razón social completa,
+    // sin una letra en común. Sin esto el convenio existe y es inalcanzable.
+    return mismoConvenioPorAlias(epsName, r.eps_name)
   })
 
   // Con varios homónimos (una aseguradora que opera EPS y prepagada a la vez,
@@ -1991,20 +1995,38 @@ async function checkEpsConvenio(
     }
   }
 
-  // No encontrado — listar los que SÍ tiene para referencia.
-  // Se listan TODOS, sin filtrar por tipo: la lista es para que el modelo
-  // reconozca una variante de escritura, y filtrarla escondía justo los que no
-  // están clasificados.
-  const uniqueAvailable = [...new Set(rows.map((r) => r.eps_name))]
+  // ⚠️ NO ENCONTRADO ≠ NO EXISTE.
+  //
+  // Antes esto devolvía "no hay convenio, ofrece particular" y el modelo
+  // obedecía. Pero el catálogo cubre 4.008 de las 10.734 pacientes con entidad
+  // registrada: para las otras 6.525, "no lo encuentro" y "no lo hay" son cosas
+  // distintas, y afirmar la segunda las empuja a pagar particular teniendo
+  // cobertura. Es lo que le pasó a una paciente de 8 años con 13 citas.
+  //
+  // Se corta determinista y se escala. NO se le pasa al LLM para que lo narre:
+  // el turno anterior demostró que narra con fidelidad lo que le dicta la tool,
+  // así que una instrucción de prompt acá sería capa A para algo que tiene que
+  // ser garantía.
+  //
+  // El log deja la entidad TAL COMO LA ESCRIBIÓ. En una semana esa consulta es
+  // la lista real de convenios faltantes ordenada por frecuencia — mejor que
+  // deducirla del histórico, porque son las que la gente efectivamente pide.
+  try {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'convenio_no_reconocido',
+      actor_type: 'agent',
+      details: {
+        entidad_dicha: epsName,
+        insurer_type_preguntado: insurerTypeFilter,
+        convenios_cargados: rows.length,
+      },
+    })
+  } catch { /* no crítico: nunca romper la conversación por el log */ }
+
   return {
-    success: true,
-    data: {
-      hasConvenio: false,
-      epsSearched: epsName,
-      insurerTypeFilter,
-      availableConvenios: uniqueAvailable.slice(0, 20),
-      message: `No se encontró convenio con "${epsName}" (se buscó en TODOS los convenios, sin importar el tipo). Si alguno de availableConvenios es el mismo con otra escritura, úsalo. Si no, informa al paciente y ofrece agendar como particular.`,
-    },
+    success: false,
+    error: `CONVENIO_NO_RECONOCIDO ${epsName}`,
   }
 }
 

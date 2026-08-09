@@ -94,7 +94,9 @@ const r = buscar(soloEps, 'Sanitas', 'Prepagada')
 ok('igual devuelve el convenio', r.hasConvenio === true)
 ok('y marca que el tipo no coincide', r.tipoNoCoincide === true)
 
-console.log('\nLO QUE DE VERDAD NO EXISTE SIGUE SIN EXISTIR')
+console.log('\nLO QUE DE VERDAD NO EXISTE → NO SÉ, no "no hay"')
+console.log('  (la tool ahora devuelve success:false CONVENIO_NO_RECONOCIDO y el')
+console.log('   loop corta determinista y escala — ver test-convenio-alias.ts)')
 for (const n of ['Compensar', 'Nueva EPS', 'Salud Total', 'Famisanar']) {
   ok(`"${n}" NO encuentra`, buscar(ALGIA, n, 'EPS').hasConvenio === false)
 }

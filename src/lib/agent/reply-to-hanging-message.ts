@@ -79,6 +79,7 @@ export async function replyToHangingMessage(conversationId: string): Promise<Han
       const r = agentResponse.escalate.reason
       const escReason = r === 'tool_technical_error' ? ESCALATION_REASONS.TOOL_ERROR
         : r === 'booking_failure' ? ESCALATION_REASONS.BOOKING_FAILURE
+        : r === 'convenio_no_reconocido' ? ESCALATION_REASONS.UNKNOWN_CONVENIO
         : ESCALATION_REASONS.AGENT_REESCALATED
       await supabaseAdmin.from('conversations')
         .update({

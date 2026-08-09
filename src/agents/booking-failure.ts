@@ -30,3 +30,21 @@ export function isHardBookingFailure(toolName: string, errorCode: string | null 
 export function isTechnicalError(errorCode: string | null | undefined): boolean {
   return String(errorCode ?? '').startsWith('INTERNAL_ERROR')
 }
+
+/**
+ * ¿La tool de convenios no reconoció lo que dijo la paciente?
+ *
+ * No es un fallo técnico ni un resultado de negocio: es AUSENCIA DE
+ * CONOCIMIENTO. El catálogo de Algia cubre 4.008 de 10.734 pacientes con
+ * entidad registrada, así que "no lo encuentro" es lo más común, y tratarlo
+ * como "no hay convenio" manda a la mayoría a pagar particular teniendo
+ * cobertura.
+ *
+ * Va por el corte determinista —no por el LLM— por la misma razón que los
+ * técnicos: el modelo narra con fidelidad lo que le dicta la tool, así que si
+ * la tool dice "no hay", él dice "no hay". La garantía tiene que estar en la
+ * estructura.
+ */
+export function isUnknownConvenio(errorCode: string | null | undefined): boolean {
+  return String(errorCode ?? '').startsWith('CONVENIO_NO_RECONOCIDO')
+}

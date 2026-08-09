@@ -714,30 +714,44 @@ async function processWebhook(body: unknown): Promise<void> {
       // normal: se escala a una persona, se avisa al staff y se audita — para
       // tener señal del problema, no un "clínica llena" silencioso.
       if (agentResponse.escalate) {
-        const isTech = agentResponse.escalate.reason === 'tool_technical_error'
+        // Mapeo explícito: un `else` que agrupaba todo mandaba cualquier motivo
+        // nuevo a 'falla_agendamiento', que es falso y arruina la agrupación del
+        // informe de escalaciones.
+        const motivoEsc =
+          agentResponse.escalate.reason === 'tool_technical_error' ? ESCALATION_REASONS.TOOL_ERROR
+          : agentResponse.escalate.reason === 'convenio_no_reconocido' ? ESCALATION_REASONS.UNKNOWN_CONVENIO
+          : ESCALATION_REASONS.BOOKING_FAILURE
         await supabaseAdmin
           .from('conversations')
-          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, isTech ? ESCALATION_REASONS.TOOL_ERROR : ESCALATION_REASONS.BOOKING_FAILURE) })
+          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, motivoEsc, agentResponse.escalate.code) })
           .eq('id', conversation.id)
         await refreshEscalationNotifications({
           conversationId: conversation.id,
           clinicId: clinic.id,
           patientName: patient.name,
-          latestMessage: isTech
-            ? `⚠ El agente tuvo un error técnico (${agentResponse.escalate.code}) — revisar el sistema y atender a la paciente`
-            : `⚠ El agente no pudo agendar (${agentResponse.escalate.code}) — hay que agendar a mano y revisar`,
+          latestMessage:
+            motivoEsc === ESCALATION_REASONS.TOOL_ERROR
+              ? `⚠ El agente tuvo un error técnico (${agentResponse.escalate.code}) — revisar el sistema y atender a la paciente`
+              : motivoEsc === ESCALATION_REASONS.UNKNOWN_CONVENIO
+                ? `⚠ La paciente dijo un convenio que NO tenemos registrado — confirmar si existe cobertura ANTES de mandarla a particular`
+                : `⚠ El agente no pudo agendar (${agentResponse.escalate.code}) — hay que agendar a mano y revisar`,
         })
         await supabaseAdmin.from('audit_log').insert({
           clinic_id: clinic.id,
-          action: isTech ? 'agent_tool_error_escalated' : 'agent_booking_failure_escalated',
+          action:
+            motivoEsc === ESCALATION_REASONS.TOOL_ERROR ? 'agent_tool_error_escalated'
+            : motivoEsc === ESCALATION_REASONS.UNKNOWN_CONVENIO ? 'agent_unknown_convenio_escalated'
+            : 'agent_booking_failure_escalated',
           actor_type: 'agent',
           target_type: 'conversation',
           target_id: conversation.id,
-          details: { code: agentResponse.escalate.code, reason: agentResponse.escalate.reason, patient_phone: message.from },
+          // El teléfono NO va completo: el CLAUDE.md lo prohíbe y el target_id ya
+          // identifica la conversación para cualquier traza.
+          details: { code: agentResponse.escalate.code, reason: agentResponse.escalate.reason },
         })
         await saveMessage(conversation.id, 'agent', agentResponse.text)
         await sendWhatsAppMessage(message.from, agentResponse.text, clinicCreds)
-        console.warn(`[Webhook] 🚨 Escalación por ${isTech ? 'error técnico de tool' : 'falla de agendamiento'} del agente: ${agentResponse.escalate.code}`)
+        console.warn(`[Webhook] 🚨 Escalación del agente (${motivoEsc}): ${agentResponse.escalate.code}`)
         return
       }
 

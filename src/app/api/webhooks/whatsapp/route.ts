@@ -1303,7 +1303,16 @@ async function handleEscalateService(
       .from('conversations')
       .update({
         triage_state: 'atencion',
-        context: { ...ctx, escalation_reason: 'servicio_escalate_human', servicios_marcados: [...marcados, serviceKey] },
+        context: {
+          ...ctx,
+          escalation_reason: 'servicio_escalate_human',
+          servicios_marcados: [...marcados, serviceKey],
+          // CUÁNDO se marcó el primero. La cola de Atención se ordena por el
+          // que espera hace más, y estas conversaciones NO tienen un mensaje
+          // sin responder —el agente contesta—, así que sin este reloj caían al
+          // final de la lista: justo lo contrario de por qué las pusimos ahí.
+          servicios_marcados_at: (ctx.servicios_marcados_at as string | undefined) ?? new Date().toISOString(),
+        },
       })
       .eq('id', conversation.id)
     await notifyStaffOfEscalation({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, reason: `Servicio que requiere validación humana: ${serviceLabel}` })

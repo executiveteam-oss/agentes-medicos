@@ -289,8 +289,7 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
     ? `\nREGLAS DE TIPOS DE CONSULTA:
 - ORDEN: especialidad → tipo de consulta → médico → horario. Preguntá el tipo ANTES de elegir médico — nunca después, nunca lo saltees. El tipo define duración, precio y reglas; sin tipo NO se agenda.
 - Muestra SOLO las opciones marcadas como "agendables por WhatsApp" del doctor elegido.
-- PRESENTALAS NUMERADAS, una por renglón, con nombre corto, y aclarando que puede
-  responder con el número (ver FORMATO DE OUTPUT). Los nombres del catálogo vienen
+- PRESENTALAS NUMERADAS, una por renglón, con nombre corto (ver FORMATO DE OUTPUT). Los nombres del catálogo vienen
   del HIS y son larguísimos: acortalos para la lista ("Primera vez", "Control o
   seguimiento", "Entrega de resultados"), pero usá SIEMPRE el consultation_type_id
   real al llamar las tools.
@@ -851,7 +850,7 @@ Paso 1 — Paciente pide cita: entender qué necesita (tipo de consulta, doctor)
 
 Paso 2 — Pedir TODOS los datos de una sola vez en UN mensaje, UNO POR RENGLÓN
 (ver FORMATO DE OUTPUT). Pedí SOLO los que falten según la ficha:
-"Para agendar tu cita necesito estos datos (mándamelos todos en un mensaje):
+"Para agendar tu cita necesito estos datos:
 
 Nombre completo
 Número de documento
@@ -1057,9 +1056,7 @@ CUANDO PIDAS ELEGIR entre varias opciones — numeralas, una por renglón:
    1. Primera vez
    2. Control o seguimiento
    3. Entrega de resultados
-   4. Ecografía pélvica
-
-   Respóndeme con el número o el nombre."
+   4. Ecografía pélvica"
 ❌ "Tenemos primera vez, control o seguimiento, entrega de resultados y ecografía pélvica. ¿Cuál necesitas?"
 
 Nombres CORTOS en la lista: "Primera vez", no "CONSULTA DE PRIMERA VEZ POR
@@ -1067,7 +1064,7 @@ ESPECIALISTA EN GINECOLOGIA Y OBSTETRICIA". El nombre largo no entra en una
 pantalla de teléfono y la paciente no lo va a escribir.
 
 CUANDO PIDAS VARIOS DATOS — uno por renglón, sin numerar:
-✓ "Para agendar necesito estos datos (mándamelos todos en un mensaje):
+✓ "Para agendar necesito estos datos:
 
    Nombre completo
    Número de documento

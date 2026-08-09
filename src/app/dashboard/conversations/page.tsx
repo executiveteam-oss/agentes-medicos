@@ -147,6 +147,7 @@ export default async function ConversationsPage() {
       // Servicios ruleados marcados en esta conversación. Alimentan el badge de
       // la fila: sin esto la secretaria ve "Atención" sin saber QUÉ resolver.
       servicios_marcados: (((conv.context as Record<string, unknown> | null)?.servicios_marcados) as string[] | undefined) ?? [],
+      servicios_marcados_at: (((conv.context as Record<string, unknown> | null)?.servicios_marcados_at) as string | undefined) ?? null,
       last_message_at: conv.last_message_at as string,
       last_message_preview: lastMsg
         ? lastMsg.content.length > 80 ? lastMsg.content.slice(0, 80) + '...' : lastMsg.content

@@ -32,6 +32,8 @@ interface ConversationEntry {
   doctor_name: string | null
   /** Keys de servicios ruleados marcados (Capa 0) sobre una conversación VIVA. */
   servicios_marcados: string[]
+  /** Cuándo se marcó el primero. Es el reloj de la cola para estas. */
+  servicios_marcados_at: string | null
 }
 
 interface Props {
@@ -133,8 +135,18 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
   useNow()
 
   // La que espera hace más, arriba: hace visible el mute y auto-ordena la cola.
-  const waitingMs = (e: ConversationEntry) =>
-    e.last_message_role === 'patient' ? new Date(e.last_message_at).getTime() : Infinity
+  //
+  // Una conversación con SERVICIO MARCADO no tiene mensaje sin responder —el
+  // agente sigue contestando—, así que por la regla de abajo caía al final de
+  // la lista. Eso destruía el propósito: la pusimos en Atención para que
+  // alguien la vea, y quedaba donde nadie mira. Para esas, el reloj corre
+  // desde que se MARCÓ el servicio, no desde el último mensaje.
+  const waitingMs = (e: ConversationEntry) => {
+    if (e.servicios_marcados.length > 0 && e.servicios_marcados_at) {
+      return new Date(e.servicios_marcados_at).getTime()
+    }
+    return e.last_message_role === 'patient' ? new Date(e.last_message_at).getTime() : Infinity
+  }
   const filtered = entries
     .filter((e) => {
       if (bucketOf(e) !== filter) return false
@@ -363,7 +375,10 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                           background: 'var(--v2-amber-soft)', color: '#b07d00', whiteSpace: 'nowrap',
                         }}
                       >
-                        🚨 {entry.servicios_marcados.map(nombreServicio).join(' · ')} — requiere confirmación
+                        🚨 {entry.servicios_marcados.map(nombreServicio).join(' · ')} — marcado{' '}
+                        {entry.servicios_marcados_at
+                          ? <RelativeTime iso={entry.servicios_marcados_at} />
+                          : 'sin resolver'}
                       </span>
                     )}
                     {entry.claimed_active_label !== null && (

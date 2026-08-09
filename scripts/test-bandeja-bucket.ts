@@ -12,6 +12,13 @@
 
 type FilterKey = 'atencion' | 'pendiente' | 'resuelta' | 'agente'
 interface E { status: 'active' | 'escalated' | 'resolved'; triage_state: 'atencion' | 'pendiente' | 'resuelta' | null }
+interface F extends E { servicios_marcados: string[]; servicios_marcados_at: string | null; last_message_role: string; last_message_at: string }
+
+// COPIA EXACTA de waitingMs en conversations-panel.tsx.
+function waitingMs(e: F): number {
+  if (e.servicios_marcados.length > 0 && e.servicios_marcados_at) return new Date(e.servicios_marcados_at).getTime()
+  return e.last_message_role === 'patient' ? new Date(e.last_message_at).getTime() : Infinity
+}
 
 // COPIA EXACTA de conversations-panel.tsx. Si divergen, este test miente.
 function bucketOf(e: E): FilterKey {
@@ -50,6 +57,23 @@ if (bucketOf(vivaConServicio) !== 'atencion') {
 } else {
   pass++; console.log('  ✅ aparece en Atención Y el status sigue active (agente vivo)')
 }
+
+console.log('\nEL ORDEN DE LA COLA — el servicio marcado no puede caer al final')
+const viejo: F = { status:'active', triage_state:'atencion', servicios_marcados:['mapeo'],
+  servicios_marcados_at:'2026-08-08T10:00:00Z', last_message_role:'agent', last_message_at:'2026-08-08T18:00:00Z' }
+const reciente: F = { status:'escalated', triage_state:null, servicios_marcados:[], servicios_marcados_at:null,
+  last_message_role:'patient', last_message_at:'2026-08-08T17:00:00Z' }
+const contestada: F = { status:'active', triage_state:null, servicios_marcados:[], servicios_marcados_at:null,
+  last_message_role:'agent', last_message_at:'2026-08-08T17:30:00Z' }
+
+if (waitingMs(viejo) === Infinity) { fail++; console.log('  ❌ el servicio marcado cae al final (Infinity)') }
+else { pass++; console.log('  ✅ el servicio marcado NO cae al final') }
+
+const orden = [contestada, reciente, viejo].sort((a,b) => waitingMs(a) - waitingMs(b))
+if (orden[0] === viejo) { pass++; console.log('  ✅ el marcado hace 8h va PRIMERO, antes que el mensaje de hace 1h') }
+else { fail++; console.log('  ❌ el marcado viejo no quedó primero') }
+if (orden[2] === contestada) { pass++; console.log('  ✅ la contestada sin nada pendiente queda última') }
+else { fail++; console.log('  ❌ la contestada no quedó última') }
 
 console.log(`\n${pass} pass · ${fail} fail`)
 process.exit(fail > 0 ? 1 : 0)

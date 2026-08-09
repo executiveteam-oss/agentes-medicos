@@ -22,6 +22,11 @@ import { RESUMEN_TEMPLATE_NAME, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appoint
 import { formatTimeForPatient, nowColombia } from '@/lib/utils/dates'
 import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import { format } from 'date-fns'
+import { toTitleCase } from '@/lib/utils/normalize-name'
+// El predicado de "¿este blocked_external es una paciente real?" vive en un solo
+// lugar y lo comparte con el calendario. Duplicarlo acá era garantizar que un día
+// el resumen y la agenda contaran distinto.
+import { esCupoCompartido } from '@/components/dashboard/calendar/types'
 
 export const maxDuration = 30
 
@@ -95,21 +100,36 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
     // Citas de HOY de ESTE médico (todo el día), con nombre del paciente, por hora.
     const { data: appts } = await supabaseAdmin
       .from('appointments')
-      .select('starts_at, external_data, patients(name)')
+      .select('starts_at, status, reason, external_data, patients(name)')
       .eq('clinic_id', clinicId)
       .eq('doctor_id', doctor.id)
-      .in('status', ['confirmed', 'rescheduled'])
+      // `blocked_external` VA INCLUIDO. No es "un bloqueo de agenda": son citas
+      // reales que el sync degradó porque iSalud las puso en un cupo ya ocupado
+      // y el índice único no admite dos con el mismo inicio. Excluirlas hacía
+      // que a la médica le faltara una paciente en su propio resumen — el
+      // 2026-08-10, Lina iba a leer "12 citas" con 13 pacientes en la sala.
+      // El filtro fino (paciente real vs bloqueo vacío) va abajo, con la misma
+      // función que usa el calendario.
+      .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
       .gte('starts_at', `${today}T00:00:00-05:00`)
       .lte('starts_at', `${today}T23:59:59-05:00`)
       .order('starts_at', { ascending: true })
 
-    const rows = appts ?? []
+    // Un `blocked_external` SIN paciente sí es un bloqueo de agenda y no es una
+    // cita: no se cuenta ni se lista.
+    const rows = (appts ?? []).filter(
+      (a) => a.status !== 'blocked_external' || esCupoCompartido(a.status as string, a.reason as string | null),
+    )
     if (rows.length === 0) {
       skipped++ // sin citas hoy → no se le manda nada
       continue
     }
 
     const listItems = rows.map((a) => {
+      // Hora en *negrita*: es el único recurso de formato que sobrevive dentro
+      // de un parámetro de template. Meta rechaza `\n` (132018, verificado
+      // contra la API), así que la lista va sí o sí en una sola línea — y sin
+      // anclas visuales, 13 citas seguidas no se leen.
       const time = formatTimeForPatient(a.starts_at as string)
       // Las citas importadas del HIS que todavía no tienen ficha vinculada
       // salían como el literal "Paciente" — 1 de cada 3 de la semana. El nombre
@@ -118,20 +138,24 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
       const linkedName = (a.patients as unknown as { name: string } | null)?.name
       const externalName = ((a.external_data as { nombre_paciente?: string } | null)?.nombre_paciente ?? '').trim()
       const patientName = linkedName || externalName || 'Paciente'
-      return `${time} ${patientName}`
+      // Title Case, NO abreviado. iSalud manda todo en MAYÚSCULAS y con espacios
+      // dobles; `toTitleCase` arregla las dos cosas. Acortar el nombre a dos
+      // palabras dejaba "Luz Elena" sin apellido — con dos pacientes de nombre
+      // parecido el mismo día, eso es un error de identificación, no de estilo.
+      return `*${time}* ${toTitleCase(patientName)}`
     })
 
     const count = rows.length
     // {{2}} = cantidad (pluralizada) + lista, TODO en una línea (sin newlines).
     const countLabel = count === 1 ? '1 cita' : `${count} citas`
-    const secondVar = `${countLabel} — ${listItems.join(', ')}`
+    const secondVar = `${countLabel} — ${listItems.join('  ·  ')}`
 
     const whatsappNumber = (doctor.phone as string).replace('+', '')
     const result = await sendWhatsAppTemplate(
       whatsappNumber,
       RESUMEN_TEMPLATE_NAME,
       TEMPLATE_LANGUAGE,
-      [doctor.name, secondVar],
+      [toTitleCase(doctor.name as string), secondVar],
       null, // sin botones
       creds,
       { clinicId, sendType: 'morning_report' },

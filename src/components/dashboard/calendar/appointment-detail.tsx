@@ -6,7 +6,7 @@ import { formatTimeForPatient, formatDateForPatient, formatPhone } from '@/lib/u
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { CancelAppointmentButton } from '@/components/dashboard/dashboard-actions'
 import type { CalendarAppointment, CalendarDoctor } from './types'
-import { STATUS_LABELS, STATUS_STYLES } from './types'
+import { STATUS_STYLES, etiquetaEstado, esCupoCompartido } from './types'
 import type { AppointmentStatus } from '@/types/database'
 
 export interface SurveyPropsForQuickActions {
@@ -51,7 +51,7 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: st.bg, color: st.fg }}>
-            {STATUS_LABELS[apt.status] ?? apt.status}
+            {etiquetaEstado(apt.status, apt.reason)}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '4px' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
@@ -110,6 +110,21 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', background: 'var(--v2-primary-soft)', borderRadius: '8px', marginBottom: '10px' }}>
           <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-primary)' }}>Link:</span>
           <a href={apt.virtual_link} target="_blank" rel="noopener noreferrer" style={{ fontSize: '11px', color: 'var(--v2-primary)', textDecoration: 'underline', overflow: 'hidden', textOverflow: 'ellipsis' }}>{apt.virtual_link}</a>
+        </div>
+      )}
+
+      {/* Cupo compartido: QuickActions devuelve null para blocked_external, así que
+          sin este aviso el panel se veía como una cita normal a la que le faltan los
+          botones — y nadie podía saber por qué. */}
+      {esCupoCompartido(apt.status, apt.reason) && (
+        <div style={{ padding: '10px 12px', borderRadius: '8px', marginTop: '8px',
+                      background: 'var(--v2-pink-soft)', border: '1px solid var(--v2-pink)' }}>
+          <p style={{ fontSize: '11.5px', fontWeight: 700, color: '#a3306b' }}>Cupo compartido con otra cita</p>
+          <p style={{ fontSize: '11px', color: '#a3306b', marginTop: '3px', lineHeight: 1.4 }}>
+            En iSalud hay otra cita a la misma hora con este médico. La paciente es real y el
+            horario es el correcto, pero desde acá no se le puede marcar asistencia ni enviar
+            la encuesta. Para eso, gestionala en iSalud.
+          </p>
         </div>
       )}
 

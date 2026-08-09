@@ -7,7 +7,7 @@ import { formatTimeForPatient } from '@/lib/utils/dates'
 import { Tooltip } from '@/components/ui/tooltip'
 import { AppointmentDetail } from './appointment-detail'
 import type { CalendarAppointment } from './types'
-import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, STATUS_LABELS } from './types'
+import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, etiquetaEstado, esCupoCompartido } from './types'
 
 /** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
 function toTitleCase(str: string): string {
@@ -51,7 +51,11 @@ const STATUS_CELL_COLORS: Record<string, { bg: string; border: string }> = {
   rescheduled:     { bg: '#FAEEDA', border: '#BA7517' },
   completed:       { bg: '#E1F5EE', border: '#1D9E75' },
   no_show:         { bg: '#FCEBEB', border: '#A32D2D' },
-  blocked_external:{ bg: '#EEEDFE', border: '#534AB7' },
+  // Rayado y rosa: antes era idéntica a `confirmed` (#EEEDFE/#534AB7) y en la
+  // grilla no había forma de distinguir una cita normal de una que comparte
+  // cupo y no se puede marcar. El rayado se ve incluso en las tarjetas de 16px,
+  // donde el texto ya no entra.
+  blocked_external:{ bg: '#FDECF4', border: '#A3306B' },
   cancelled:       { bg: '#F4F2FB', border: '#9590A8' },
 }
 
@@ -185,6 +189,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         const fullName = toTitleCase(rawName)
                         const patientName = abbreviateName(fullName)
                         const consultType = apt.consultation_type_name ?? apt.free_text_reason ?? ''
+                        const cupoCompartido = esCupoCompartido(apt.status, apt.reason)
 
                         // La segunda línea se decide por ALTURA DISPONIBLE, no por duración:
                         // el recorte lo causa el espacio, así que la condición tiene que
@@ -207,7 +212,12 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                             </span>
                             <span style={{ display: 'block' }}>{fullName}</span>
                             {apt.doctor?.name && <span style={{ display: 'block', opacity: 0.85 }}>Dr. {apt.doctor.name}</span>}
-                            <span style={{ display: 'block', opacity: 0.85 }}>Estado: {STATUS_LABELS[apt.status] ?? apt.status}</span>
+                            <span style={{ display: 'block', opacity: 0.85 }}>Estado: {etiquetaEstado(apt.status, apt.reason)}</span>
+                            {cupoCompartido && (
+                              <span style={{ display: 'block', marginTop: '4px', opacity: 0.85 }}>
+                                Comparte el horario con otra cita en iSalud. No se le puede marcar asistencia.
+                              </span>
+                            )}
                             {apt.source === 'whatsapp_agent' && apt.payment_type && (
                               <span style={{ display: 'block', opacity: 0.85 }}>Pago: {apt.payment_type}</span>
                             )}
@@ -224,7 +234,11 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                                 top: `${topPx}px`,
                                 height: `${heightPx}px`,
                                 maxHeight: '95%',
-                                background: colors.bg,
+                                // Rayado SOLO para cupo compartido: distingue de un
+                                // vistazo sin depender de leer el texto.
+                                background: cupoCompartido
+                                  ? `repeating-linear-gradient(135deg, ${colors.bg} 0 6px, #fff 6px 12px)`
+                                  : colors.bg,
                                 borderLeft: `3px solid ${colors.border}`,
                                 borderRadius: '4px',
                                 padding: `${padY} 6px`,

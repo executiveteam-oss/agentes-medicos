@@ -61,7 +61,37 @@ export const HOURS = Array.from({ length: 14 }, (_, i) => i + 7) // 7am - 8pm
 
 export const STATUS_LABELS: Record<string, string> = {
   confirmed: 'Confirmada', rescheduled: 'Reagendada', completed: 'Completada',
-  no_show: 'No-show', blocked_external: 'iSalud', cancelled: 'Cancelada',
+  no_show: 'No-show', blocked_external: 'Cupo compartido', cancelled: 'Cancelada',
+}
+
+// ============================================================
+// `blocked_external` NO es "un bloqueo de agenda". En Algia son 400 filas y las
+// 400 tienen paciente real: son citas que iSalud puso en un cupo YA ocupado, y
+// como el índice único de Omuwan no admite dos citas con el mismo inicio, el
+// sync las degrada a este estado para no perderlas.
+//
+// Hasta hoy se pintaban EXACTAMENTE igual que una `confirmed` —mismo fondo,
+// mismo borde—, así que en la agenda eran indistinguibles de una cita normal.
+// Y no lo son: no tienen botones de asistencia (`quick-actions.tsx:98` devuelve
+// null) y no cuentan en las métricas del día. Alguien que la ve normal espera
+// poder marcarla y no puede.
+// ============================================================
+
+/** El `reason` que escribe el sync cuando la fila NO tiene paciente. */
+export const BLOQUEO_SIN_PACIENTE = 'Bloqueo iSalud'
+
+/** Un `blocked_external` con nombre es una PACIENTE en cupo compartido; sin
+ *  nombre es un bloqueo de agenda de verdad. Se ven distinto y se dicen
+ *  distinto. Una sola función para que las tres vistas no diverjan. */
+export function esCupoCompartido(status: string, reason?: string | null): boolean {
+  return status === 'blocked_external' && (reason ?? '').trim() !== BLOQUEO_SIN_PACIENTE
+}
+
+export function etiquetaEstado(status: string, reason?: string | null): string {
+  if (status === 'blocked_external') {
+    return esCupoCompartido(status, reason) ? 'Cupo compartido' : 'Bloqueo de agenda'
+  }
+  return STATUS_LABELS[status] ?? status
 }
 
 export const STATUS_STYLES: Record<string, { bg: string; fg: string; dot: string }> = {
@@ -69,7 +99,10 @@ export const STATUS_STYLES: Record<string, { bg: string; fg: string; dot: string
   rescheduled: { bg: 'var(--v2-amber-soft)', fg: '#b07d00', dot: 'var(--v2-amber)' },
   completed: { bg: 'var(--v2-green-soft)', fg: 'var(--v2-green-deep)', dot: 'var(--v2-green)' },
   no_show: { bg: 'var(--v2-red-soft)', fg: 'var(--v2-red)', dot: 'var(--v2-red)' },
-  blocked_external: { bg: 'var(--v2-primary-soft)', fg: 'var(--v2-primary)', dot: 'var(--v2-primary)' },
+  // Rosa, no violeta: tenía el MISMO color que `confirmed` y por eso pasaba
+  // desapercibida. Distinta de amber (`rescheduled`) y de rojo (`no_show`),
+  // que ya significan otra cosa.
+  blocked_external: { bg: 'var(--v2-pink-soft)', fg: '#a3306b', dot: 'var(--v2-pink)' },
   cancelled: { bg: 'var(--v2-bg-deeper)', fg: 'var(--v2-text-subtle)', dot: 'var(--v2-text-subtle)' },
 }
 

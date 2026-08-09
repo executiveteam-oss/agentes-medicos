@@ -82,7 +82,10 @@ dedujiste.
 se disparó; no dice qué necesitaba ella. Con frecuencia no coinciden: el motivo
 puede decir `servicio_escalate_human` y ella estar preguntando un precio.
 
-Citá textual. Una frase de ella, entre comillas.
+**Al analizar**, leé sus frases textuales — están en el JSON, que es local y no
+se publica. **Al escribir el informe, parafraseá**: el archivo va a un repo
+público y sus palabras son dato de salud. "Preguntó el precio de un mapeo y si
+lo cubría su EPS" dice lo mismo que la cita y no publica nada de ella.
 
 ### 3. ¿Hacía falta un humano de verdad?
 Clasificá en exactamente una:
@@ -170,11 +173,56 @@ qué casos salió.
 
 ---
 
-## El informe
+## El informe: dónde va y qué forma tiene
 
-Markdown. Este orden.
+**Escribilo en `docs/analisis-escalaciones/<desde>_a_<hasta>.md`.**
+Ej: `docs/analisis-escalaciones/2026-08-17_a_2026-08-23.md`.
 
-### Encabezado
+El nombre es el período que cubre, no el día en que lo generaste.
+
+### 🔴 Antes de escribir una línea: el repo es PÚBLICO
+
+`docs/` se publica en GitHub. Las conversaciones son de pacientes de una clínica
+de dolor pélvico — dato de salud, categoría sensible bajo la Ley 1581/2012.
+
+En el archivo, entonces:
+
+- **Ninguna cita textual de la paciente.** Parafraseá qué quería. Si necesitás
+  mostrar la fricción, **citá al agente** — ese texto es nuestro, no de ella.
+- Sin nombres, teléfonos, documentos ni fechas de nacimiento.
+- **Sin `conversation_id`**: es un puntero directo a la conversación.
+- Para referirte a un caso: `caso 3 del período`.
+
+El detalle crudo con las transcripciones queda en el JSON de `extraer.ts`, que
+está gitignoreado. Quien quiera leer literal, lo abre ahí.
+
+### Frontmatter obligatorio
+
+Va primero, con esta forma exacta — la lee `titular.ts` para armar la serie:
+
+```yaml
+---
+periodo_desde: 2026-08-17
+periodo_hasta: 2026-08-23
+total: 47
+evitables: 19
+suficiencia: SUFICIENTE
+motivo_leido: 44
+motivo_inferido: 3
+sin_clasificar: 2
+grupos:
+  - clave: friccion_del_agente | casos: 12 | evitables: 12
+  - clave: vocabulario_keyword | casos: 9 | evitables: 9
+---
+```
+
+`clave` en snake_case y **estable entre informes**. Si un período la llama
+`friccion_del_agente` y el siguiente `friccion_agente`, la serie muestra dos
+grupos donde hay uno — y la comparación semana 1 vs. semana 6, que es para lo
+que se guardan estos archivos, deja de servir. Antes de inventar una clave,
+**mirá las que usaron los informes anteriores del directorio**.
+
+### Encabezado del cuerpo
 ```
 Escalaciones del <desde> al <hasta>
 N casos · suficiencia: <INSUFICIENTE|PRELIMINAR|SUFICIENTE>
@@ -184,6 +232,13 @@ Demo excluidas: Z · Eventos sin vincular: W
 
 Si hay `mensajes_posiblemente_truncados > 0`, avisá: hay mensajes en el techo de
 1.000 caracteres del sanitizador y pueden estar cortados.
+
+### Si ya hay informes anteriores
+
+Leelos (el frontmatter alcanza) y agregá una sección **Contra el período
+anterior**: qué grupo creció, cuál bajó, y si las recomendaciones que se hicieron
+la vez pasada se aplicaron. Un grupo que no se movió después de una recomendación
+implementada es información — decilo.
 
 ### El número que resume todo
 ```
@@ -213,6 +268,24 @@ mensajes truncados, tamaño de muestra, ventanas de tiempo sin tráfico.
 
 ---
 
+## Último paso: el titular
+
+Guardado el archivo, corré:
+
+```bash
+npx tsx .claude/skills/analizar-escalaciones/titular.ts
+```
+
+Imprime cuántas escalaciones hubo, cuántas eran evitables y qué causa pesa más
+—con el delta contra el período anterior— y esa salida es lo que va en tu
+respuesta. **Pegala tal cual.**
+
+Es para las semanas en las que no pasa nada: con esos tres números se decide si
+vale la pena abrir el detalle. Si el titular no cierra con el archivo que
+escribiste, el frontmatter quedó mal.
+
+---
+
 ## Reglas de la casa que aplican acá
 
 - **No generalices desde una muestra chica.** Es la razón de ser de
@@ -227,6 +300,7 @@ mensajes truncados, tamaño de muestra, ventanas de tiempo sin tráfico.
 - **No propongas tocar `escalate-service-matcher.ts`.** La lista curada de
   keywords se mantiene como está por decisión del dueño del producto. Si un caso
   sugiere cambiarla, marcalo como hallazgo y dejá que él decida.
-- **Nada de datos personales en el informe.** Nombre de pila si hace falta;
-  nunca teléfono completo ni documento. Los datos de salud son categoría
-  sensible bajo la Ley 1581/2012.
+- **El informe se publica.** `docs/` está en un repo público. Sin nombres, sin
+  teléfonos, sin documentos, sin `conversation_id` y **sin citas textuales de la
+  paciente** — parafraseá. Citar al agente sí, ese texto es nuestro. Los datos
+  de salud son categoría sensible bajo la Ley 1581/2012.

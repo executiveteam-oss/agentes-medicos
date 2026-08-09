@@ -14,6 +14,7 @@ import { replyToHangingMessage } from '@/lib/agent/reply-to-hanging-message'
 import { crisisReturnMissingReason } from '@/lib/rules/return-to-agent'
 import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
 import type { ConversationStatus } from '@/types/database'
+import { ESCALATION_REASONS, staffEscalationContext, historyOnReturn } from '@/lib/conversations/escalation-reasons'
 
 // ---- Tipos ----
 
@@ -185,7 +186,7 @@ export async function sendStaffMessage(
     // Obtener datos de la conversación (incluye claim) y credenciales de la clínica
     const { data: conv, error: convError } = await supabaseAdmin
       .from('conversations')
-      .select('id, whatsapp_phone, clinic_id, status, claimed_by, claimed_by_name, claimed_at')
+      .select('id, whatsapp_phone, clinic_id, status, context, claimed_by, claimed_by_name, claimed_at')
       .eq('id', conversationId)
       .eq('clinic_id', clinicId)
       .single()
@@ -256,6 +257,11 @@ export async function sendStaffMessage(
         last_message_at: new Date().toISOString(),
         status: 'escalated',
         triage_state: 'atencion',
+        context: staffEscalationContext(
+          (conv as { context?: Record<string, unknown> | null }).context,
+          ESCALATION_REASONS.STAFF_TAKEOVER,
+          tookOver,
+        ),
         claimed_by: session.clinicUserId,
         claimed_by_name: session.fullName,
         claimed_at: new Date().toISOString(),
@@ -312,11 +318,23 @@ export async function takeOverConversation(
     const session = await getUserSession()
     if (!session) return { ok: false, error: 'Error de permisos o sesión' }
 
+    // Estado previo: si venía con el agente, la causa de la escalación es esta
+    // acción. Si ya estaba escalada, la causa original manda.
+    const { data: antes } = await supabaseAdmin
+      .from('conversations')
+      .select('status, context')
+      .eq('id', conversationId).eq('clinic_id', clinicId).maybeSingle()
+
     const { error } = await supabaseAdmin
       .from('conversations')
       .update({
         status: 'escalated',
         triage_state: 'atencion',
+        context: staffEscalationContext(
+          antes?.context as Record<string, unknown> | null,
+          ESCALATION_REASONS.STAFF_TAKEOVER,
+          antes?.status === 'active',
+        ),
         claimed_by: session.clinicUserId,
         claimed_by_name: session.fullName,
         claimed_at: new Date().toISOString(),
@@ -358,7 +376,7 @@ export async function setConversationTriageState(
     // Estado previo (para auditar de→a)
     const { data: prev } = await supabaseAdmin
       .from('conversations')
-      .select('status, triage_state')
+      .select('status, triage_state, context')
       .eq('id', conversationId)
       .eq('clinic_id', clinicId)
       .single()
@@ -371,7 +389,14 @@ export async function setConversationTriageState(
         ? { status: 'escalated', triage_state: 'pendiente' }            // vista pero abierta (sigue fuera del agente)
         : state === 'resuelta'
           ? { status: 'resolved', triage_state: null, claimed_by: null, claimed_by_name: null, claimed_at: null } // resuelta = done, libera el claim (no huérfano)
-          : { status: 'escalated', triage_state: null, escalated_at: new Date().toISOString() } // atención (deriva de escalated)
+          : {
+              status: 'escalated', triage_state: null, escalated_at: new Date().toISOString(),
+              context: staffEscalationContext(
+                prev?.context as Record<string, unknown> | null,
+                ESCALATION_REASONS.STAFF_MANUAL,
+                prev?.status === 'active',
+              ),
+            } // atención (deriva de escalated)
 
     const { error } = await supabaseAdmin
       .from('conversations')
@@ -484,7 +509,14 @@ export async function returnConversationToAgent(
     // claim quedaba huérfano). Es la mitad "agente" del par con takeOverConversation.
     const { error } = await supabaseAdmin
       .from('conversations')
-      .update({ status: 'active', escalated_to: null, escalated_at: null, triage_state: null, context: {}, claimed_by: null, claimed_by_name: null, claimed_at: null })
+      .update({
+        status: 'active', escalated_to: null, escalated_at: null, triage_state: null,
+        // NO se limpia a {} pelado: el motivo se guarda en el historial antes de
+        // borrarse. Las escalaciones que el staff resolvió bien y devolvió son
+        // justo las que contestan "¿hacía falta un humano?", y se borraban solas.
+        context: historyOnReturn(conv.context as Record<string, unknown> | null),
+        claimed_by: null, claimed_by_name: null, claimed_at: null,
+      })
       .eq('id', conversationId)
       .eq('clinic_id', clinicId)
     if (error) return { ok: false, error: 'Error devolviendo la conversación' }

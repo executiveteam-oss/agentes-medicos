@@ -44,6 +44,7 @@ import {
   detectHallucinatedReschedule,
 } from '@/lib/whatsapp/agent-guards'
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
+import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 
 // Máximo tiempo de ejecución en Vercel (en segundos)
 // El plan gratuito de Vercel permite hasta 60s para serverless functions
@@ -287,7 +288,11 @@ async function processWebhook(body: unknown): Promise<void> {
             .update({
               status: 'escalated',
               escalated_at: new Date().toISOString(),
-              context: { escalation_reason: 'Paciente envió archivo — recepción de media deshabilitada (feature flag off)' },
+              context: escalationContext(
+                conversation.context,
+                ESCALATION_REASONS.MEDIA_DISABLED,
+                `Tipo de archivo: ${message.type}`,
+              ),
             })
             .eq('id', conversation.id)
           // Notificación in-app persistente para el staff (campana)
@@ -411,7 +416,13 @@ async function processWebhook(body: unknown): Promise<void> {
               .update({
                 status: 'escalated',
                 escalated_at: new Date().toISOString(),
-                context: { escalation_reason: 'Autorización recibida — pendiente de revisión humana' },
+                context: escalationContext(
+                  conversation.context,
+                  ESCALATION_REASONS.AUTHORIZATION_REVIEW,
+                  // El nombre del archivo, NO el servicio ni el convenio: si el
+                  // detalle entra en el motivo, cada caso es su propio grupo.
+                  filename ?? `Archivo ${message.type}`,
+                ),
                 last_message_at: new Date().toISOString(),
               })
               .eq('id', conversation.id)
@@ -581,14 +592,28 @@ async function processWebhook(body: unknown): Promise<void> {
         await sendWhatsAppMessage(message.from, escalationMsg, clinicCreds)
         await supabaseAdmin
           .from('conversations')
-          .update({ status: 'escalated', escalated_at: new Date().toISOString() })
+          .update({
+            status: 'escalated',
+            escalated_at: new Date().toISOString(),
+            // Antes este camino NO estampaba motivo: quedaba indistinguible de
+            // una conversación sin causa registrada. Y es el que más falsos
+            // positivos produce, porque la lista la escribe la clínica y ahí
+            // entran palabras de uso diario ("médico" ya disparó una).
+            context: escalationContext(
+              conversation.context,
+              ESCALATION_REASONS.KEYWORD,
+              escalationMatch,
+            ),
+          })
           .eq('id', conversation.id)
         try {
           await supabaseAdmin.from('audit_log').insert({
             clinic_id: clinic.id,
             action: 'conversation_escalated',
             actor_type: 'system',
-            details: { reason: `Palabra clave: "${escalationMatch}"`, urgency: 'high' },
+            target_type: 'conversation',
+            target_id: conversation.id,
+            details: { reason: ESCALATION_REASONS.KEYWORD, keyword: escalationMatch, urgency: 'high' },
           })
         } catch { /* no crítico */ }
 
@@ -691,7 +716,7 @@ async function processWebhook(body: unknown): Promise<void> {
         const isTech = agentResponse.escalate.reason === 'tool_technical_error'
         await supabaseAdmin
           .from('conversations')
-          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: isTech ? 'error_tecnico_tool' : 'falla_agendamiento' } })
+          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, isTech ? ESCALATION_REASONS.TOOL_ERROR : ESCALATION_REASONS.BOOKING_FAILURE) })
           .eq('id', conversation.id)
         await refreshEscalationNotifications({
           conversationId: conversation.id,
@@ -791,7 +816,7 @@ async function processWebhook(body: unknown): Promise<void> {
               })
             } catch { /* non-critical */ }
             await supabaseAdmin.from('conversations')
-              .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'falla_agendamiento' } })
+              .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE) })
               .eq('id', conversation.id)
             await refreshEscalationNotifications({
               conversationId: conversation.id,
@@ -959,7 +984,7 @@ async function processWebhook(body: unknown): Promise<void> {
           .update({
             status: 'escalated',
             escalated_at: new Date().toISOString(),
-            context: { escalation_reason: 'escalate_to_human' },
+            context: escalationContext(conversation.context, ESCALATION_REASONS.AGENT_TOOL),
           })
           .eq('id', conversation.id)
 
@@ -1226,7 +1251,7 @@ async function getMessageHistory(conversationId: string): Promise<Message[]> {
 async function handleCrisis(
   clinic: Clinic,
   patient: { id: string; name: string | null },
-  conversation: { id: string; status: string },
+  conversation: { id: string; status: string; context?: Record<string, unknown> | null },
   patientPhone: string,
   patientMessage: string,
   clinicCreds: ClinicWhatsAppCredentials | null,
@@ -1253,7 +1278,7 @@ async function handleCrisis(
   if (conversation.status !== 'escalated') {
     await supabaseAdmin
       .from('conversations')
-      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'crisis' } })
+      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.CRISIS) })
       .eq('id', conversation.id)
   }
 
@@ -1319,7 +1344,7 @@ async function handleEscalateService(
         triage_state: 'atencion',
         context: {
           ...ctx,
-          escalation_reason: 'servicio_escalate_human',
+          escalation_reason: ESCALATION_REASONS.SERVICE_RULE,
           servicios_marcados: [...marcados, serviceKey],
           // CUÁNDO se marcó el primero. La cola de Atención se ordena por el
           // que espera hace más, y estas conversaciones NO tienen un mensaje
@@ -1374,7 +1399,7 @@ async function handlePrivacyPolicyLink(
 async function handleDataRightsRequest(
   clinic: Clinic,
   patient: { id: string; name: string | null },
-  conversation: { id: string; status: string },
+  conversation: { id: string; status: string; context?: Record<string, unknown> | null },
   patientPhone: string,
   patientMessage: string,
   clinicCreds: ClinicWhatsAppCredentials | null,
@@ -1388,7 +1413,7 @@ async function handleDataRightsRequest(
   if (conversation.status !== 'escalated') {
     await supabaseAdmin
       .from('conversations')
-      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'data_rights_request' } })
+      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.DATA_RIGHTS) })
       .eq('id', conversation.id)
   }
 
@@ -1413,7 +1438,7 @@ async function handleDataRightsRequest(
 async function handleHumanRequest(
   clinic: Clinic,
   patient: { id: string; name: string | null },
-  conversation: { id: string; status: string },
+  conversation: { id: string; status: string; context?: Record<string, unknown> | null },
   patientPhone: string,
   patientMessage: string,
   clinicCreds: ClinicWhatsAppCredentials | null,
@@ -1427,7 +1452,7 @@ async function handleHumanRequest(
   } else {
     await supabaseAdmin
       .from('conversations')
-      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: 'pedido_humano' } })
+      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.HUMAN_REQUEST) })
       .eq('id', conversation.id)
     await notifyStaffOfEscalation({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, reason: patientMessage })
   }

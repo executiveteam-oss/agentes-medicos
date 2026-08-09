@@ -15,6 +15,7 @@ import {
   buildExistingPatient, resolveTratantesForClinic,
 } from '@/lib/agent/agent-context'
 import type { Clinic, Patient, Message } from '@/types/database'
+import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 
 export interface HangingReplyResult {
   replied: boolean
@@ -26,7 +27,7 @@ export async function replyToHangingMessage(conversationId: string): Promise<Han
   try {
     const { data: conv } = await supabaseAdmin
       .from('conversations')
-      .select('id, clinic_id, whatsapp_phone, patients(*)')
+      .select('id, clinic_id, whatsapp_phone, context, patients(*)')
       .eq('id', conversationId)
       .single()
     const patient = (conv?.patients as unknown as Patient | null) ?? null
@@ -76,9 +77,15 @@ export async function replyToHangingMessage(conversationId: string): Promise<Han
     // El agente puede volver a escalar (servicio ruleado / crisis / falla) — re-escala.
     if (agentResponse.escalate) {
       const r = agentResponse.escalate.reason
-      const escReason = r === 'tool_technical_error' ? 'error_tecnico_tool' : r === 'booking_failure' ? 'falla_agendamiento' : 'reescalado_por_agente'
+      const escReason = r === 'tool_technical_error' ? ESCALATION_REASONS.TOOL_ERROR
+        : r === 'booking_failure' ? ESCALATION_REASONS.BOOKING_FAILURE
+        : ESCALATION_REASONS.AGENT_REESCALATED
       await supabaseAdmin.from('conversations')
-        .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: { escalation_reason: escReason } })
+        .update({
+          status: 'escalated',
+          escalated_at: new Date().toISOString(),
+          context: escalationContext(conv.context as Record<string, unknown> | null, escReason, agentResponse.escalate.code),
+        })
         .eq('id', conversationId)
       await refreshEscalationNotifications({ conversationId, clinicId: clinic.id, patientName: patient.name, latestMessage: `El agente volvió a escalar tras devolver (${agentResponse.escalate.code})` })
       return { replied: true, escalatedAgain: true }

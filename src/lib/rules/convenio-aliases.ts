@@ -41,6 +41,42 @@ export const CONVENIO_ALIASES: ConvenioAlias[] = [
   },
 ]
 
+// ============================================================
+// PARTICULAR NO ES UN CONVENIO QUE FALTE.
+//
+// Es la categoría más grande de la clínica: 12.795 citas históricas, más que
+// cualquier aseguradora. Y el agente le pregunta a la paciente "¿vas por EPS,
+// medicina prepagada o particular?", así que "particular" es una respuesta
+// esperable — que el modelo después manda a verificar como si fuera una
+// aseguradora, igual que hizo con "Medplus".
+//
+// Sin este corte, cada paciente particular escalaría por "convenio no
+// reconocido": el caso MÁS COMÚN convertido en cola para el staff.
+//
+// La lista es CORTA a propósito. Marcar como particular a alguien que sí tiene
+// convenio es el mismo error que negarle el convenio, solo que más silencioso:
+// se va pagando de su bolsillo sin que nadie escale. Ante una respuesta
+// ambigua ("no tengo EPS" — puede tener prepagada), NO se asume particular: se
+// deja escalar, que es el lado seguro.
+// ============================================================
+const DICE_PARTICULAR = [
+  'particular', 'pago particular', 'particular pago', 'voy particular',
+  'soy particular', 'como particular', 'por particular', 'de particular',
+  'privado', 'pago privado', 'consulta particular', 'particular privado',
+]
+
+/**
+ * ¿La paciente dijo que paga ella, sin aseguradora?
+ *
+ * Exige que la frase SEA una de las formas conocidas, no que las contenga:
+ * "particular" dentro de "no soy particular, tengo Sura" no puede activarlo.
+ */
+export function dijoParticular(texto: string | null | undefined): boolean {
+  const n = normalizarConvenio(texto ?? '')
+  if (!n) return false
+  return DICE_PARTICULAR.includes(n)
+}
+
 /** Minúsculas, sin tildes, sin puntuación, espacios colapsados. */
 export function normalizarConvenio(s: string): string {
   return s

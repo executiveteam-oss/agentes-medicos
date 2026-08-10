@@ -11,7 +11,7 @@
 // Correr: npx tsx scripts/test-convenio-alias.ts
 // ============================================================
 
-import { mismoConvenioPorAlias, normalizarConvenio } from '../src/lib/rules/convenio-aliases'
+import { mismoConvenioPorAlias, normalizarConvenio, dijoParticular } from '../src/lib/rules/convenio-aliases'
 
 const SOS_LARGO = 'ENTIDAD PROMOTORA DE SALUD SERVICIO OCCIDENTAL DE SALUD S.A'
 
@@ -67,6 +67,28 @@ console.log('\nBORDES')
 ok('vacío no matchea', !mismoConvenioPorAlias('', SOS_LARGO))
 ok('cargado vacío no matchea', !mismoConvenioPorAlias('SOS', ''))
 ok('un convenio sin alias definido no se rompe', !mismoConvenioPorAlias('COOMEVA', 'COOMEVA'))
+
+console.log('\n🛑 PARTICULAR — el caso MÁS COMÚN no puede escalar')
+for (const d of ['particular','Particular','PARTICULAR',' particular ','pago particular',
+                 'voy particular','soy particular','como particular','privado','Consulta particular']) {
+  ok(`"${d}" → se corta como particular`, dijoParticular(d))
+}
+
+console.log('\n…pero NO puede tragarse a quien SÍ tiene convenio')
+for (const d of ['no soy particular, tengo Sura','particular no, medplus','tengo Sura',
+                 'Medplus','EPS SOS','particular o sura?','mi eps es particular seguros']) {
+  ok(`"${d}" NO se corta como particular`, !dijoParticular(d))
+}
+
+console.log('\nAMBIGUO → NO se asume particular (escala, que es el lado seguro)')
+for (const d of ['no tengo eps','ninguna','no sé','no tengo']) {
+  ok(`"${d}" NO se asume particular`, !dijoParticular(d))
+}
+ok('vacío no es particular', !dijoParticular(''))
+ok('null no es particular', !dijoParticular(null))
+
+console.log('\nY "particular" tampoco puede matchear un convenio por alias')
+ok('particular vs razón social de SOS', !mismoConvenioPorAlias('particular', SOS_LARGO))
 
 console.log('\nNORMALIZACIÓN')
 ok('tildes', normalizarConvenio('Colmédica') === 'colmedica')

@@ -24,7 +24,7 @@ import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, Working
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toZonedTime } from 'date-fns-tz'
-import { mismoConvenioPorAlias } from '@/lib/rules/convenio-aliases'
+import { mismoConvenioPorAlias, dijoParticular } from '@/lib/rules/convenio-aliases'
 
 const TIMEZONE = 'America/Bogota'
 const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -1898,6 +1898,23 @@ async function checkEpsConvenio(
 ): Promise<ToolResult> {
   const epsName = (input.eps_name as string ?? '').trim()
   if (!epsName) return { success: false, error: 'Nombre de EPS vacío' }
+
+  // 🛑 PARTICULAR SE CORTA ANTES DE BUSCAR.
+  // No es un convenio que falte: es la categoría más grande de la clínica
+  // (12.795 citas, más que cualquier aseguradora) y una respuesta esperable,
+  // porque el agente ofrece "¿EPS, prepagada o particular?" en el mismo mensaje.
+  // Sin este corte cae en CONVENIO_NO_RECONOCIDO y escala — el caso más común
+  // convertido en cola para el staff, todos los días.
+  if (dijoParticular(epsName)) {
+    return {
+      success: true,
+      data: {
+        esParticular: true,
+        hasConvenio: false,
+        message: 'La paciente paga como particular: NO hace falta convenio. Seguí el flujo normal de agendamiento; si pregunta el valor, usá get_consultation_price con modo particular.',
+      },
+    }
+  }
 
   const insurerTypeFilter = input.insurer_type === 'EPS' || input.insurer_type === 'Prepagada'
     ? input.insurer_type as 'EPS' | 'Prepagada'

@@ -69,117 +69,16 @@ export async function getAuthorizationFileUrl(
   return { ok: true, url: r.url }
 }
 
-/**
- * Aprueba la autorización + crea la cita.
- *
- * Recibe el slot elegido por el staff. La cita queda con
- * requires_authorization=true + authorization_validated_at/by + el
- * media_id linkeado (para auditoría).
- */
-export async function approveAuthorizationAndCreateAppointment(params: {
-  mediaId: string
-  doctorId: string
-  consultationTypeId: string
-  startsAt: string  // ISO 8601 con offset
-  durationMinutes: number
-  patientId: string
-  reviewNotes?: string
-}): Promise<{ ok: boolean; error?: string; appointmentId?: string }> {
-  let clinicId: string
-  try { clinicId = await checkAuthorizationReviewPermission() }
-  catch (err) { return { ok: false, error: extractActionError(err) } }
-
-  const session = await getUserSession()
-  if (!session) return { ok: false, error: 'No autenticado' }
-
-  // Verificar que el media pertenezca a la clínica
-  const { data: media } = await supabaseAdmin
-    .from('conversation_media')
-    .select('id, clinic_id, conversation_id, context, reviewed_at')
-    .eq('id', params.mediaId)
-    .single()
-  if (!media || (media as { clinic_id: string }).clinic_id !== clinicId) {
-    return { ok: false, error: 'Archivo no encontrado o no pertenece a esta clínica' }
-  }
-  const m = media as { id: string; clinic_id: string; conversation_id: string; context: string; reviewed_at: string | null }
-  if (m.context !== 'authorization') return { ok: false, error: 'El archivo no es una autorización' }
-  if (m.reviewed_at) return { ok: false, error: 'Esta autorización ya fue revisada' }
-
-  // Buscar el convenio en la conversación (desde el último mensaje del agente o paciente)
-  // Por simplicidad, el staff lo confirma manualmente en el form — acá lo tomamos del CT
-  const { data: ct } = await supabaseAdmin
-    .from('consultation_types')
-    .select('eps_name')
-    .eq('id', params.consultationTypeId)
-    .single()
-  const convenio = (ct as { eps_name: string | null } | null)?.eps_name ?? null
-
-  const endsAt = new Date(new Date(params.startsAt).getTime() + params.durationMinutes * 60_000).toISOString()
-
-  // Crear la cita
-  const { data: apt, error: aptErr } = await supabaseAdmin
-    .from('appointments')
-    .insert({
-      clinic_id: clinicId,
-      doctor_id: params.doctorId,
-      patient_id: params.patientId,
-      starts_at: params.startsAt,
-      ends_at: endsAt,
-      status: 'confirmed',
-      source: 'manual',
-      consultation_type_id: params.consultationTypeId,
-      requires_authorization: true,
-      authorization_convenio: convenio,
-      authorization_validated_at: new Date().toISOString(),
-      authorization_validated_by: session.clinicUserId,
-      authorization_media_id: params.mediaId,
-    })
-    .select('id')
-    .single()
-
-  if (aptErr || !apt) return { ok: false, error: `Error creando cita: ${aptErr?.message}` }
-
-  // Marcar la media como aprobada
-  await supabaseAdmin
-    .from('conversation_media')
-    .update({
-      reviewed_by: session.clinicUserId,
-      reviewed_at: new Date().toISOString(),
-      review_decision: 'approved',
-      review_notes: params.reviewNotes ?? null,
-    })
-    .eq('id', params.mediaId)
-
-  // Cerrar la escalación de la conversación
-  await supabaseAdmin
-    .from('conversations')
-    .update({
-      status: 'resolved',
-      last_message_at: new Date().toISOString(),
-    })
-    .eq('id', m.conversation_id)
-
-  // Audit log
-  await supabaseAdmin.from('audit_log').insert({
-    clinic_id: clinicId,
-    action: 'authorization_approved',
-    actor_type: 'staff',
-    actor_id: session.clinicUserId,
-    target_type: 'conversation_media',
-    target_id: params.mediaId,
-    details: {
-      appointment_id: (apt as { id: string }).id,
-      doctor_id: params.doctorId,
-      consultation_type_id: params.consultationTypeId,
-      starts_at: params.startsAt,
-      convenio,
-    },
-  })
-
-  revalidatePath('/dashboard/conversaciones')
-  revalidatePath('/dashboard/agenda')
-  return { ok: true, appointmentId: (apt as { id: string }).id }
-}
+// approveAuthorizationAndCreateAppointment se BORRÓ (2026-08-10).
+//
+// Era código muerto: ninguna pantalla lo llamaba. Pero llevaba adentro el gate
+// `if (m.context !== 'authorization') return …` — la misma condición que dejó
+// inalcanzable el flujo de aprobar-y-agendar durante semanas, porque ese
+// context no se asigna nunca. El día que alguien lo conectara, reintroducía el
+// bug entero sin que nadie lo notara.
+//
+// Lo que hace falta ya existe: approveAndReturnToAgent (el agente agenda) y
+// markMediaApproved (la secretaria agendó a mano). Ninguno filtra por context.
 
 /**
  * Rechaza la autorización. NO crea cita. Marca el media con

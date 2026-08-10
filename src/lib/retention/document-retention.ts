@@ -38,10 +38,10 @@ export const VOLUME_GUARD_MAX = 100
  * Umbral de alerta para la excepción B (pending_review nunca se borra).
  *
  * POR QUÉ ALERTAR: sin esto, "no borrar un proceso abierto" degenera en
- * "retener para siempre porque nadie lo miró". Una autorización que un paciente
- * espera se revisa en días; el término legal ARCO es ~15 días hábiles. Un
- * pending_review de más de 30 días está olvidado → se alerta (aunque NO se
- * borra) para que un humano lo resuelva.
+ * "retener para siempre porque nadie lo miró". Un archivo que un paciente
+ * mandó y espera se revisa en días; el término legal ARCO es ~15 días hábiles.
+ * Un archivo sin revisar de más de 30 días está olvidado → se alerta (aunque
+ * NO se borra) para que un humano lo resuelva.
  */
 export const STALE_PENDING_ALERT_DAYS = 30
 
@@ -106,7 +106,17 @@ export function isEligibleForDeletion(
 ): boolean {
   if (new Date(row.createdAt) >= cutoff) return false                    // más nuevo que el plazo
   if (hasActiveFutureAppointment) return false                           // Exc A
-  if (row.context === 'authorization' && row.reviewedAt === null) return false  // Exc B
+  // Exc B — un archivo SIN REVISAR no se borra, sea cual sea su `context`.
+  //
+  // Antes esta línea exigía además `context === 'authorization'`, y ese valor lo
+  // asigna una heurística que en producción NO SE ASIGNÓ NUNCA: los archivos
+  // reales quedan como 'document_general'. O sea que la salvaguarda del único
+  // cron que destruye datos estaba desactivada de hecho — protegía 0 de 4
+  // archivos sin revisar. Lo único que impidió una pérdida fue el dry-run.
+  //
+  // El criterio correcto no es "qué tipo de documento parece": es que NADIE LO
+  // MIRÓ TODAVÍA. Un proceso abierto no se borra.
+  if (row.reviewedAt === null) return false
   return true
 }
 
@@ -115,7 +125,11 @@ export function isEligibleForDeletion(
  * No se borra — se alerta.
  */
 export function isStalePending(row: RetentionRow, now: Date, staleDays: number): boolean {
-  if (!(row.context === 'authorization' && row.reviewedAt === null)) return false
+  // Mismo criterio que la excepción B: si aquella protege por "sin revisar",
+  // esta tiene que alertar por lo mismo. Con el filtro de context, la alerta que
+  // vigila la excepción nunca se disparaba — la salvaguarda no tenía quien la
+  // mirara.
+  if (row.reviewedAt !== null) return false
   const ageMs = now.getTime() - new Date(row.createdAt).getTime()
   return ageMs > staleDays * 24 * 60 * 60 * 1000
 }

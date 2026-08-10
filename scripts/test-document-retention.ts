@@ -37,6 +37,10 @@ const oldDoc = { createdAt: yearsAgo(3), context: 'document_general', reviewedAt
 const newDoc = { createdAt: yearsAgo(1), context: 'document_general', reviewedAt: daysAgo(300) }
 const oldReviewedAuth = { createdAt: yearsAgo(3), context: 'authorization', reviewedAt: yearsAgo(3) }
 const oldPendingAuth = { createdAt: yearsAgo(3), context: 'authorization', reviewedAt: null }
+// El caso REAL de producción: los archivos que llegan quedan como
+// 'document_general' porque la heurística de 'authorization' no se asigna nunca.
+// Este es el que estaba desprotegido.
+const oldPendingGeneral = { createdAt: yearsAgo(3), context: 'document_general', reviewedAt: null }
 
 assert('viejo sin cita → elegible', isEligibleForDeletion(oldDoc, cutoff2y, false) === true)
 assert('reciente → NO elegible', isEligibleForDeletion(newDoc, cutoff2y, false) === false)
@@ -45,11 +49,29 @@ assert('viejo authorization YA revisado → elegible', isEligibleForDeletion(old
 assert('viejo authorization SIN revisar (Exc B) → NO elegible', isEligibleForDeletion(oldPendingAuth, cutoff2y, false) === false)
 assert('justo en el cutoff (>=) → NO elegible', isEligibleForDeletion({ createdAt: cutoff2y.toISOString(), context: 'other', reviewedAt: null }, cutoff2y, false) === false)
 
+// 🔴 LA REGRESIÓN QUE ESTE BLOQUE EXISTE PARA IMPEDIR.
+// La Exc B exigía `context === 'authorization'`, y ese valor no se asigna nunca
+// en producción: protegía 0 de 4 archivos sin revisar. El único motivo por el
+// que no se perdió nada fue que el cron está en dry-run.
+assert('🔴 viejo document_general SIN revisar → NO elegible (era el desprotegido)',
+  isEligibleForDeletion(oldPendingGeneral, cutoff2y, false) === false)
+assert('🔴 viejo context=null SIN revisar → NO elegible',
+  isEligibleForDeletion({ createdAt: yearsAgo(3), context: null, reviewedAt: null }, cutoff2y, false) === false)
+assert('🔴 viejo context="other" SIN revisar → NO elegible',
+  isEligibleForDeletion({ createdAt: yearsAgo(3), context: 'other', reviewedAt: null }, cutoff2y, false) === false)
+assert('el context NO decide: revisado y viejo SÍ es elegible, sea cual sea',
+  isEligibleForDeletion({ createdAt: yearsAgo(3), context: 'document_general', reviewedAt: yearsAgo(3) }, cutoff2y, false) === true)
+
 // --- isStalePending ---
 assert('pending 40 días → estancado', isStalePending({ createdAt: daysAgo(40), context: 'authorization', reviewedAt: null }, NOW, STALE_PENDING_ALERT_DAYS) === true)
 assert('pending 10 días → NO estancado', isStalePending({ createdAt: daysAgo(10), context: 'authorization', reviewedAt: null }, NOW, STALE_PENDING_ALERT_DAYS) === false)
 assert('authorization ya revisado → NO estancado', isStalePending({ createdAt: daysAgo(40), context: 'authorization', reviewedAt: daysAgo(35) }, NOW, STALE_PENDING_ALERT_DAYS) === false)
-assert('document_general viejo → NO estancado (solo authorization)', isStalePending({ createdAt: daysAgo(40), context: 'document_general', reviewedAt: null }, NOW, STALE_PENDING_ALERT_DAYS) === false)
+// La alerta vigila la excepción B, así que tiene que usar SU MISMO criterio.
+// Con el filtro de context, la salvaguarda no tenía quien la mirara.
+assert('🔴 document_general viejo SIN revisar → SÍ estancado', isStalePending({ createdAt: daysAgo(40), context: 'document_general', reviewedAt: null }, NOW, STALE_PENDING_ALERT_DAYS) === true)
+assert('🔴 context=null viejo SIN revisar → SÍ estancado', isStalePending({ createdAt: daysAgo(40), context: null, reviewedAt: null }, NOW, STALE_PENDING_ALERT_DAYS) === true)
+assert('document_general viejo YA revisado → NO estancado', isStalePending({ createdAt: daysAgo(40), context: 'document_general', reviewedAt: daysAgo(35) }, NOW, STALE_PENDING_ALERT_DAYS) === false)
+assert('sin revisar pero reciente (2 días) → NO estancado todavía', isStalePending({ createdAt: daysAgo(2), context: 'document_general', reviewedAt: null }, NOW, STALE_PENDING_ALERT_DAYS) === false)
 
 // --- exceedsVolumeGuard ---
 assert('100 exacto → NO excede', exceedsVolumeGuard(VOLUME_GUARD_MAX) === false)

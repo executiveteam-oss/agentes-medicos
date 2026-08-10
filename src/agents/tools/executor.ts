@@ -25,6 +25,7 @@ import { parseISO, addMinutes, format, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toZonedTime } from 'date-fns-tz'
 import { mismoConvenioPorAlias, dijoParticular } from '@/lib/rules/convenio-aliases'
+import { mensajeFechaBloqueada } from '@/lib/calendar/blocked-date-message'
 
 const TIMEZONE = 'America/Bogota'
 const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -105,17 +106,42 @@ export async function executeTool(
 // ============================================================
 // CHECK AVAILABILITY — Buscar horarios disponibles
 // ============================================================
+// ⚠️ DOS VECES EL MISMO BUG EN ESTA FUNCIÓN, CON DIEZ DÍAS DE DIFERENCIA.
+//
+// El parámetro se llamaba `doctor` y era el médico PRINCIPAL de la clínica
+// (doctors[0], ordenado por created_at). El médico que la paciente pidió llega
+// por `input.doctor_id`. Dos variables para el mismo concepto, y la de nombre
+// más natural era la equivocada.
+//
+//   2026-07-30 (18bd232) → los HORARIOS salían de `doctor.working_hours`.
+//                          Se arregló: pasaron a `targetDoctor`.
+//   2026-08-09           → el NOMBRE seguía saliendo de `doctor.name`, en TRES
+//                          ramas. Una paciente pidió cita con su ginecólogo de
+//                          8 años y el agente le respondió con la disponibilidad
+//                          rotulada con el nombre de otra médica.
+//
+// El arreglo de julio ya traía `name` en el select de targetDoctor: el dato
+// correcto estaba ahí, sin usar, al lado de la línea que leía el equivocado.
+// Y en la misma función había ramas que YA resolvían bien (135, 147) junto a
+// otras que no. Nadie eligió mal: eligió la variable que tenía más a mano.
+//
+// Por eso ahora: el médico se resuelve UNA vez, arriba, y de ahí para abajo
+// `medico` es la única fuente. El default se llama `doctorPorDefecto` para que
+// `doctorPorDefecto.name` se lea mal a simple vista — que es todo el punto.
 async function checkAvailability(
   input: Record<string, unknown>,
   clinicId: string,
   clinic: Clinic,
-  doctor: Doctor
+  doctorPorDefecto: Doctor
 ): Promise<ToolResult> {
   const preferredDate = input.preferred_date as string | undefined
-  const doctorId = (input.doctor_id as string) || doctor.id
+  // ÚNICO uso de `doctorPorDefecto` en toda la función: el fallback cuando el
+  // modelo no manda doctor_id. Después de esta línea no se vuelve a tocar.
+  const doctorId = (input.doctor_id as string) || doctorPorDefecto.id
 
-  // Verificar si el doctor tiene agenda cerrada o disponibilidad manual
-  const { data: targetDoctor } = await supabaseAdmin
+  // El médico PEDIDO. De acá salen el nombre, los horarios y el estado de la
+  // agenda — no hay otra fuente más abajo.
+  const { data: medico } = await supabaseAdmin
     .from('doctors')
     .select('agenda_closed, agenda_closed_reason, agenda_closed_until, name, schedule_type, manual_availability_message, working_hours')
     .eq('id', doctorId)
@@ -123,8 +149,8 @@ async function checkAvailability(
     .single()
 
   // Doctor con disponibilidad manual — no mostrar slots
-  if (targetDoctor?.schedule_type === 'manual') {
-    const manualMsg = targetDoctor.manual_availability_message
+  if (medico?.schedule_type === 'manual') {
+    const manualMsg = medico.manual_availability_message
       ?? 'Este médico no tiene horario fijo. Recoge los datos del paciente y usa add_to_waitlist.'
     return {
       success: true,
@@ -132,27 +158,27 @@ async function checkAvailability(
         available: false,
         schedule_type: 'manual',
         reason: manualMsg,
-        doctor_name: targetDoctor.name,
+        doctor_name: medico.name,
         message: 'Este doctor tiene disponibilidad manual. NO muestres horarios. Muestra el mensaje del doctor al paciente, recoge nombre, tipo de consulta y preferencia de horario, y usa add_to_waitlist con preferred_schedule_notes.',
       },
     }
   }
 
-  if (targetDoctor?.agenda_closed) {
-    const untilText = targetDoctor.agenda_closed_until
-      ? ` hasta el ${format(parseISO(targetDoctor.agenda_closed_until), "d 'de' MMMM", { locale: es })}`
+  if (medico?.agenda_closed) {
+    const untilText = medico.agenda_closed_until
+      ? ` hasta el ${format(parseISO(medico.agenda_closed_until), "d 'de' MMMM", { locale: es })}`
       : ''
 
     // Si es vacaciones, usar mensaje personalizado si existe
-    let closedMessage = `La agenda de ${targetDoctor.name} está cerrada${untilText}. ${targetDoctor.agenda_closed_reason ? `Motivo: ${targetDoctor.agenda_closed_reason}. ` : ''}No se pueden agendar citas con este doctor en este momento.`
+    let closedMessage = `La agenda de ${medico.name} está cerrada${untilText}. ${medico.agenda_closed_reason ? `Motivo: ${medico.agenda_closed_reason}. ` : ''}No se pueden agendar citas con este doctor en este momento.`
 
-    if (targetDoctor.agenda_closed_reason === 'Vacaciones') {
+    if (medico.agenda_closed_reason === 'Vacaciones') {
       const config = clinic.whatsapp_config as Record<string, unknown> | null
       const vacationMsg = config?.vacation_message as string | undefined
       if (vacationMsg) {
         closedMessage = vacationMsg
-          .replace(/\[fecha\]/gi, targetDoctor.agenda_closed_until
-            ? format(parseISO(targetDoctor.agenda_closed_until), "d 'de' MMMM", { locale: es })
+          .replace(/\[fecha\]/gi, medico.agenda_closed_until
+            ? format(parseISO(medico.agenda_closed_until), "d 'de' MMMM", { locale: es })
             : 'pronto')
       }
       closedMessage += ' ¿Te agendamos para cuando regresemos?'
@@ -201,13 +227,12 @@ async function checkAvailability(
         blockedBy,
         date: dateStr,
         dayOfWeek: dow,
-        reason: blocked.reason
-          ? (blockedBy === 'doctor'
-              ? `${doctor.name} no atiende ese día (${dow}) por: ${blocked.reason}. Ofrece otro día con este doctor o propón otro doctor de la misma especialidad.`
-              : `El consultorio no atiende ese día (${dow}) por: ${blocked.reason}. Ofrece otro día.`)
-          : (blockedBy === 'doctor'
-              ? `${doctor.name} no atiende ese día (${dow}). Ofrece otro día con este doctor o propón otro doctor.`
-              : `El consultorio no atiende ese día (${dow}). Ofrece otro día.`),
+        reason: mensajeFechaBloqueada({
+          nombreMedico: medico?.name,
+          bloqueadoPor: blockedBy,
+          diaSemana: dow,
+          motivo: blocked.reason,
+        }),
       },
     }
   }
@@ -259,7 +284,7 @@ async function checkAvailability(
   const docConfig = waConfig?.doctors[doctorId]
 
   // Determinar bloques horarios del día.
-  // Precedencia: doctor.working_hours (per-day blocks) > whatsapp_config.doctors[id] > clinic.working_hours
+  // Precedencia: working_hours del médico PEDIDO > whatsapp_config.doctors[id] > clinic.working_hours
   const dayOfWeek = getDayOfWeek(date)
   const dayKey = dayOfWeek as keyof typeof clinic.working_hours
   let isDayActive = false
@@ -270,15 +295,13 @@ async function checkAvailability(
   // miércoles aparecía disponible 08-18 con el horario de la CLÍNICA.
   let doctorMarkedInactive = false
 
-  // 1) working_hours del médico PEDIDO (targetDoctor por doctorId), NO del `doctor`
-  // param (que es el principal de la clínica). Fix: antes devolvía el horario de
-  // otro médico para cualquier no-principal.
-  if (targetDoctor?.working_hours) {
-    const docHours = normalizeWorkingHours(targetDoctor.working_hours)
+  // 1) working_hours del médico PEDIDO.
+  if (medico?.working_hours) {
+    const docHours = normalizeWorkingHours(medico.working_hours)
     const dayCfg = docHours[dayKey]
     // rawDay: el día TAL CUAL está en su working_hours. active===false explícito
     // ≠ día ausente (undefined). Solo el explícito corta; el ausente sí hereda.
-    const rawDay = (targetDoctor.working_hours as Record<string, unknown> | null)?.[dayKey] as { active?: boolean } | undefined
+    const rawDay = (medico.working_hours as Record<string, unknown> | null)?.[dayKey] as { active?: boolean } | undefined
     if (dayCfg.active && dayCfg.blocks.length > 0) {
       isDayActive = true
       dayBlocks = dayCfg.blocks
@@ -432,7 +455,7 @@ async function checkAvailability(
       available: true,
       date: dateStr,
       dayOfWeek: spanishDayOfWeek(dateStr),
-      doctor_name: doctor.name,
+      doctor_name: medico?.name ?? '',
       slots: availableSlots.map((s) => ({
         time: s.display,
         starts_at: s.utc,

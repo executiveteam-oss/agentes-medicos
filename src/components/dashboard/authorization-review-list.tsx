@@ -21,8 +21,10 @@ import {
   markMediaApproved,
   approveAndReturnToAgent,
   getConversationTail,
-  type PendingAuthorization,
 } from '@/app/actions/authorization-review'
+// El tipo viene de lib: un módulo 'use server' solo puede exportar funciones
+// async, así que no puede re-exportarlo.
+import type { PendingAuthorization } from '@/lib/media/archivos-sin-revisar'
 import { REJECT_REASONS } from '@/lib/rules/reject-reasons'
 import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
 import { AppointmentFormModal } from '@/components/dashboard/appointment-form-modal'

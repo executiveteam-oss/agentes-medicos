@@ -23,24 +23,12 @@ import { revalidatePath } from 'next/cache'
 
 const WINDOW_24H_MS = 24 * 60 * 60 * 1000
 
-export interface PendingAuthorization {
-  media_id: string
-  conversation_id: string
-  patient_id: string | null
-  patient_phone: string
-  patient_name: string | null
-  whatsapp_media_id: string | null
-  mime_type: string | null
-  filename: string | null
-  size_bytes: number | null
-  created_at: string
-  conversation_escalation_reason: string | null
-  context: string | null   // 'authorization' | 'document_general' | 'other' | null
-}
+// La consulta y el criterio viven en lib — los comparte con la tarjeta del
+// dashboard, que no puede importar de un módulo 'use server'.
+import { traerArchivosSinRevisar, type PendingAuthorization } from '@/lib/media/archivos-sin-revisar'
 
 /**
- * Lista las autorizaciones pendientes de revisión para la clínica
- * del usuario logueado. Ordenadas por más antiguas primero (FIFO).
+ * La bandeja, para la pantalla.
  */
 export async function listPendingAuthorizations(): Promise<{
   ok: boolean
@@ -51,68 +39,11 @@ export async function listPendingAuthorizations(): Promise<{
   try { clinicId = await checkAuthorizationReviewPermission() }
   catch (err) { return { ok: false, error: extractActionError(err) } }
 
-  // Bandeja GENERAL de archivos recibidos: todo lo NO revisado (autorizaciones
-  // Y documentos generales). El contexto se etiqueta en la UI. La clasificación
-  // 'authorization' (via última frase del agente) es heurística; sin este
-  // ensanche, un archivo que llega tras un pedido del staff (no del agente)
-  // quedaría como 'document_general' e invisible. Ver docs Bloque 4.
-  const { data, error } = await supabaseAdmin
-    .from('conversation_media')
-    .select(`
-      id,
-      conversation_id,
-      context,
-      whatsapp_media_id,
-      mime_type,
-      filename,
-      size_bytes,
-      created_at,
-      conversations:conversation_id (
-        whatsapp_phone,
-        context,
-        patients:patient_id ( id, name )
-      )
-    `)
-    .eq('clinic_id', clinicId)
-    .is('reviewed_at', null)
-    .order('created_at', { ascending: true })
-
-  if (error) return { ok: false, error: 'Error consultando archivos recibidos' }
-
-  type ConvRow = { whatsapp_phone: string; context: Record<string, unknown> | null; patients?: { id: string; name: string } | { id: string; name: string }[] | null }
-  const items: PendingAuthorization[] = (data ?? []).map((row) => {
-    const r = row as unknown as {
-      id: string
-      conversation_id: string
-      context: string | null
-      whatsapp_media_id: string | null
-      mime_type: string | null
-      filename: string | null
-      size_bytes: number | null
-      created_at: string
-      conversations: ConvRow | ConvRow[] | null
-    }
-    const conv = Array.isArray(r.conversations) ? r.conversations[0] : r.conversations
-    const patient = conv?.patients
-      ? (Array.isArray(conv.patients) ? conv.patients[0] : conv.patients)
-      : null
-    return {
-      media_id: r.id,
-      conversation_id: r.conversation_id,
-      patient_id: patient?.id ?? null,
-      patient_phone: conv?.whatsapp_phone ?? '',
-      patient_name: patient?.name ?? null,
-      whatsapp_media_id: r.whatsapp_media_id,
-      mime_type: r.mime_type,
-      filename: r.filename,
-      size_bytes: r.size_bytes,
-      created_at: r.created_at,
-      conversation_escalation_reason: (conv?.context as Record<string, unknown> | null)?.escalation_reason as string | null ?? null,
-      context: r.context,
-    }
-  })
-
-  return { ok: true, items }
+  try {
+    return { ok: true, items: await traerArchivosSinRevisar(clinicId) }
+  } catch {
+    return { ok: false, error: 'Error consultando archivos recibidos' }
+  }
 }
 
 /**

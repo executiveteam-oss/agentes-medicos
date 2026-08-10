@@ -12,6 +12,7 @@ import { ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
 import { pendientesDe, type ContextPendientes } from '@/lib/conversations/pendientes'
+import { contarArchivosSinRevisar } from '@/lib/media/archivos-sin-revisar'
 
 export const dynamic = 'force-dynamic'
 
@@ -189,19 +190,16 @@ export default async function ConversationsPage() {
     .eq('role', 'agent')
     .gte('created_at', todayStartISO)
 
-  // Bloque 4 — count de autorizaciones pendientes para el acceso visible.
-  // Solo carga si el usuario tiene authorizations.review (para no exponer
-  // info sensible a quien no debe verla).
-  let pendingAuthsCount = 0
-  if (session.authorizationsReview) {
-    const { count } = await supabaseAdmin
-      .from('conversation_media')
-      .select('id', { count: 'exact', head: true })
-      .eq('clinic_id', session.clinicId)
-      .eq('context', 'authorization')
-      .is('reviewed_at', null)
-    pendingAuthsCount = count ?? 0
-  }
+  // Bloque 4 — archivos recibidos sin revisar.
+  //
+  // El conteo sale de la MISMA función que llena la pantalla. Antes esta
+  // tarjeta tenía su propia consulta con un `context = 'authorization'` de más,
+  // y ese contexto se asigna por heurística: nunca se asignó ni una vez. La
+  // tarjeta decía "sin autorizaciones pendientes" con archivos esperando
+  // adentro, así que nadie entraba a mirarlos.
+  const pendingAuthsCount = session.authorizationsReview
+    ? await contarArchivosSinRevisar(session.clinicId)
+    : 0
 
   return (
     <div className="space-y-6">
@@ -230,12 +228,12 @@ export default async function ConversationsPage() {
             <ShieldCheck size={20} style={{ color: pendingAuthsCount > 0 ? '#b07d00' : 'var(--v2-text-muted)' }} />
             <div>
               <p style={{ fontSize: '13.5px', fontWeight: 700, color: pendingAuthsCount > 0 ? '#b07d00' : 'var(--v2-text)' }}>
-                🛡 Autorizaciones direccionadas
+                📎 Archivos recibidos
               </p>
               <p style={{ fontSize: '12px', color: pendingAuthsCount > 0 ? '#b07d00' : 'var(--v2-text-muted)', opacity: 0.85, marginTop: '2px' }}>
                 {pendingAuthsCount > 0
-                  ? `${pendingAuthsCount} pendiente${pendingAuthsCount === 1 ? '' : 's'} de revisión`
-                  : 'Sin autorizaciones pendientes'}
+                  ? `${pendingAuthsCount} sin revisar — autorizaciones, órdenes y documentos`
+                  : 'Todo revisado'}
               </p>
             </div>
           </div>

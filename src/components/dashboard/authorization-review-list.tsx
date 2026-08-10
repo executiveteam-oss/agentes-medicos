@@ -101,7 +101,22 @@ function AuthorizationCard({
 
   const isImage = item.mime_type?.startsWith('image/') ?? false
   const isPdf = item.mime_type === 'application/pdf'
-  const isAuthorization = item.context === 'authorization'
+  // `context` es SOLO una etiqueta visual. NO decide qué puede hacer la
+  // secretaria.
+  //
+  // Hasta hoy sí decidía: las acciones (aprobar, agendar, rechazar) estaban
+  // gateadas por `context === 'authorization'`. Ese valor lo asigna una
+  // heurística —si el último mensaje del agente contenía la palabra
+  // "autorización"— y en producción NO SE ASIGNÓ NUNCA: los 5 archivos de la
+  // historia de la clínica son 'document_general'. O sea que el flujo entero de
+  // aprobar-y-agendar fue INALCANZABLE desde el día que se construyó, y el
+  // único botón que alguien vio jamás fue "Marcar como revisado".
+  //
+  // Las acciones ahora se muestran por lo que la secretaria necesita hacer con
+  // un archivo recibido, no por cómo lo clasificó una regex. Los dos server
+  // actions que se llaman (approveAndReturnToAgent, markMediaApproved) nunca
+  // tuvieron gate de context: solo la UI escondía los botones.
+  const esAutorizacionSegunHeuristica = item.context === 'authorization'
   const prefillPatient = useMemo(
     () => (item.patient_id ? { id: item.patient_id, name: item.patient_name ?? '' } : undefined),
     [item.patient_id, item.patient_name],
@@ -164,8 +179,8 @@ function AuthorizationCard({
       <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid var(--v2-border-soft)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: '4px', color: isAuthorization ? 'var(--v2-primary)' : 'var(--v2-text-muted)' }}>
-              {isAuthorization ? '🛡 Autorización' : '📎 Documento'}
+            <div style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: '4px', color: esAutorizacionSegunHeuristica ? 'var(--v2-primary)' : 'var(--v2-text-muted)' }}>
+              {esAutorizacionSegunHeuristica ? '🛡 Autorización' : '📎 Documento'}
             </div>
             <div style={{ fontSize: '14px', fontWeight: 600 }}>
               {item.patient_name ?? 'Paciente sin nombre'}
@@ -247,16 +262,15 @@ function AuthorizationCard({
       </div>
 
       {/* Acciones */}
-      {isAuthorization && ruledService && (
+      {ruledService && (
         <div style={{ marginBottom: '8px', padding: '8px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', fontSize: '12px', color: '#92400e' }}>
           ⚠ Esta conversación menciona <strong>{ruledService}</strong>, que requiere agendamiento manual. Agéndala tú — el agente no puede agendar ese servicio.
         </div>
       )}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        {isAuthorization && (
-          ruledService ? (
-            <>
-              {/* Servicio con regla → "Agendar yo" primario; el agente deshabilitado */}
+        {ruledService ? (
+          <>
+            {/* Servicio con regla → "Agendar yo" primario; el agente deshabilitado */}
               <button
                 onClick={() => setModalOpen(true)}
                 disabled={reviewState !== 'idle' || isMarking}
@@ -273,8 +287,8 @@ function AuthorizationCard({
                 🤖 El agente agenda (no disponible)
               </button>
             </>
-          ) : (
-            <>
+        ) : (
+          <>
               {/* Sin regla → el agente agenda (primario); "Agendar yo" secundario */}
               <button
                 onClick={handleApproveAgent}
@@ -291,18 +305,15 @@ function AuthorizationCard({
               >
                 🗓 Agendar yo
               </button>
-            </>
-          )
+          </>
         )}
-        {isAuthorization && (
-          <button
-            onClick={() => setReviewState('rejecting')}
-            disabled={reviewState !== 'idle' || isMarking}
-            style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-red)', cursor: 'pointer' }}
-          >
-            ✗ Rechazar
-          </button>
-        )}
+        <button
+          onClick={() => setReviewState('rejecting')}
+          disabled={reviewState !== 'idle' || isMarking}
+          style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-red)', cursor: 'pointer' }}
+        >
+          ✗ Rechazar
+        </button>
         <button
           onClick={handleMarkReviewed}
           disabled={reviewState !== 'idle' || isMarking}

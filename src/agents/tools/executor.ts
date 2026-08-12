@@ -1123,11 +1123,28 @@ async function createAppointment(
       })
       return {
         success: false,
-        error: 'BLOCKED_BY_SCHEDULE',
+        // Código PROPIO, distinto de BLOCKED_BY_SCHEDULE a propósito.
+        //
+        // Ese código lo comparten cuatro casos (fecha pasada, agenda cerrada,
+        // fuera de franja y este), y los otros tres sí escalan: son señales de
+        // que el modelo intentó algo que no debía. Este no. Que la clínica
+        // bloquee un día es información de negocio corriente, y el agente puede
+        // resolverla solo ofreciendo otra fecha.
+        //
+        // Antes caía en isHardBookingFailure y la paciente escuchaba "Uy, tuve
+        // un inconveniente técnico" por un día que la clínica cerró a propósito
+        // — y encima escalaba a una persona para algo que no la necesita. El
+        // message_for_patient de acá abajo existía desde siempre y nunca se
+        // usaba, porque el corte determinista lo descartaba antes.
+        //
+        // Se llama BLOCKED_BY_DATE por la familia a la que pertenece:
+        // BLOCKED_BY_AGE, BLOCKED_BY_CONDITION, BLOCKED_BY_AUTH_PENDING — todas
+        // reglas de negocio que el LLM narra en vez de escalar.
+        error: 'BLOCKED_BY_DATE',
         data: {
           outcome: 'blocked_date',
           message_for_patient: 'Ese día no hay atención. ¿Buscamos otra fecha?',
-          instruction_for_llm: 'Ese día está bloqueado (no hay atención). NO agendes ahí. Usá check_availability para ofrecer otra fecha.',
+          instruction_for_llm: 'Ese día está bloqueado (no hay atención). NO agendes ahí. Decile a la paciente que ese día no hay atención y usá check_availability para ofrecerle otra fecha. NO escales: esto lo resolvés vos.',
         },
       }
     }

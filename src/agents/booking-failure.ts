@@ -11,7 +11,16 @@ const BOOKING_TOOLS = new Set(['create_appointment', 'reschedule_appointment'])
 /** true SOLO para SLOT_JUST_TAKEN (doble-booking al insertar) y BLOCKED_BY_SCHEDULE
  *  (pasado/agenda cerrada/fuera de franja) en create/reschedule. Las reglas de
  *  negocio (edad, condicion, convenio, escalate-service, auth pendiente) NO son
- *  fallas duras: el flujo ya les da el mensaje correcto al paciente. */
+ *  fallas duras: el flujo ya les da el mensaje correcto al paciente.
+ *
+ *  ⚠️ BLOCKED_BY_DATE (día que la clínica bloqueó) NO ENTRA ACÁ, y la distinción
+ *  es fina: los otros tres casos de BLOCKED_BY_SCHEDULE son el modelo pidiendo
+ *  algo que no debía —una fecha pasada, un médico de vacaciones, un horario
+ *  fuera de la franja—, y eso amerita que una persona mire. Que la clínica
+ *  cierre un viernes es información de negocio corriente: el agente dice "ese
+ *  día no hay atención" y ofrece otra fecha. Escalarlo le trasladaba a una
+ *  secretaria algo que el agente resuelve solo, y a la paciente le decía
+ *  "tuve un inconveniente técnico" sobre una decisión deliberada de la clínica. */
 export function isHardBookingFailure(toolName: string, errorCode: string | null | undefined): boolean {
   if (!BOOKING_TOOLS.has(toolName)) return false
   const code = String(errorCode ?? '')

@@ -287,6 +287,8 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         // que el modelo improvise "se acaba de ocupar" (esconde bugs y reporta como
         // "clínica llena"), cortamos determinista, escalamos y avisamos que hubo un
         // problema. Los BLOCKED_BY_AGE/CONDITION/RULE_ESCALATE/AUTH NO entran acá.
+        // Tampoco BLOCKED_BY_DATE (día que la clínica bloqueó): es negocio, no
+        // falla — el LLM dice "ese día no hay atención" y ofrece otra fecha.
         // Falla dura de agendamiento (bug#4) O error TÉCNICO de cualquier tool.
         // Ambos se cortan determinista y escalan — el LLM NUNCA los narra (los
         // disfrazaría de "clínica llena" / lista de espera / otro médico, que es

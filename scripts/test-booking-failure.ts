@@ -17,6 +17,23 @@ assert('create + BLOCKED_BY_SCHEDULE → dura', isHardBookingFailure('create_app
 assert('reschedule + SLOT_JUST_TAKEN → dura', isHardBookingFailure('reschedule_appointment', SLOT))
 assert('reschedule + BLOCKED_BY_SCHEDULE → dura', isHardBookingFailure('reschedule_appointment', 'BLOCKED_BY_SCHEDULE'))
 
+// 🔴 EL CASO DE 2026-08-11: la clínica bloqueó un viernes y el agente decía
+// "tuve un inconveniente técnico" + escalaba, por un día cerrado a propósito.
+// BLOCKED_BY_DATE es información de negocio: el agente ofrece otra fecha.
+assert('🔴 create + BLOCKED_BY_DATE → NO es dura (el agente ofrece otra fecha)',
+  !isHardBookingFailure('create_appointment', 'BLOCKED_BY_DATE'))
+assert('🔴 reschedule + BLOCKED_BY_DATE → NO es dura',
+  !isHardBookingFailure('reschedule_appointment', 'BLOCKED_BY_DATE'))
+
+// …Y LOS OTROS TRES CASOS DE BLOCKED_BY_SCHEDULE SIGUEN ESCALANDO.
+// Es la mitad del cambio que importa: fecha pasada, agenda cerrada y fuera de
+// franja son el modelo pidiendo algo que no debía, y eso sí amerita que una
+// persona mire. Si alguien "simplifica" sacando BLOCKED_BY_SCHEDULE entero de
+// isHardBookingFailure, estos tres se caen con él.
+assert('in_the_past sigue siendo dura', isHardBookingFailure('create_appointment', 'BLOCKED_BY_SCHEDULE'))
+assert('BLOCKED_BY_DATE no matchea BLOCKED_BY_SCHEDULE por prefijo',
+  !isHardBookingFailure('create_appointment', 'BLOCKED_BY_DAT'))
+
 // REGLAS de negocio → NO escalan (el LLM las explica)
 assert('BLOCKED_BY_AGE_RECHAZAR → NO es dura', !isHardBookingFailure('create_appointment', 'BLOCKED_BY_AGE_RECHAZAR'))
 assert('BLOCKED_BY_AGE_UNKNOWN → NO', !isHardBookingFailure('create_appointment', 'BLOCKED_BY_AGE_UNKNOWN'))

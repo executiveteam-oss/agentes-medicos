@@ -17,6 +17,13 @@
  * escribir, cuántos mensajes podría disparar — y si son más de cero, se planta
  * salvo que se le pase --si-hay-mensajes.
  *
+ * Y ese chequeo NO es decorativo aunque hoy dé cero: los envíos están frenados
+ * porque `proactive_contact_opt_in` es NOT NULL DEFAULT false en la migración
+ * 00094 — o sea que nadie los apagó, nunca se prendieron. El día que la clínica
+ * decida prenderlos en masa, ese default deja de proteger y este freno pasa a
+ * ser lo único entre un enlace masivo y una tanda de WhatsApps. Por eso el
+ * conteo se recalcula en cada corrida y no se cachea.
+ *
  * Dry-run por defecto. Para escribir: --aplicar
  * Correr: npx tsx scripts/backfill-enlazar-fichas.ts [--aplicar]
  */

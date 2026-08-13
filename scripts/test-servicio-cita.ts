@@ -110,5 +110,16 @@ ok('🔴 un motivo REAL se muestra', !motivoEsElNombre('Control post cirugía', 
 ok('motivo vacío no rompe', !motivoEsElNombre('', 'LUISA'))
 ok('sin nombre de paciente, un motivo real se muestra', !motivoEsElNombre('Dolor pélvico', null))
 
+console.log('\n🔴 EL PANEL SIN FICHA (49,6% de las citas futuras)')
+// El header ya muestra el reason COMO nombre cuando no hay ficha, así que
+// repetirlo en "Motivo" es decir dos veces lo mismo.
+ok('sin ficha: reason comparado contra sí mismo → se oculta',
+  motivoEsElNombre('LAURA MANUELA OROZCO GOMEZ', 'LAURA MANUELA OROZCO GOMEZ'))
+// Y la entidad tiene que parsearse venga de donde venga: el texto crudo quedó
+// guardado igual en patients.entidad, así que el fallback también salía pegado.
+const desdeFicha = parsearEntidadISalud('PARTICULARRégimen: ParticularTipo afiliado: Cotizante')
+ok('la entidad de la FICHA también se parsea', desdeFicha?.entidad === 'PARTICULAR')
+ok('  …y no arrastra el resto', !(desdeFicha?.entidad ?? '').includes('Régimen'))
+
 console.log(`\n${pass} pass · ${fail} fail`)
 process.exit(fail > 0 ? 1 : 0)

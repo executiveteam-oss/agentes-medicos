@@ -26,6 +26,9 @@ export interface CalendarAppointment {
   external_service_name?: string | null
   /** El campo `aseguradora` crudo de iSalud, para separarlo en la UI. */
   external_aseguradora?: string | null
+  /** Documento tal como lo manda iSalud ("CC 1053813866"). Es lo único que hay
+   *  cuando la cita no está enlazada a una ficha — la mitad de las importadas. */
+  external_identificacion?: string | null
   /** Origen de la cita. 'whatsapp_agent' es la única donde payment_type es un dato real. */
   source?: string | null
   doctor_id: string | null

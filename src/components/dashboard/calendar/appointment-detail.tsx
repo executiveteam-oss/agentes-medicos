@@ -60,61 +60,94 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
         </div>
       </div>
 
-      {/* Info grid */}
-      {patient && (
+      {/* ============================================================
+          EL PANEL SE PARTE EN DOS.
+
+          Antes TODO —tipo de consulta, estado, entidad, teléfono, historial—
+          vivía dentro de `{patient && (…)}`, así que una cita sin ficha
+          vinculada mostraba solo el nombre y los botones. No es un caso raro:
+          133 de las 268 citas futuras (49,6%) no tienen `patient_id`, y de esas
+          82 SÍ tienen ficha en el padrón — lo que falta es el enlace, no la
+          paciente.
+
+          Y un panel en blanco no dice si el dato no existe o si el sistema
+          falló. Ahora lo que depende de la CITA se muestra siempre, y lo que
+          depende de la PACIENTE dice "Sin ficha vinculada" cuando no está.
+          ============================================================ */}
+
+      {/* Datos de la CITA — no dependen de la ficha, se muestran siempre */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '12px' }}>
+        <InfoItem
+          label="Tipo de consulta"
+          value={apt.consultation_type_name || apt.external_service_name || 'Sin especificar'}
+          valueColor={(apt.consultation_type_name || apt.external_service_name) ? undefined : 'var(--v2-text-subtle)'}
+        />
+        {/* Motivo solo si aporta algo. El import llena `reason` con el NOMBRE de
+            la paciente cuando no tiene otra cosa, así que el panel mostraba
+            "Motivo: LUISA FERNANDA MONTOYA" debajo de su propio nombre. */}
+        {/* Sin ficha se compara contra el propio `reason`: el header ya lo está
+            mostrando COMO nombre (`patient?.name ?? apt.reason`), así que
+            repetirlo en Motivo sería decir dos veces lo mismo. */}
+        {apt.reason && !motivoEsElNombre(apt.reason, patient?.name ?? apt.reason) && (
+          <InfoItem label="Motivo" value={apt.reason} />
+        )}
+        <InfoItem label="Recordatorio"
+          value={apt.reminder_confirmed === true ? 'Confirmo' : apt.reminder_confirmed === false ? 'No confirmo' : apt.reminder_24h_sent ? 'Enviado' : 'No enviado'}
+          valueColor={apt.reminder_confirmed === true ? 'var(--v2-green-deep)' : apt.reminder_confirmed === false ? 'var(--v2-red)' : undefined}
+        />
+        {/* iSalud manda entidad, régimen y tipo de afiliado PEGADOS:
+            "PARTICULARRégimen: ParticularTipo afiliado: Cotizante". Se parsean
+            LOS DOS orígenes —el de la cita y el de la ficha— porque el texto
+            crudo quedó guardado igual en `patients.entidad`: sin parsear el
+            fallback, la línea seguía saliendo pegada. */}
+        {(() => {
+          const deLaCita = parsearEntidadISalud(apt.external_aseguradora)
+          const deLaFicha = parsearEntidadISalud(patient?.entidad)
+          const e = deLaCita ?? deLaFicha
+          return (
+            <>
+              <InfoItem label="Entidad" value={e?.entidad ?? 'Sin registrar'} valueColor={e ? undefined : 'var(--v2-text-subtle)'} />
+              {e?.regimen && <InfoItem label="Régimen" value={e.regimen} />}
+              {e?.tipoAfiliado && <InfoItem label="Tipo de afiliado" value={e.tipoAfiliado} />}
+            </>
+          )
+        })()}
+        {/* Tipo pago SOLO en citas del agente. En las importadas y las que carga
+            la secretaria es el DEFAULT 'Particular' de la columna, que nadie
+            escribe: decía "Particular" al lado de una entidad de prepagada. */}
+        {apt.source === 'whatsapp_agent' && apt.payment_type && (
+          <InfoItem label="Tipo pago" value={apt.payment_type} />
+        )}
+        {apt.modality === 'virtual' && <InfoItem label="Modalidad" value="Virtual" valueColor="var(--v2-primary)" />}
+      </div>
+
+      {/* Datos de la PACIENTE — con ficha, o lo que iSalud alcance a decir */}
+      {patient ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '12px' }}>
           <InfoItem label="Teléfono" value={formatPhone(patient.phone)} />
           <InfoItem label="Documento" value={`${patient.document_type} ${patient.document_number ?? '-'}`} />
-          {/* Tipo de consulta: el dato principal de la cita.
-              Cae al texto que manda iSalud cuando la cita no está vinculada al
-              catálogo — el 22% de las importadas, porque el mismo procedimiento
-              existe en varias filas y elegir una fabricaría un precio. El texto
-              sin fila es útil igual: dice qué le van a hacer a la paciente, que
-              era exactamente lo que faltaba. */}
-          <InfoItem
-            label="Tipo de consulta"
-            value={apt.consultation_type_name || apt.external_service_name || 'Sin especificar'}
-            valueColor={(apt.consultation_type_name || apt.external_service_name) ? undefined : 'var(--v2-text-subtle)'}
-          />
-          {/* Motivo solo si existe Y aporta algo. El import llena `reason` con el
-              NOMBRE de la paciente cuando no tiene otra cosa, así que el panel
-              mostraba "Motivo: LUISA FERNANDA MONTOYA" debajo de su propio
-              nombre. Mismo criterio que ya se aplicó para ocultar el vacío. */}
-          {apt.reason && !motivoEsElNombre(apt.reason, patient?.name) && (
-            <InfoItem label="Motivo" value={apt.reason} />
-          )}
-          <InfoItem label="Recordatorio"
-            value={apt.reminder_confirmed === true ? 'Confirmo' : apt.reminder_confirmed === false ? 'No confirmo' : apt.reminder_24h_sent ? 'Enviado' : 'No enviado'}
-            valueColor={apt.reminder_confirmed === true ? 'var(--v2-green-deep)' : apt.reminder_confirmed === false ? 'var(--v2-red)' : undefined}
-          />
-          {/* iSalud manda entidad, régimen y tipo de afiliado PEGADOS sin
-              separador: "PARTICULARRégimen: ParticularTipo afiliado: Cotizante".
-              Los marcadores son literales y constantes (verificado sobre las
-              2.904 citas importadas), así que se pueden separar sin adivinar. */}
-          {(() => {
-            const p = parsearEntidadISalud(apt.external_aseguradora)
-            const entidad = p?.entidad || patient.entidad || null
-            return (
-              <>
-                <InfoItem label="Entidad" value={entidad ?? 'Sin registrar'} valueColor={entidad ? undefined : 'var(--v2-text-subtle)'} />
-                {p?.regimen && <InfoItem label="Régimen" value={p.regimen} />}
-                {p?.tipoAfiliado && <InfoItem label="Tipo de afiliado" value={p.tipoAfiliado} />}
-              </>
-            )
-          })()}
-          {/* Tipo pago SOLO en citas del agente. En las importadas y las que carga
-              la secretaria es el DEFAULT 'Particular' de la columna, que nadie escribe:
-              decía "Particular" al lado de una entidad de prepagada y se contradecían
-              en pantalla. Un dato inventado es peor que un dato ausente. */}
-          {apt.source === 'whatsapp_agent' && apt.payment_type && (
-            <InfoItem label="Tipo pago" value={apt.payment_type} />
-          )}
           <InfoItem label="Historial" value={`${patient.total_appointments} citas, ${patient.no_show_count} no-shows`} />
           <InfoItem label="Riesgo"
             value={`${probability}%`}
             valueColor={probability > 40 ? 'var(--v2-red)' : probability > 20 ? '#b07d00' : 'var(--v2-green-deep)'}
           />
-          {apt.modality === 'virtual' && <InfoItem label="Modalidad" value="Virtual" valueColor="var(--v2-primary)" />}
+        </div>
+      ) : (
+        <div style={{ marginBottom: '12px', padding: '10px 12px', borderRadius: 'var(--v2-radius)',
+                      background: 'var(--v2-bg-soft)', border: '1px dashed var(--v2-border-soft)' }}>
+          <p style={{ fontSize: '11.5px', fontWeight: 700, color: 'var(--v2-text-muted)' }}>
+            Sin ficha vinculada en Omuwan
+          </p>
+          <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '3px', lineHeight: 1.4 }}>
+            La cita vino de iSalud y no quedó enlazada a una paciente, así que no hay teléfono,
+            historial ni riesgo de inasistencia. Lo que sí trae iSalud:
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', fontSize: '12px', marginTop: '8px' }}>
+            <InfoItem label="Documento (iSalud)" value={apt.external_identificacion || 'No lo trae'}
+                      valueColor={apt.external_identificacion ? undefined : 'var(--v2-text-subtle)'} />
+            <InfoItem label="Teléfono" value="Sin ficha" valueColor="var(--v2-text-subtle)" />
+            <InfoItem label="Historial" value="Sin ficha" valueColor="var(--v2-text-subtle)" />
+          </div>
         </div>
       )}
 

@@ -14,6 +14,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { scrapeISalud, type ISaludCredentials, type ISaludProfesional, type ISaludAdmision } from './adapter'
+import { decidirEnlace, indexarFichasPorDocumento } from '@/lib/isalud/enlazar-ficha'
 
 // --- Types ---
 
@@ -303,6 +304,35 @@ function buildDefaultWorkingHours(): Record<string, { active: boolean; blocks: A
 
 async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdmision[], errors: string[]): Promise<number> {
   let count = 0
+
+  // ── El enlace con la ficha, en el momento del insert ──────────────
+  //
+  // Antes esta función NO seteaba patient_id nunca, así que toda cita importada
+  // nacía huérfana: sin recordatorio de 24h, sin encuesta, sin historial, y
+  // desconocida para el agente si la paciente escribía. Eran 133 de 268 citas
+  // futuras.
+  //
+  // Arreglarlo acá y no solo con un backfill es la diferencia entre resolver el
+  // problema y comprar un mes: cada corrida del sync trae citas nuevas.
+  //
+  // Se trae el padrón UNA vez por corrida (no una query por cita) y se indexa
+  // por documento. Con ~14.000 pacientes son 14 páginas, contra las ~450
+  // consultas que costaría hacerlo cita por cita.
+  const fichasPorDocumento = new Map<string, string[]>()
+  {
+    const filas: { id: string; document_number: string | null }[] = []
+    for (let desde = 0; ; desde += 1000) {
+      const { data } = await supabaseAdmin
+        .from('patients').select('id, document_number')
+        .eq('clinic_id', clinicId).range(desde, desde + 999)
+      if (!data || data.length === 0) break
+      filas.push(...(data as { id: string; document_number: string | null }[]))
+      if (data.length < 1000) break
+    }
+    for (const [doc, ids] of indexarFichasPorDocumento(filas)) fichasPorDocumento.set(doc, ids)
+    console.log(`[iSalud] Índice de fichas: ${fichasPorDocumento.size} documentos únicos sobre ${filas.length} pacientes`)
+  }
+  const enlaces = { ok: 0, sin_documento: 0, sin_ficha: 0, documento_duplicado: 0 }
   for (const adm of admisiones) {
     let mapping = await supabaseAdmin.from('doctor_external_mappings').select('doctor_id').eq('clinic_id', clinicId).eq('provider', 'isalud').eq('external_name', adm.profesional_nombre).maybeSingle()
     if (!mapping.data) {
@@ -351,14 +381,23 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     const reasonText = patientName || 'Bloqueo iSalud'
     const notesText = `[iSalud] ${patientName} | ${adm.procedimiento} | ${adm.aseguradora} | ${adm.profesional_nombre}`
 
-    const { data: ex } = await supabaseAdmin.from('appointments').select('id').eq('clinic_id', clinicId).eq('external_his_id', externalId).maybeSingle()
+    const { data: ex } = await supabaseAdmin.from('appointments')
+      .select('id, patient_id').eq('clinic_id', clinicId).eq('external_his_id', externalId).maybeSingle()
     if (ex) {
+      // Si la cita ya existía SIN ficha y ahora la paciente sí está en el
+      // padrón, se enlaza. NO se pisa un patient_id que ya esté puesto: puede
+      // haberlo corregido una persona a mano, y el match automático no le gana
+      // a una decisión humana.
+      const yaEnlazada = (ex as { patient_id: string | null }).patient_id
+      const decisionUpd = yaEnlazada ? null : decidirEnlace(adm.identificacion, fichasPorDocumento)
+      if (decisionUpd?.enlazar) enlaces.ok++
       const { error: updateErr } = await supabaseAdmin.from('appointments').update({
         status, external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(), reason: reasonText, notes: notesText,
         // Se refresca en cada sync: si en iSalud le corrigen el procedimiento a
         // una cita ya importada, acá se ve el corregido.
         external_service_name: (adm.procedimiento ?? '').trim() || null,
+        ...(decisionUpd?.enlazar ? { patient_id: decisionUpd.patientId } : {}),
       }).eq('id', (ex as { id: string }).id)
       if (updateErr) {
         // Fallback: si el constraint de double-booking bloquea (iSalud permite double-book),
@@ -380,8 +419,15 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
         }
       }
     } else {
+      // Solo por documento exacto. Sin ficha, o con documento repetido en dos
+      // fichas, la cita entra sin enlace — igual que antes, pero contado.
+      const decision = decidirEnlace(adm.identificacion, fichasPorDocumento)
+      if (decision.enlazar) enlaces.ok++
+      else enlaces[decision.razon]++
+
       const insertPayload = {
         clinic_id: clinicId, doctor_id: doctorId,
+        patient_id: decision.enlazar ? decision.patientId : null,
         starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString(),
         status, source: 'isalud',
         external_his_id: externalId, external_source: 'isalud',
@@ -415,6 +461,7 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     }
     count++
   }
+  console.log(`[iSalud] Enlaces a ficha: ${enlaces.ok} ok · ${enlaces.sin_ficha} sin ficha en el padrón · ${enlaces.sin_documento} sin documento · ${enlaces.documento_duplicado} con documento duplicado (NO enlazadas)`)
   return count
 }
 

@@ -12,6 +12,13 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import type { Clinic, WhatsAppConfig } from '@/types/database'
+
+/** Lo mínimo que hace falta de la clínica. `operational_status` es lo que
+ *  distingue "a qué hora abre" de "hoy está abierta". */
+export type ClinicParaDisponibilidad = Pick<Clinic, 'working_hours' | 'whatsapp_config'> & {
+  operational_status?: string | null
+  operational_status_message?: string | null
+}
 import {
   resolverDisponibilidadDia, nombreDiaSemana,
   type DisponibilidadDelDia, type DatosDelDia,
@@ -74,7 +81,7 @@ export async function traerDisponibilidadDia(
   clinicId: string,
   doctorId: string,
   fecha: string,
-  clinic: Pick<Clinic, 'working_hours' | 'whatsapp_config'>,
+  clinic: ClinicParaDisponibilidad,
 ): Promise<DisponibilidadDelDia> {
   const [{ data: medico }, { data: bloqueos }, festivos] = await Promise.all([
     supabaseAdmin
@@ -110,7 +117,7 @@ export async function traerDisponibilidadRango(
   clinicId: string,
   doctorId: string,
   fechas: string[],
-  clinic: Pick<Clinic, 'working_hours' | 'whatsapp_config'>,
+  clinic: ClinicParaDisponibilidad,
 ): Promise<Record<string, DisponibilidadDelDia>> {
   if (fechas.length === 0) return {}
   const desde = fechas.reduce((a, b) => (a < b ? a : b))
@@ -158,7 +165,7 @@ function armarDatos(
   _clinicId: string,
   doctorId: string,
   fecha: string,
-  clinic: Pick<Clinic, 'working_hours' | 'whatsapp_config'>,
+  clinic: ClinicParaDisponibilidad,
   medico: FilaMedico,
   fechaBloqueada: { doctor_id: string | null; reason: string | null } | null,
   festivo: { nombre: string } | null,
@@ -185,5 +192,11 @@ function armarDatos(
     configWhatsApp: cfg ? { days: cfg.days, start: cfg.start, end: cfg.end } : null,
     horarioClinica: clinic.working_hours,
     festivo,
+    estadoClinica: (clinic.operational_status && clinic.operational_status !== 'operando')
+      ? {
+          estado: clinic.operational_status as 'contingencia' | 'cerrado',
+          mensaje: clinic.operational_status_message ?? null,
+        }
+      : null,
   }
 }

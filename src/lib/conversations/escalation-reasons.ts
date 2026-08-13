@@ -48,6 +48,9 @@ export const ESCALATION_REASONS = {
   // — No sabemos, y no es lo mismo que "no hay" —
   UNKNOWN_CONVENIO: 'convenio_no_reconocido',
 
+  // — La clínica no está operando (contingencia, cierre) —
+  CLINIC_NOT_OPERATING: 'clinica_no_operativa',
+
   // — Documentos que manda la paciente —
   MEDIA_DISABLED: 'media_deshabilitada',
   AUTHORIZATION_REVIEW: 'autorizacion_recibida',
@@ -72,6 +75,7 @@ export type EscalationMechanism =
   | 'tool_agente'     // el modelo llamó escalate_to_human
   | 'falla_tecnica'   // el agente quiso y no pudo
   | 'falta_de_dato'   // el sistema no sabe, y no puede afirmar que no exista
+  | 'operacion'       // la clínica no está atendiendo (contingencia, cierre)
   | 'documento'       // llegó un archivo
   | 'humano'          // una persona del staff, desde el dashboard
 
@@ -86,6 +90,7 @@ export const ESCALATION_MECHANISM: Record<EscalationReason, EscalationMechanism>
   [ESCALATION_REASONS.TOOL_ERROR]: 'falla_tecnica',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'falla_tecnica',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'falta_de_dato',
+  [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'operacion',
   [ESCALATION_REASONS.MEDIA_DISABLED]: 'documento',
   [ESCALATION_REASONS.AUTHORIZATION_REVIEW]: 'documento',
   [ESCALATION_REASONS.STAFF_TAKEOVER]: 'humano',
@@ -105,6 +110,7 @@ export const ESCALATION_LABEL: Record<EscalationReason, string> = {
   [ESCALATION_REASONS.TOOL_ERROR]: 'Error técnico de una tool',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'Falla al agendar',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'Convenio que no tenemos registrado',
+  [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'La clínica no está operando',
   [ESCALATION_REASONS.MEDIA_DISABLED]: 'Archivo recibido con recepción deshabilitada',
   [ESCALATION_REASONS.AUTHORIZATION_REVIEW]: 'Autorización recibida, pendiente de revisión',
   [ESCALATION_REASONS.STAFF_TAKEOVER]: 'Alguien del staff la atendió',

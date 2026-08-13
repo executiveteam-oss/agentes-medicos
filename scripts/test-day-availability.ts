@@ -60,7 +60,7 @@ function datos(over: Partial<DatosDelDia>): DatosDelDia {
   return {
     fecha: '2026-08-17', diaSemana: 'lunes', indiceDiaSemana: 1,
     medico: ADRIANA, fechaBloqueada: null, configWhatsApp: null,
-    horarioClinica: HORARIO_CLINICA, festivo: null,
+    horarioClinica: HORARIO_CLINICA, festivo: null, estadoClinica: null,
     ...over,
   }
 }

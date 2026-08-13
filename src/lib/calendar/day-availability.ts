@@ -35,6 +35,7 @@ export type EstadoFranja =
 /** Por qué está cerrado. El motivo importa: "no atiende los lunes" y "cerramos
  *  ese viernes" son cosas distintas para quien agenda. */
 export type TipoBloqueo =
+  | 'clinica_no_operativa'
   | 'festivo'
   | 'fecha_bloqueada_medico'
   | 'fecha_bloqueada_clinica'
@@ -68,6 +69,13 @@ export interface DatosDelDia {
   configWhatsApp: { days: number[]; start: string; end: string } | null
   /** clinic.working_hours, el último fallback. */
   horarioClinica: unknown | null
+  /** Estado operativo de la clínica HOY. `null` = operando normal.
+   *
+   *  Es un hecho del día, no configuración: `working_hours` dice a qué hora
+   *  abre CUANDO abre, no si hoy está abierta. Confundir las dos cosas hizo que
+   *  el agente le afirmara a una paciente "Sí, Algia está abierta" en plena
+   *  contingencia por sismo. */
+  estadoClinica: { estado: 'contingencia' | 'cerrado'; mensaje: string | null } | null
   /** Festivo nacional de ese día, si lo hay. `null` = día hábil.
    *
    *  Un festivo NO es un bloqueo que cargó la clínica: es un hecho del
@@ -112,6 +120,22 @@ export function resolverDisponibilidadDia(d: DatosDelDia): DisponibilidadDelDia 
   // ── 1. Bloqueos que cierran el día ENTERO ──────────────────────────
   // Van primero porque ganan sobre cualquier horario: un médico puede tener
   // franja los viernes y aun así estar cerrado ESE viernes.
+
+  // El estado operativo va PRIMERO de todo. Si la clínica no está operando, no
+  // importa el horario, ni el festivo, ni la agenda del médico: no se atiende y
+  // el agente no puede decir lo contrario.
+  if (d.estadoClinica) {
+    return {
+      ...base, franjas: [], atiende: false,
+      bloqueo: {
+        tipo: 'clinica_no_operativa',
+        motivo: d.estadoClinica.mensaje?.trim()
+          || (d.estadoClinica.estado === 'contingencia'
+                ? 'El consultorio no está atendiendo normalmente en este momento.'
+                : 'El consultorio está cerrado.'),
+      },
+    }
+  }
 
   // El festivo va ANTES que todo lo demás: no importa el horario del médico ni
   // que su agenda esté abierta — el país no trabaja. Y se nombra, porque

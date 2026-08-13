@@ -136,6 +136,30 @@ async function checkAvailability(
   clinic: Clinic,
   doctorPorDefecto: Doctor
 ): Promise<ToolResult> {
+  // 🔴 ¿LA CLÍNICA ESTÁ OPERANDO HOY? Va antes que cualquier otra cosa.
+  //
+  // Una paciente preguntó "¿Está abierta Algia para el control?" y el agente
+  // contestó "Sí, Algia está abierta, atiende hasta las 6:00 PM" en plena
+  // contingencia por sismo. Lo dedujo de working_hours, que dice a qué hora abre
+  // CUANDO abre — no si hoy está abierta.
+  //
+  // Corte determinista, como el de convenio_no_reconocido: el modelo no puede
+  // afirmar que la clínica atiende, y acá directamente no llega a calcular nada.
+  const estadoOperativo = (clinic as { operational_status?: string | null }).operational_status
+  if (estadoOperativo && estadoOperativo !== 'operando') {
+    const msgClinica = (clinic as { operational_status_message?: string | null }).operational_status_message
+    return {
+      success: false,
+      error: `CLINICA_NO_OPERATIVA ${estadoOperativo}`,
+      data: {
+        estado: estadoOperativo,
+        message_for_patient: msgClinica?.trim()
+          || 'En este momento el consultorio no está atendiendo con normalidad. Ya le avisé al equipo para que se comunique contigo.',
+        instruction_for_llm: 'La clínica NO está operando. NO agendes, NO ofrezcas horarios y NO afirmes que está abierta bajo ninguna circunstancia.',
+      },
+    }
+  }
+
   const preferredDate = input.preferred_date as string | undefined
   // ÚNICO uso de `doctorPorDefecto` en toda la función: el fallback cuando el
   // modelo no manda doctor_id. Después de esta línea no se vuelve a tocar.
@@ -334,6 +358,7 @@ async function checkAvailability(
       : null,
     fechaBloqueada: null,   // ídem: ya cortó arriba
     festivo: null,          // ídem
+    estadoClinica: null,    // ídem — cortó al principio de la función
     configWhatsApp: docConfig ? { days: docConfig.days, start: docConfig.start, end: docConfig.end } : null,
     horarioClinica: clinic.working_hours,
   })

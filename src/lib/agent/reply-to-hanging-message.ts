@@ -16,6 +16,7 @@ import {
 } from '@/lib/agent/agent-context'
 import type { Clinic, Patient, Message } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
+import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
 export interface HangingReplyResult {
   replied: boolean
@@ -69,7 +70,8 @@ export async function replyToHangingMessage(conversationId: string): Promise<Han
       existingPatient, tratanteMode, tratantes,
     })
 
-    const text = stripTimestampMarkers(agentResponse.text).text
+    // Mismo filtro que el webhook: este camino también manda texto del loop.
+    const text = stripTimestampMarkers(stripInternalMonologue(agentResponse.text).text).text
     await sendWhatsAppMessage(conv.whatsapp_phone.replace('+', ''), text, clinicCreds)
     await supabaseAdmin.from('messages').insert({ conversation_id: conversationId, role: 'agent', content: text, message_type: 'text' })
     await supabaseAdmin.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId)

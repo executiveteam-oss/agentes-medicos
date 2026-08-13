@@ -46,6 +46,7 @@ import {
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
+import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
 // Máximo tiempo de ejecución en Vercel (en segundos)
 // El plan gratuito de Vercel permite hasta 60s para serverless functions
@@ -720,6 +721,7 @@ async function processWebhook(body: unknown): Promise<void> {
         const motivoEsc =
           agentResponse.escalate.reason === 'tool_technical_error' ? ESCALATION_REASONS.TOOL_ERROR
           : agentResponse.escalate.reason === 'convenio_no_reconocido' ? ESCALATION_REASONS.UNKNOWN_CONVENIO
+          : agentResponse.escalate.reason === 'clinica_no_operativa' ? ESCALATION_REASONS.CLINIC_NOT_OPERATING
           : ESCALATION_REASONS.BOOKING_FAILURE
         await supabaseAdmin
           .from('conversations')
@@ -902,7 +904,30 @@ async function processWebhook(body: unknown): Promise<void> {
 
       // Strip DETERMINISTA del marcador de timestamp [YYYY-MM-DD HH:MM] por si el
       // modelo lo copió del historial (eco). No depende de la cláusula del prompt.
-      const { text: sendText, stripped: tsStripped } = stripTimestampMarkers(cleanText)
+      // Strip DETERMINISTA del monólogo interno. El loop de tools acumula el
+      // texto de TODAS las iteraciones (appointment-agent: collectedTexts) y las
+      // une con '\n\n', así que el razonamiento intermedio viaja pegado a la
+      // respuesta. A una paciente le llegó "Debo llamar create_appointment ahora
+      // con los datos confirmados". Va acá, junto al strip del timestamp, porque
+      // es el mismo tipo de problema: algo que el modelo emite y ella no debe ver.
+      const { text: sinMonologo, removidos: monologosRemovidos } = stripInternalMonologue(cleanText)
+      if (monologosRemovidos > 0) {
+        console.warn(`[Webhook] ⚠ MONÓLOGO INTERNO: removidos ${monologosRemovidos} bloque(s) antes de enviar`)
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'internal_monologue_stripped',
+            actor_type: 'system',
+            target_type: 'conversation',
+            target_id: conversation.id,
+            // El contador es la señal: si sube, el modelo está narrando de más y
+            // hay que mirar el prompt además de este filtro.
+            details: { bloques: monologosRemovidos },
+          })
+        } catch { /* no crítico */ }
+      }
+
+      const { text: sendText, stripped: tsStripped } = stripTimestampMarkers(sinMonologo)
       if (tsStripped > 0) {
         console.warn(`[Webhook] ⚠ ECO timestamp: removidos ${tsStripped} marcador(es) [YYYY-MM-DD HH:MM] de la respuesta`)
         try {

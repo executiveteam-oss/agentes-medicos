@@ -15,7 +15,7 @@ import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt, PROMPT_CACHE_SPLIT_ANCHOR } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
-import { isHardBookingFailure, isTechnicalError, isUnknownConvenio } from '@/agents/booking-failure'
+import { isHardBookingFailure, isTechnicalError, isUnknownConvenio, isClinicaNoOperativa } from '@/agents/booking-failure'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { formatTimestampColombia } from '@/lib/utils/dates'
 import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
@@ -295,6 +295,21 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         // como un bug del sistema termina reportado como consultorio ocupado).
         // Los resultados de NEGOCIO (available:false, agenda_closed, fecha
         // inválida, sin convenio) NO entran acá y siguen yendo al LLM.
+        // La clínica no está operando: corte propio. Es lo más grave de esta
+        // familia — el modelo NO puede afirmar que está abierta.
+        if (resultObj?.success === false && isClinicaNoOperativa(resultObj.error as string)) {
+          const d = (resultObj.data ?? {}) as { message_for_patient?: string }
+          console.warn('[Agent] 🚨 Clínica NO operativa → escalar, NO agendar ni afirmar que está abierta')
+          return {
+            text: d.message_for_patient
+              || 'En este momento el consultorio no está atendiendo con normalidad. Ya le avisé al equipo para que se comunique contigo. 🙏',
+            toolsUsed,
+            toolCalls,
+            tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
+            escalate: { reason: 'clinica_no_operativa', code: 'CLINICA_NO_OPERATIVA' },
+          }
+        }
+
         // Convenio no reconocido: corte propio, con SU mensaje. No es un error
         // técnico (decirle "tuve un inconveniente técnico" sería falso) ni un
         // "no hay convenio" (sería peor: es lo que no sabemos).

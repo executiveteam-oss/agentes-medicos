@@ -30,7 +30,7 @@ export async function getDisponibilidadAgenda(
 
     const { data: clinic } = await supabaseAdmin
       .from('clinics')
-      .select('working_hours, whatsapp_config')
+      .select('working_hours, whatsapp_config, operational_status, operational_status_message')
       .eq('id', clinicId)
       .single()
     if (!clinic) return {}

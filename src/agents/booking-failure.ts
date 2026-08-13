@@ -57,3 +57,15 @@ export function isTechnicalError(errorCode: string | null | undefined): boolean 
 export function isUnknownConvenio(errorCode: string | null | undefined): boolean {
   return String(errorCode ?? '').startsWith('CONVENIO_NO_RECONOCIDO')
 }
+
+/**
+ * ¿La clínica no está operando (contingencia, cerrado)?
+ *
+ * Va por el corte determinista y NO por el LLM, por la misma razón que el
+ * convenio no reconocido: el modelo narra lo que le dicta la tool, y acá lo que
+ * está en juego es que le afirme a una paciente "sí, estamos abiertos" un día
+ * que la clínica no abrió. Eso la hace viajar.
+ */
+export function isClinicaNoOperativa(errorCode: string | null | undefined): boolean {
+  return String(errorCode ?? '').startsWith('CLINICA_NO_OPERATIVA')
+}

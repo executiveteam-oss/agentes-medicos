@@ -60,7 +60,7 @@ function datos(over: Partial<DatosDelDia>): DatosDelDia {
   return {
     fecha: '2026-08-17', diaSemana: 'lunes', indiceDiaSemana: 1,
     medico: ADRIANA, fechaBloqueada: null, configWhatsApp: null,
-    horarioClinica: HORARIO_CLINICA,
+    horarioClinica: HORARIO_CLINICA, festivo: null,
     ...over,
   }
 }
@@ -151,6 +151,40 @@ const conWhatsApp = resolverDisponibilidadDia(datos({
   configWhatsApp: { days: [1], start: '14:00', end: '16:00' },
 }))
 ok('whatsapp_config gana sobre el horario de la clínica', conWhatsApp.franjas[0]?.start === '14:00')
+
+console.log('\n🔴 FESTIVO — el bug que descubrió una paciente en el chat')
+// Omuwan no sabía que el 17/08 es festivo y el agente ofrecía cita ese día.
+const festivo = resolverDisponibilidadDia(datos({
+  fecha: '2026-08-17', diaSemana: 'lunes', indiceDiaSemana: 1, medico: ANGELICA,
+  festivo: { nombre: 'Asunción de la Virgen' },
+}))
+ok('festivo → bloqueado', festivo.bloqueo?.tipo === 'festivo')
+ok('🔴 el motivo NOMBRA el festivo', festivo.bloqueo?.motivo === 'Festivo — Asunción de la Virgen.')
+ok('no atiende', festivo.atiende === false)
+for (const h of ['08:00', '14:00', '16:00']) {
+  ok(`  ${h} → bloqueado (aunque Angélica atiende los lunes 13–16:30)`, estadoDeFranja(festivo, h) === 'bloqueado')
+}
+
+// El festivo GANA sobre todo lo demás: el país no trabaja, no importa el resto.
+const festivoYAgenda = resolverDisponibilidadDia(datos({
+  fecha: '2026-08-17', diaSemana: 'lunes', indiceDiaSemana: 1,
+  medico: { ...ANGELICA, agenda_closed: true, agenda_closed_reason: 'Vacaciones' },
+  festivo: { nombre: 'Asunción de la Virgen' },
+}))
+ok('gana sobre agenda_closed', festivoYAgenda.bloqueo?.tipo === 'festivo')
+const festivoYBloqueo = resolverDisponibilidadDia(datos({
+  fecha: '2026-08-17', diaSemana: 'lunes', indiceDiaSemana: 1, medico: ANGELICA,
+  festivo: { nombre: 'Asunción de la Virgen' },
+  fechaBloqueada: { doctor_id: 'x', reason: 'lo que sea' },
+}))
+ok('gana sobre blocked_dates', festivoYBloqueo.bloqueo?.tipo === 'festivo')
+
+// Y sin festivo, el mismo lunes es un día normal — que es lo que pasa cuando la
+// clínica destapa el feriado (el fetcher manda festivo:null).
+const lunesNormal = resolverDisponibilidadDia(datos({
+  fecha: '2026-08-24', diaSemana: 'lunes', indiceDiaSemana: 1, medico: ANGELICA, festivo: null,
+}))
+ok('sin festivo, Angélica atiende ese lunes 13–16:30', estadoDeFranja(lunesNormal, '14:00') === 'disponible')
 
 console.log('\nBORDES')
 ok('sin médico → no atiende', resolverDisponibilidadDia(datos({ medico: null })).atiende === false)

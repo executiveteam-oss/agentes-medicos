@@ -17,6 +17,46 @@ import {
   type DisponibilidadDelDia, type DatosDelDia,
 } from '@/lib/calendar/day-availability'
 
+/**
+ * Festivos que APLICAN a esta clínica en un rango de fechas.
+ *
+ * "Aplican" = está en el calendario nacional Y la clínica no lo destapó. Por
+ * defecto festivo = cerrado; una fila en clinic_holiday_overrides con
+ * works=true significa que esa clínica sí atiende ese día.
+ *
+ * Devuelve un mapa fecha → nombre para que el llamador no tenga que buscar.
+ */
+export async function traerFestivos(
+  clinicId: string,
+  desde: string,
+  hasta: string,
+  countryCode = 'CO',
+): Promise<Map<string, string>> {
+  const [{ data: festivos }, { data: overrides }] = await Promise.all([
+    supabaseAdmin
+      .from('national_holidays')
+      .select('holiday_date, name')
+      .eq('country_code', countryCode)
+      .gte('holiday_date', desde).lte('holiday_date', hasta),
+    supabaseAdmin
+      .from('clinic_holiday_overrides')
+      .select('holiday_date, works')
+      .eq('clinic_id', clinicId)
+      .gte('holiday_date', desde).lte('holiday_date', hasta),
+  ])
+
+  const atiende = new Set(
+    (overrides ?? []).filter((o) => o.works === true).map((o) => o.holiday_date as string),
+  )
+  const m = new Map<string, string>()
+  for (const f of festivos ?? []) {
+    const fecha = f.holiday_date as string
+    if (atiende.has(fecha)) continue   // la clínica destapó ese festivo
+    m.set(fecha, f.name as string)
+  }
+  return m
+}
+
 /** Día de la semana de una fecha 'YYYY-MM-DD' en COT, sin correrse por TZ.
  *  Se ancla al MEDIODÍA: parseISO de una fecha sin hora da medianoche UTC, y en
  *  Vercel (TZ=UTC) eso devolvía el día ANTERIOR en Bogotá — el bug que hacía que
@@ -36,7 +76,7 @@ export async function traerDisponibilidadDia(
   fecha: string,
   clinic: Pick<Clinic, 'working_hours' | 'whatsapp_config'>,
 ): Promise<DisponibilidadDelDia> {
-  const [{ data: medico }, { data: bloqueos }] = await Promise.all([
+  const [{ data: medico }, { data: bloqueos }, festivos] = await Promise.all([
     supabaseAdmin
       .from('doctors')
       .select('name, working_hours, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message')
@@ -48,9 +88,14 @@ export async function traerDisponibilidadDia(
       .lte('start_date', fecha).gte('end_date', fecha)
       .or(`doctor_id.eq.${doctorId},doctor_id.is.null`)
       .limit(1),
+    traerFestivos(clinicId, fecha, fecha),
   ])
 
-  return resolverDisponibilidadDia(armarDatos(clinicId, doctorId, fecha, clinic, medico, bloqueos?.[0] ?? null))
+  const nombreFestivo = festivos.get(fecha)
+  return resolverDisponibilidadDia(armarDatos(
+    clinicId, doctorId, fecha, clinic, medico, bloqueos?.[0] ?? null,
+    nombreFestivo ? { nombre: nombreFestivo } : null,
+  ))
 }
 
 /**
@@ -71,7 +116,7 @@ export async function traerDisponibilidadRango(
   const desde = fechas.reduce((a, b) => (a < b ? a : b))
   const hasta = fechas.reduce((a, b) => (a > b ? a : b))
 
-  const [{ data: medico }, { data: bloqueos }] = await Promise.all([
+  const [{ data: medico }, { data: bloqueos }, festivos] = await Promise.all([
     supabaseAdmin
       .from('doctors')
       .select('name, working_hours, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message')
@@ -82,6 +127,7 @@ export async function traerDisponibilidadRango(
       .eq('clinic_id', clinicId)
       .lte('start_date', hasta).gte('end_date', desde)
       .or(`doctor_id.eq.${doctorId},doctor_id.is.null`),
+    traerFestivos(clinicId, desde, hasta),
   ])
 
   const out: Record<string, DisponibilidadDelDia> = {}
@@ -91,7 +137,11 @@ export async function traerDisponibilidadRango(
     const delDia = (bloqueos ?? [])
       .filter((b) => (b.start_date as string) <= fecha && (b.end_date as string) >= fecha)
       .sort((a, b) => (a.doctor_id ? 0 : 1) - (b.doctor_id ? 0 : 1))[0] ?? null
-    out[fecha] = resolverDisponibilidadDia(armarDatos(clinicId, doctorId, fecha, clinic, medico, delDia))
+    const nombreFestivo = festivos.get(fecha)
+    out[fecha] = resolverDisponibilidadDia(armarDatos(
+      clinicId, doctorId, fecha, clinic, medico, delDia,
+      nombreFestivo ? { nombre: nombreFestivo } : null,
+    ))
   }
   return out
 }
@@ -111,6 +161,7 @@ function armarDatos(
   clinic: Pick<Clinic, 'working_hours' | 'whatsapp_config'>,
   medico: FilaMedico,
   fechaBloqueada: { doctor_id: string | null; reason: string | null } | null,
+  festivo: { nombre: string } | null,
 ): DatosDelDia {
   const wa = clinic.whatsapp_config as WhatsAppConfig | null
   const cfg = wa?.doctors?.[doctorId]
@@ -133,5 +184,6 @@ function armarDatos(
     fechaBloqueada: fechaBloqueada ? { doctor_id: fechaBloqueada.doctor_id, reason: fechaBloqueada.reason } : null,
     configWhatsApp: cfg ? { days: cfg.days, start: cfg.start, end: cfg.end } : null,
     horarioClinica: clinic.working_hours,
+    festivo,
   }
 }

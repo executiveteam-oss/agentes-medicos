@@ -35,6 +35,7 @@ export type EstadoFranja =
 /** Por qué está cerrado. El motivo importa: "no atiende los lunes" y "cerramos
  *  ese viernes" son cosas distintas para quien agenda. */
 export type TipoBloqueo =
+  | 'festivo'
   | 'fecha_bloqueada_medico'
   | 'fecha_bloqueada_clinica'
   | 'agenda_cerrada'
@@ -67,6 +68,16 @@ export interface DatosDelDia {
   configWhatsApp: { days: number[]; start: string; end: string } | null
   /** clinic.working_hours, el último fallback. */
   horarioClinica: unknown | null
+  /** Festivo nacional de ese día, si lo hay. `null` = día hábil.
+   *
+   *  Un festivo NO es un bloqueo que cargó la clínica: es un hecho del
+   *  calendario del país. Por eso viene por su propio canal y tiene su propio
+   *  tipo — la secretaria necesita leer "Festivo — Asunción de la Virgen", no
+   *  un genérico "cerrado" que la deje sin saber por qué.
+   *
+   *  El fetcher ya aplica la excepción por clínica: si la clínica atiende ESE
+   *  festivo, acá llega null. */
+  festivo: { nombre: string } | null
 }
 
 export interface DisponibilidadDelDia {
@@ -101,6 +112,17 @@ export function resolverDisponibilidadDia(d: DatosDelDia): DisponibilidadDelDia 
   // ── 1. Bloqueos que cierran el día ENTERO ──────────────────────────
   // Van primero porque ganan sobre cualquier horario: un médico puede tener
   // franja los viernes y aun así estar cerrado ESE viernes.
+
+  // El festivo va ANTES que todo lo demás: no importa el horario del médico ni
+  // que su agenda esté abierta — el país no trabaja. Y se nombra, porque
+  // "Festivo — Asunción de la Virgen" le dice a quien agenda por qué no puede,
+  // mientras que "cerrado" la deja preguntándose si es un error del sistema.
+  if (d.festivo) {
+    return {
+      ...base, franjas: [], atiende: false,
+      bloqueo: { tipo: 'festivo', motivo: `Festivo — ${d.festivo.nombre}.` },
+    }
+  }
 
   if (d.medico?.schedule_type === 'manual') {
     return {

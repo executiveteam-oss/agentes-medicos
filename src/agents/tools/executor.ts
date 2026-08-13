@@ -27,7 +27,7 @@ import { toZonedTime } from 'date-fns-tz'
 import { mismoConvenioPorAlias, dijoParticular } from '@/lib/rules/convenio-aliases'
 import { mensajeFechaBloqueada } from '@/lib/calendar/blocked-date-message'
 import { resolverDisponibilidadDia } from '@/lib/calendar/day-availability'
-import { indiceDiaSemanaCOT } from '@/lib/calendar/fetch-day-availability'
+import { indiceDiaSemanaCOT, traerFestivos } from '@/lib/calendar/fetch-day-availability'
 
 const TIMEZONE = 'America/Bogota'
 const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -239,6 +239,30 @@ async function checkAvailability(
     }
   }
 
+  // ¿Es festivo nacional? Va acá, después de blocked_dates y antes de las reglas
+  // de anticipación: no tiene sentido calcular horarios de un día en que el país
+  // no trabaja.
+  //
+  // Omuwan no sabía de festivos y el agente ofrecía cita el 17 de agosto. Lo
+  // descubrimos porque una paciente se lo dijo en el chat: "el lunes es festivo".
+  const festivosDelDia = await traerFestivos(clinicId, dateStr, dateStr)
+  const nombreFestivo = festivosDelDia.get(dateStr)
+  if (nombreFestivo) {
+    return {
+      success: true,
+      data: {
+        available: false,
+        blocked: true,
+        blockedBy: 'festivo',
+        date: dateStr,
+        dayOfWeek: spanishDayOfWeek(dateStr),
+        // El nombre va en el mensaje: "no hay atención" a secas suena a error del
+        // sistema, y la paciente vuelve a preguntar.
+        reason: `El ${spanishDayOfWeek(dateStr)} ${dateStr} es festivo (${nombreFestivo}) y el consultorio no atiende. Decíselo a la paciente NOMBRANDO el festivo y ofrecé otra fecha con check_availability.`,
+      },
+    }
+  }
+
   // Verificar reglas de anticipación de la clínica
   const now = toZonedTime(new Date(), TIMEZONE)
   const minAdvanceHours = clinic.min_booking_advance_hours ?? 24
@@ -309,6 +333,7 @@ async function checkAvailability(
         }
       : null,
     fechaBloqueada: null,   // ídem: ya cortó arriba
+    festivo: null,          // ídem
     configWhatsApp: docConfig ? { days: docConfig.days, start: docConfig.start, end: docConfig.end } : null,
     horarioClinica: clinic.working_hours,
   })

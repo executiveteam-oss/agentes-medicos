@@ -43,6 +43,9 @@ interface AppointmentFormModalProps {
   /** Pre-selecciona la paciente en una cita NUEVA (ej. aprobar autorización). */
   prefillPatient?: { id: string; name: string }
   minBookingAdvanceHours?: number
+  /** La secretaria ya vio la advertencia de "fuera de horario" y confirmó.
+   *  Viaja hasta el server action: la advertencia del cliente no alcanza. */
+  fueraDeHorarioConfirmado?: boolean
   onSaved: () => void
 }
 
@@ -57,6 +60,7 @@ export function AppointmentFormModal({
   initialData,
   prefillPatient,
   minBookingAdvanceHours,
+  fueraDeHorarioConfirmado,
   onSaved,
 }: AppointmentFormModalProps) {
   const isEditing = !!initialData?.id
@@ -184,6 +188,7 @@ export function AppointmentFormModal({
       modality,
       virtual_link: modality === 'virtual' ? virtualLink.trim() || null : null,
       desired_at: desiredAt || null,
+      fuera_de_horario_confirmado: fueraDeHorarioConfirmado ?? false,
     }
 
     startTransition(async () => {
@@ -192,7 +197,10 @@ export function AppointmentFormModal({
         : await createAppointment(input)
 
       if (!result.ok) {
-        setError(result.error ?? 'Error guardando la cita')
+        // El server marca el rechazo por horario con un prefijo para poder
+        // distinguirlo; a la secretaria le sirve el motivo, no el código.
+        const msg = (result.error ?? 'Error guardando la cita').replace(/^FUERA_DE_HORARIO:\s*/, '')
+        setError(msg)
         return
       }
 

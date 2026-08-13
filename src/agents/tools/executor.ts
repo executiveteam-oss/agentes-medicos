@@ -26,6 +26,8 @@ import { es } from 'date-fns/locale'
 import { toZonedTime } from 'date-fns-tz'
 import { mismoConvenioPorAlias, dijoParticular } from '@/lib/rules/convenio-aliases'
 import { mensajeFechaBloqueada } from '@/lib/calendar/blocked-date-message'
+import { resolverDisponibilidadDia } from '@/lib/calendar/day-availability'
+import { indiceDiaSemanaCOT } from '@/lib/calendar/fetch-day-availability'
 
 const TIMEZONE = 'America/Bogota'
 const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -283,56 +285,36 @@ async function checkAvailability(
   const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
   const docConfig = waConfig?.doctors[doctorId]
 
-  // Determinar bloques horarios del día.
-  // Precedencia: working_hours del médico PEDIDO > whatsapp_config.doctors[id] > clinic.working_hours
-  const dayOfWeek = getDayOfWeek(date)
-  const dayKey = dayOfWeek as keyof typeof clinic.working_hours
-  let isDayActive = false
-  let dayBlocks: WorkingBlock[] = []
-  // Si el médico marcó ESTE día EXPLÍCITAMENTE inactivo, NO se cae a los
-  // fallbacks (rama 2/3): un día inactivo del médico significa "no atiende",
-  // no "usá el horario de la clínica". Sin esto, un médico que no trabaja el
-  // miércoles aparecía disponible 08-18 con el horario de la CLÍNICA.
-  let doctorMarkedInactive = false
+  // Las franjas del día salen de la FUENTE ÚNICA que comparte con la agenda del
+  // dashboard (lib/calendar/day-availability). Acá vivía una copia de la lógica
+  // de precedencia —working_hours del médico > whatsapp_config > clínica, con el
+  // corte del día explícitamente inactivo—, y la grilla del dashboard estaba a
+  // punto de tener la suya. Dos implementaciones de "¿a qué hora atiende?" es
+  // exactamente el bug que ya nos costó cinco veces.
+  const dispDia = resolverDisponibilidadDia({
+    fecha: dateStr,
+    diaSemana: spanishDayOfWeek(dateStr),
+    indiceDiaSemana: indiceDiaSemanaCOT(dateStr),
+    medico: medico
+      ? {
+          nombre: medico.name,
+          working_hours: medico.working_hours,
+          // manual y agenda_closed ya se resolvieron arriba con sus mensajes
+          // propios para el LLM; acá solo interesan las franjas.
+          agenda_closed: false,
+          agenda_closed_reason: null,
+          agenda_closed_until: null,
+          schedule_type: null,
+          manual_availability_message: null,
+        }
+      : null,
+    fechaBloqueada: null,   // ídem: ya cortó arriba
+    configWhatsApp: docConfig ? { days: docConfig.days, start: docConfig.start, end: docConfig.end } : null,
+    horarioClinica: clinic.working_hours,
+  })
+  const dayBlocks: WorkingBlock[] = dispDia.franjas
 
-  // 1) working_hours del médico PEDIDO.
-  if (medico?.working_hours) {
-    const docHours = normalizeWorkingHours(medico.working_hours)
-    const dayCfg = docHours[dayKey]
-    // rawDay: el día TAL CUAL está en su working_hours. active===false explícito
-    // ≠ día ausente (undefined). Solo el explícito corta; el ausente sí hereda.
-    const rawDay = (medico.working_hours as Record<string, unknown> | null)?.[dayKey] as { active?: boolean } | undefined
-    if (dayCfg.active && dayCfg.blocks.length > 0) {
-      isDayActive = true
-      dayBlocks = dayCfg.blocks
-    } else if (rawDay?.active === false) {
-      // El médico marcó este día EXPLÍCITAMENTE como inactivo → no atiende.
-      isDayActive = false
-      dayBlocks = []
-      doctorMarkedInactive = true
-    }
-  }
-
-  // 2) Fallback a whatsapp_config.doctors[id] (formato global single window)
-  if (!isDayActive && dayBlocks.length === 0 && !doctorMarkedInactive && docConfig) {
-    const dayNum = date.getDay()
-    if (docConfig.days.includes(dayNum)) {
-      isDayActive = true
-      dayBlocks = [{ start: docConfig.start, end: docConfig.end }]
-    }
-  }
-
-  // 3) Fallback a clinic.working_hours (NO si el médico marcó el día inactivo)
-  if (!isDayActive && dayBlocks.length === 0 && !doctorMarkedInactive) {
-    const clinicHours = normalizeWorkingHours(clinic.working_hours)
-    const dayCfg = clinicHours[dayKey]
-    if (dayCfg.active && dayCfg.blocks.length > 0) {
-      isDayActive = true
-      dayBlocks = dayCfg.blocks
-    }
-  }
-
-  if (!isDayActive || dayBlocks.length === 0) {
+  if (!dispDia.atiende) {
     const dow = spanishDayOfWeek(dateStr)
     return {
       success: true,

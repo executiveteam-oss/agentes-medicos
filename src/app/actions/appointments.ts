@@ -11,6 +11,10 @@ import { after } from 'next/server'
 import type { PaymentType, AttendanceOutcome } from '@/types/database'
 import { getSessionClinicId, checkWritePermission } from '@/lib/actions-helpers'
 import { computeNoShowDelta } from '@/lib/utils/attendance-outcome'
+import { formatInTimeZone } from 'date-fns-tz'
+import { getUserSession } from '@/lib/session'
+import { traerDisponibilidadDia } from '@/lib/calendar/fetch-day-availability'
+import { estadoDeFranja, motivoParaConfirmar, type EstadoFranja } from '@/lib/calendar/day-availability'
 
 // ============================================================
 // Marcado de asistencia (campo attendance_outcome — migración 00073)
@@ -212,6 +216,11 @@ export interface AppointmentInput {
   modality?: 'presencial' | 'virtual'
   virtual_link?: string | null
   desired_at?: string | null  // YYYY-MM-DD, fecha que quería el paciente
+  /** La secretaria vio la advertencia de "fuera de horario" y confirmó igual.
+   *  Sin esto, el server RECHAZA una cita fuera de franja: la advertencia del
+   *  cliente sola no es una garantía —un submit directo la saltea— y acá el
+   *  costo de saltearla es una paciente que llega a un consultorio vacío. */
+  fuera_de_horario_confirmado?: boolean
 }
 
 /** Crear cita desde el dashboard */
@@ -227,6 +236,31 @@ export async function createAppointment(
 
     const startsAt = new Date(input.starts_at)
     const endsAt = new Date(startsAt.getTime() + (input.duration_minutes || 30) * 60 * 1000)
+
+    // ── ¿Cae fuera de la franja del médico? ────────────────────────────
+    // Se resuelve con la MISMA fuente que pinta la grilla y que usa el agente,
+    // así que lo que la secretaria vio en verde es lo que acá pasa sin fricción.
+    const fechaCot = formatInTimeZone(startsAt, 'America/Bogota', 'yyyy-MM-dd')
+    const horaCot = formatInTimeZone(startsAt, 'America/Bogota', 'HH:mm')
+    const { data: clinicHoras } = await supabaseAdmin
+      .from('clinics').select('working_hours, whatsapp_config').eq('id', clinicId).single()
+
+    let estadoFranja: EstadoFranja = 'disponible'
+    let motivoFuera = ''
+    if (clinicHoras) {
+      const disp = await traerDisponibilidadDia(clinicId, input.doctor_id, fechaCot, clinicHoras)
+      estadoFranja = estadoDeFranja(disp, horaCot)
+      if (estadoFranja !== 'disponible') {
+        const { data: doc } = await supabaseAdmin
+          .from('doctors').select('name').eq('id', input.doctor_id).maybeSingle()
+        motivoFuera = motivoParaConfirmar(disp, doc?.name ?? 'El médico')
+      }
+    }
+
+    // El flag NO es una formalidad: es la única barrera del lado del servidor.
+    if (estadoFranja !== 'disponible' && !input.fuera_de_horario_confirmado) {
+      return { ok: false, error: `FUERA_DE_HORARIO: ${motivoFuera}` }
+    }
 
     // Verificar que no haya conflicto de horario con el mismo doctor
     const { data: conflict } = await supabaseAdmin
@@ -279,6 +313,28 @@ export async function createAppointment(
         .update({ total_appointments: (patient.total_appointments ?? 0) + 1 })
         .eq('id', input.patient_id)
         .eq('clinic_id', clinicId)
+    }
+
+    // Queda registro de QUIÉN forzó una cita fuera de franja y por qué estaba
+    // cerrado. Es lo que después contesta "¿esto fue un error o una decisión?".
+    if (estadoFranja !== 'disponible') {
+      const session = await getUserSession()
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'cita_fuera_de_horario_confirmada',
+        actor_type: 'staff',
+        target_type: 'appointment',
+        target_id: data.id,
+        details: {
+          doctor_id: input.doctor_id,
+          fecha: fechaCot,
+          hora: horaCot,
+          estado: estadoFranja,          // 'fuera_de_horario' | 'bloqueado'
+          motivo: motivoFuera,
+          usuario_id: session?.clinicUserId ?? null,
+          usuario_nombre: session?.fullName ?? null,
+        },
+      })
     }
 
     await supabaseAdmin.from('audit_log').insert({

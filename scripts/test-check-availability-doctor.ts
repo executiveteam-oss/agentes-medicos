@@ -37,17 +37,26 @@ loadEnvFile('.env.production.local'); loadEnvFile('.env.local')
 const ALGIA = 'dac775fe-6ebd-47e3-89b4-eeb1a821facb'
 const ADRIANA = '2b0e5172-97ae-43a2-a1be-b266880191a5'      // lunes INACTIVO
 const JUAN_DIEGO = '97a20f5e-4aac-48d0-bef9-4240e666dca5'   // lunes 08:00–18:00 ACTIVO
-// El lunes se CALCULA, no se hardcodea. La versión de julio fijaba '2026-08-03'
-// y para el 9 de agosto ya era pasado: la tool devolvía "se agenda con mínimo 1
-// día de anticipación" y las aserciones de disponibilidad fallaban solas. Un
-// test con una fecha futura escrita a mano tiene fecha de vencimiento.
-function proximoLunes(diasMinimos = 7): string {
+// NI LA FECHA NI EL DÍA SE HARDCODEAN.
+//
+// Dos veces este test falló por datos que envejecieron, no por bugs:
+//  · julio fijaba '2026-08-03', que en agosto ya era pasado;
+//  · y asumía "Juan Diego atiende los lunes", que dejó de ser cierto.
+// Lo que el test verifica es que la tool use el médico PEDIDO y no el default,
+// y eso NO depende de qué día atiende cada uno — solo de que atiendan días
+// distintos. Así que el día se BUSCA: se toma el primero en que el pedido
+// atiende y el default no.
+function proximoDiaDeSemana(diaSemana: number, diasMinimos = 7): string {
   const d = new Date()
   d.setDate(d.getDate() + diasMinimos)
-  while (d.getDay() !== 1) d.setDate(d.getDate() + 1)   // 1 = lunes
+  while (d.getDay() !== diaSemana) d.setDate(d.getDate() + 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-const LUNES = proximoLunes()
+const CLAVES_DIA = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'] as const
+function atiende(wh: Record<string, { active?: boolean; blocks?: unknown[] }> | null, dia: number): boolean {
+  const d = wh?.[CLAVES_DIA[dia]]
+  return !!d?.active && (d.blocks?.length ?? 0) > 0
+}
 
 async function main(): Promise<void> {
   const { createClient } = await import('@supabase/supabase-js')
@@ -56,6 +65,20 @@ async function main(): Promise<void> {
 
   const { data: clinic } = await supa.from('clinics').select('*').eq('id', ALGIA).single()
   const { data: adriana } = await supa.from('doctors').select('*').eq('id', ADRIANA).single()
+  const { data: juanDiego } = await supa.from('doctors').select('*').eq('id', JUAN_DIEGO).single()
+
+  // El día donde los dos difieren: el PEDIDO atiende, el default no.
+  const whJD = juanDiego?.working_hours as Record<string, { active?: boolean; blocks?: unknown[] }> | null
+  const whAD = adriana?.working_hours as Record<string, { active?: boolean; blocks?: unknown[] }> | null
+  const diaUtil = [1,2,3,4,5,6].find((d) => atiende(whJD, d) && !atiende(whAD, d))
+  if (diaUtil === undefined) {
+    console.log('⚠️  No hay ningún día en que Juan Diego atienda y Adriana no.')
+    console.log('    El test no puede distinguir "usa el pedido" de "usa el default" — NO pasa por defecto.')
+    process.exit(1)
+  }
+  const LUNES = proximoDiaDeSemana(diaUtil)
+  const NOMBRE_DIA = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'][diaUtil]
+  console.log(`Día elegido: ${NOMBRE_DIA} ${LUNES} (Juan Diego atiende · Adriana no)\n`)
 
   // Llamada REAL que reproduce el bug reportado: doctor_id = Juan Diego (lunes ACTIVO),
   // pero el `doctor` param = Adriana (lunes INACTIVO), simulando que el principal es otro.
@@ -71,14 +94,15 @@ async function main(): Promise<void> {
   const data = (result as { data?: { available?: boolean; reason?: string } }).data ?? {}
 
   console.log('Reproducción del bug check_availability (usa el médico PEDIDO, no el principal)\n')
-  console.log(`  doctor_id = Juan Diego (lunes 08–18 ACTIVO) | doctor param = Adriana (lunes INACTIVO)`)
+  console.log(`  doctor_id = Juan Diego (atiende) | doctor param = Adriana (NO atiende)`)
   console.log(`  → available=${data.available} reason="${data.reason ?? ''}"\n`)
 
   let ok = 0, fail = 0
   const a = (label: string, cond: boolean) => { cond ? (console.log(`  ✅ ${label}`), ok++) : (console.log(`  ❌ ${label}`), fail++) }
 
-  a('usa el horario del médico PEDIDO (Juan Diego, lunes activo) → available=true', data.available === true)
-  a('NO usa el horario del `doctor` param (Adriana, lunes inactivo)', data.reason !== 'El doctor no atiende ese día (lunes)')
+  a('usa el horario del médico PEDIDO (Juan Diego) → available=true', data.available === true)
+  a('NO usa el horario del `doctor` param (Adriana, que ese día no atiende)',
+    !(data.reason ?? '').includes('no atiende ese día'))
 
   // ── RAMA 1: éxito. Es la que le pegó a la paciente el 2026-08-09.
   console.log('\nRAMA 1 — éxito con cupos: ¿de quién dice que son?')

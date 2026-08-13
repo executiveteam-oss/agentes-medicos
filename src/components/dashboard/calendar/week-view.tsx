@@ -7,6 +7,7 @@ import { formatTimeForPatient } from '@/lib/utils/dates'
 import { Tooltip } from '@/components/ui/tooltip'
 import { AppointmentDetail } from './appointment-detail'
 import type { CalendarAppointment } from './types'
+import { estadoDeFranja, motivoParaConfirmar, type EstadoFranja, type DisponibilidadDelDia } from '@/lib/calendar/day-availability'
 import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, etiquetaEstado, esCupoCompartido } from './types'
 
 /** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
@@ -45,6 +46,23 @@ function abbreviateName(fullName: string): string {
 const PX_PER_MIN = 1.6
 const HOUR_CELL_PX = 60 * PX_PER_MIN   // 96px
 
+// Fondo de la celda según el estado de la franja.
+//
+// El problema que resuelve: toda la grilla se pintaba igual, así que la
+// secretaria no distinguía "hueco libre" de "el médico no atiende". Carolina lo
+// dijo así: "me aparece en blanco y si yo le doy en cualquier lado pues me va a
+// seleccionar la hora… no sabía si la agenda estaba llena o si tenía espacios".
+//
+// Verde muy suave para lo disponible —tiene que leerse como fondo, no competir
+// con las tarjetas de las citas—, gris para fuera de horario, y rosa + rayado
+// para lo cerrado a propósito. El rayado no es adorno: es lo que distingue los
+// dos estados sin depender de acertarle al tono del gris.
+const FONDO_FRANJA: Record<EstadoFranja, string> = {
+  disponible: 'rgba(29,158,117,0.07)',
+  fuera_de_horario: 'rgba(120,113,130,0.10)',
+  bloqueado: 'rgba(163,48,107,0.10)',
+}
+
 // Status colors for single-doctor view (redesigned)
 const STATUS_CELL_COLORS: Record<string, { bg: string; border: string }> = {
   confirmed:       { bg: '#EEEDFE', border: '#534AB7' },
@@ -66,13 +84,18 @@ interface Props {
   onDayClick: (d: Date) => void
   expandedApt: string | null
   setExpandedApt: (id: string | null) => void
-  onEmptySlotClick?: (date: string, hour: number) => void
+  onEmptySlotClick?: (date: string, hour: number, estado: EstadoFranja, motivo: string) => void
+  /** Disponibilidad por fecha del médico seleccionado. Sin esto (vista "todos
+   *  los médicos") la grilla se pinta neutra, como antes. */
+  disponibilidad?: Record<string, DisponibilidadDelDia>
+  /** Nombre del médico, para el texto de la advertencia. */
+  doctorName?: string | null
   /** Config de la encuesta para QuickActions. Sin esto el panel dice
       "Encuesta no configurada" aunque esté perfectamente configurada. */
   surveyConfig?: React.ComponentProps<typeof AppointmentDetail>['surveyConfig']
 }
 
-export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick, surveyConfig }: Props) {
+export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick, surveyConfig, disponibilidad, doctorName }: Props) {
   const monday = getMonday(selectedDate)
   const weekDates = getWeekDates(monday)
 
@@ -139,6 +162,15 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                     getColombiaDateStr(a.starts_at) === dateStr && getColombiaHour(a.starts_at) === hour
                   )
 
+                  // El estado de la celda. Sin `disponibilidad` (vista de todos
+                  // los médicos) queda null y la grilla se pinta como antes:
+                  // no se puede afirmar el horario de nadie en particular.
+                  const disp = disponibilidad?.[dateStr] ?? null
+                  const estado = disp ? estadoDeFranja(disp, `${String(hour).padStart(2, '0')}:00`) : null
+                  const fondo = estado ? FONDO_FRANJA[estado] : (isToday ? 'rgba(107,91,255,0.02)' : 'transparent')
+                  const motivoCelda = disp && estado && estado !== 'disponible'
+                    ? motivoParaConfirmar(disp, doctorName ?? 'El médico') : ''
+
                   return (
                     <div
                       key={colIdx}
@@ -149,11 +181,20 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         height: `${HOUR_CELL_PX}px`,
                         position: 'relative',
                         padding: '1px',
-                        background: isToday ? 'rgba(107,91,255,0.02)' : 'transparent',
+                        background: fondo,
+                        // El rayado distingue "cerrado a propósito" de "no
+                        // atiende a esa hora" incluso para quien no separa bien
+                        // dos grises: son decisiones distintas para quien agenda.
+                        backgroundImage: estado === 'bloqueado'
+                          ? 'repeating-linear-gradient(135deg, rgba(163,48,107,0.14) 0 5px, transparent 5px 10px)'
+                          : undefined,
                         cursor: hourAppts.length === 0 && onEmptySlotClick ? 'pointer' : 'default',
                       }}
+                      title={motivoCelda || undefined}
                       onClick={() => {
-                        if (hourAppts.length === 0 && onEmptySlotClick) onEmptySlotClick(dateStr, hour)
+                        if (hourAppts.length === 0 && onEmptySlotClick) {
+                          onEmptySlotClick(dateStr, hour, estado ?? 'disponible', motivoCelda)
+                        }
                       }}
                     >
                       {/* Empty slot hover */}
@@ -164,11 +205,13 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                             position: 'absolute', inset: 0,
                             alignItems: 'center', justifyContent: 'center',
                             fontSize: '10px', fontWeight: 600,
-                            color: 'var(--v2-primary)', background: 'var(--v2-primary-tint)',
+                            color: estado && estado !== 'disponible' ? '#92400e' : 'var(--v2-primary)',
+                            background: estado && estado !== 'disponible' ? 'rgba(253,230,138,0.55)' : 'var(--v2-primary-tint)',
                             borderRadius: '2px',
+                            textAlign: 'center', lineHeight: 1.15, padding: '0 4px',
                           }}
                         >
-                          + Agendar
+                          {estado === 'bloqueado' ? '⚠ Cerrado' : estado === 'fuera_de_horario' ? '⚠ Fuera de horario' : '+ Agendar'}
                         </span>
                       )}
 

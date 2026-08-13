@@ -5,7 +5,7 @@
 // Sub-components: calendar/day-view, week-view, month-view
 // ============================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
@@ -17,6 +17,9 @@ import { getAppointmentForCalendar } from '@/app/actions/appointments'
 import { AppointmentFormModal } from './appointment-form-modal'
 import type { CalendarAppointment, CalendarDoctor, ViewMode } from './calendar/types'
 import { parseLocalDate, toDateStr, getColombiaDateStr, DAYS_FULL_ES, MONTHS_ES, getMonday, DOCTOR_COLORS } from './calendar/types'
+import { ConfirmarFueraHorarioModal } from './calendar/confirmar-fuera-horario-modal'
+import type { DisponibilidadDelDia, EstadoFranja } from '@/lib/calendar/day-availability'
+import { getDisponibilidadAgenda } from '@/app/actions/availability'
 
 // Re-export types for page.tsx imports
 export type { CalendarAppointment, CalendarDoctor }
@@ -54,7 +57,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
   const [expandedApt, setExpandedApt] = useState<string | null>(null)
   const [appointments, setAppointments] = useState(initialAppointments)
   const [showNewAptModal, setShowNewAptModal] = useState(false)
-  const [newAptPrefill, setNewAptPrefill] = useState<{ date: string; time: string; doctor_id: string } | null>(null)
+  const [newAptPrefill, setNewAptPrefill] = useState<{ date: string; time: string; doctor_id: string; fuera_de_horario_confirmado?: boolean } | null>(null)
 
   // En celular la agenda abre en vista DÍA. La semana es una grilla de 8
   // columnas (56px + 7 días): en 390px cada día mide ~48px y es ilegible.
@@ -242,13 +245,50 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
     changeDate(parseLocalDate(initialDate))
   }
 
-  function handleEmptySlotClick(date: string, hour: number) {
+  // Disponibilidad del médico seleccionado para la semana visible. Solo tiene
+  // sentido con UN médico: en la vista "todos" no se puede afirmar el horario de
+  // nadie en particular, así que la grilla se pinta neutra como antes.
+  const [disponibilidad, setDisponibilidad] = useState<Record<string, DisponibilidadDelDia>>({})
+  const semanaVisible = useMemo(() => {
+    const lunes = getMonday(selectedDate)
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(lunes); d.setDate(lunes.getDate() + i); return toDateStr(d)
+    })
+  }, [selectedDate])
+
+  useEffect(() => {
+    if (doctorFilter === 'all') { setDisponibilidad({}); return }
+    let vigente = true
+    getDisponibilidadAgenda(doctorFilter, semanaVisible)
+      .then((r) => { if (vigente) setDisponibilidad(r) })
+      .catch(() => { if (vigente) setDisponibilidad({}) })
+    // `vigente` evita que una respuesta lenta de la semana anterior pise a la
+    // de la semana que la secretaria ya tiene en pantalla.
+    return () => { vigente = false }
+  }, [doctorFilter, semanaVisible])
+
+  // Confirmación pendiente cuando el clic cayó en una celda cerrada.
+  const [confirmarFuera, setConfirmarFuera] = useState<
+    { date: string; hour: number; estado: EstadoFranja; motivo: string } | null
+  >(null)
+
+  function abrirFormNuevaCita(date: string, hour: number, confirmado: boolean) {
     setNewAptPrefill({
       date,
       time: `${String(hour).padStart(2, '0')}:00`,
       doctor_id: doctorFilter !== 'all' ? doctorFilter : (doctors[0]?.id ?? ''),
+      fuera_de_horario_confirmado: confirmado,
     })
     setShowNewAptModal(true)
+  }
+
+  function handleEmptySlotClick(date: string, hour: number, estado: EstadoFranja, motivo: string) {
+    // Fuera de franja o cerrado → primero la advertencia con el motivo concreto.
+    if (estado !== 'disponible') {
+      setConfirmarFuera({ date, hour, estado, motivo })
+      return
+    }
+    abrirFormNuevaCita(date, hour, false)
   }
 
   function getTitle(): string {
@@ -352,6 +392,30 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
         </div>
       )}
 
+      {/* Leyenda de la GRILLA — qué significa cada fondo. Sin esto los colores
+          son adivinanza: el reporte que originó esto fue justamente "no sabía si
+          la agenda estaba llena o si tenía espacios". */}
+      {doctorFilter !== 'all' && view === 'week' && (
+        <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', fontSize: '11px', fontWeight: 500, color: 'var(--v2-text-subtle)' }}>
+          {[
+            { label: 'Atiende', bg: 'rgba(29,158,117,0.22)', rayado: false },
+            { label: 'No atiende a esa hora', bg: 'rgba(120,113,130,0.20)', rayado: false },
+            { label: 'Cerrado ese día', bg: 'rgba(163,48,107,0.18)', rayado: true },
+          ].map((s) => (
+            <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+              <span style={{
+                width: '14px', height: '11px', borderRadius: '2px', background: s.bg,
+                border: '1px solid var(--v2-border-soft)',
+                backgroundImage: s.rayado
+                  ? 'repeating-linear-gradient(135deg, rgba(163,48,107,0.4) 0 3px, transparent 3px 6px)'
+                  : undefined,
+              }} />
+              {s.label}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* ===== Calendar body ===== */}
       {view === 'day' && (
         <DayView
@@ -374,6 +438,8 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           expandedApt={expandedApt}
           setExpandedApt={setExpandedApt}
           onEmptySlotClick={handleEmptySlotClick}
+          disponibilidad={doctorFilter !== 'all' ? disponibilidad : undefined}
+          doctorName={doctorFilter !== 'all' ? (doctors.find((d) => d.id === doctorFilter)?.name ?? null) : null}
           surveyConfig={surveyConfig}
         />
       )}
@@ -389,6 +455,21 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
       )}
 
       {/* New appointment modal from empty slot click */}
+      {confirmarFuera && (
+        <ConfirmarFueraHorarioModal
+          estado={confirmarFuera.estado}
+          motivo={confirmarFuera.motivo}
+          fecha={confirmarFuera.date}
+          hora={`${String(confirmarFuera.hour).padStart(2, '0')}:00`}
+          onCancelar={() => setConfirmarFuera(null)}
+          onConfirmar={() => {
+            const c = confirmarFuera
+            setConfirmarFuera(null)
+            abrirFormNuevaCita(c.date, c.hour, true)
+          }}
+        />
+      )}
+
       <AppointmentFormModal
         isOpen={showNewAptModal}
         onClose={() => { setShowNewAptModal(false); setNewAptPrefill(null) }}
@@ -405,6 +486,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           payment_type: 'Particular' as const,
           eps_name: '',
         } : undefined}
+        fueraDeHorarioConfirmado={newAptPrefill?.fuera_de_horario_confirmado ?? false}
         onSaved={() => {
           setShowNewAptModal(false)
           setNewAptPrefill(null)

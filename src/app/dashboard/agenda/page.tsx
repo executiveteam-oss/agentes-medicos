@@ -83,7 +83,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
       id, starts_at, ends_at, status, attendance_outcome, survey_sent, survey_sent_at,
       reason, reminder_24h_sent, reminder_confirmed,
       payment_type, source, doctor_id, modality, virtual_link,
-      documents_requested, documents_received, free_text_reason,
+      documents_requested, documents_received, free_text_reason, external_service_name, external_data,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at, first_name, entidad),
       doctors(name, specialty),
       consultation_types(name)
@@ -120,6 +120,8 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
       documents_received: (raw.documents_received as boolean) ?? false,
       free_text_reason: (raw.free_text_reason as string) ?? null,
       consultation_type_name: (raw.consultation_types as { name: string } | null)?.name ?? null,
+      external_service_name: (raw.external_service_name as string | null) ?? null,
+      external_aseguradora: ((raw.external_data as Record<string, unknown> | null)?.aseguradora as string | null) ?? null,
       source: (raw.source as string) ?? null,
       doctor_id: (raw.doctor_id as string) ?? null,
       patient: raw.patients as CalendarAppointment['patient'],

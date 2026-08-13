@@ -231,7 +231,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         const rawName = apt.patient?.name ?? apt.reason ?? 'Sin nombre'
                         const fullName = toTitleCase(rawName)
                         const patientName = abbreviateName(fullName)
-                        const consultType = apt.consultation_type_name ?? apt.free_text_reason ?? ''
+                        const consultType = apt.consultation_type_name ?? apt.external_service_name ?? apt.free_text_reason ?? ''
                         const cupoCompartido = esCupoCompartido(apt.status, apt.reason)
 
                         // La segunda línea se decide por ALTURA DISPONIBLE, no por duración:

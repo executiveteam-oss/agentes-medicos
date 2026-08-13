@@ -8,6 +8,7 @@ import { CancelAppointmentButton } from '@/components/dashboard/dashboard-action
 import type { CalendarAppointment, CalendarDoctor } from './types'
 import { STATUS_STYLES, etiquetaEstado, esCupoCompartido } from './types'
 import type { AppointmentStatus } from '@/types/database'
+import { motivoEsElNombre, parsearEntidadISalud } from '@/lib/isalud/servicio-cita'
 
 export interface SurveyPropsForQuickActions {
   enabled: boolean
@@ -64,15 +65,43 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '10px', fontSize: '12px', marginBottom: '12px' }}>
           <InfoItem label="Teléfono" value={formatPhone(patient.phone)} />
           <InfoItem label="Documento" value={`${patient.document_type} ${patient.document_number ?? '-'}`} />
-          {/* Tipo de consulta: el dato principal de la cita, faltaba. */}
-          <InfoItem label="Tipo de consulta" value={apt.consultation_type_name || 'Sin especificar'} valueColor={apt.consultation_type_name ? undefined : 'var(--v2-text-subtle)'} />
-          {/* Motivo solo si existe: "No especificado" ocupaba lugar sin decir nada. */}
-          {apt.reason && <InfoItem label="Motivo" value={apt.reason} />}
+          {/* Tipo de consulta: el dato principal de la cita.
+              Cae al texto que manda iSalud cuando la cita no está vinculada al
+              catálogo — el 22% de las importadas, porque el mismo procedimiento
+              existe en varias filas y elegir una fabricaría un precio. El texto
+              sin fila es útil igual: dice qué le van a hacer a la paciente, que
+              era exactamente lo que faltaba. */}
+          <InfoItem
+            label="Tipo de consulta"
+            value={apt.consultation_type_name || apt.external_service_name || 'Sin especificar'}
+            valueColor={(apt.consultation_type_name || apt.external_service_name) ? undefined : 'var(--v2-text-subtle)'}
+          />
+          {/* Motivo solo si existe Y aporta algo. El import llena `reason` con el
+              NOMBRE de la paciente cuando no tiene otra cosa, así que el panel
+              mostraba "Motivo: LUISA FERNANDA MONTOYA" debajo de su propio
+              nombre. Mismo criterio que ya se aplicó para ocultar el vacío. */}
+          {apt.reason && !motivoEsElNombre(apt.reason, patient?.name) && (
+            <InfoItem label="Motivo" value={apt.reason} />
+          )}
           <InfoItem label="Recordatorio"
             value={apt.reminder_confirmed === true ? 'Confirmo' : apt.reminder_confirmed === false ? 'No confirmo' : apt.reminder_24h_sent ? 'Enviado' : 'No enviado'}
             valueColor={apt.reminder_confirmed === true ? 'var(--v2-green-deep)' : apt.reminder_confirmed === false ? 'var(--v2-red)' : undefined}
           />
-          <InfoItem label="Entidad" value={patient.entidad ?? 'Sin registrar'} valueColor={patient.entidad ? undefined : 'var(--v2-text-subtle)'} />
+          {/* iSalud manda entidad, régimen y tipo de afiliado PEGADOS sin
+              separador: "PARTICULARRégimen: ParticularTipo afiliado: Cotizante".
+              Los marcadores son literales y constantes (verificado sobre las
+              2.904 citas importadas), así que se pueden separar sin adivinar. */}
+          {(() => {
+            const p = parsearEntidadISalud(apt.external_aseguradora)
+            const entidad = p?.entidad || patient.entidad || null
+            return (
+              <>
+                <InfoItem label="Entidad" value={entidad ?? 'Sin registrar'} valueColor={entidad ? undefined : 'var(--v2-text-subtle)'} />
+                {p?.regimen && <InfoItem label="Régimen" value={p.regimen} />}
+                {p?.tipoAfiliado && <InfoItem label="Tipo de afiliado" value={p.tipoAfiliado} />}
+              </>
+            )
+          })()}
           {/* Tipo pago SOLO en citas del agente. En las importadas y las que carga
               la secretaria es el DEFAULT 'Particular' de la columna, que nadie escribe:
               decía "Particular" al lado de una entidad de prepagada y se contradecían

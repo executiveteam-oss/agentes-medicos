@@ -356,6 +356,9 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
       const { error: updateErr } = await supabaseAdmin.from('appointments').update({
         status, external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(), reason: reasonText, notes: notesText,
+        // Se refresca en cada sync: si en iSalud le corrigen el procedimiento a
+        // una cita ya importada, acá se ve el corregido.
+        external_service_name: (adm.procedimiento ?? '').trim() || null,
       }).eq('id', (ex as { id: string }).id)
       if (updateErr) {
         // Fallback: si el constraint de double-booking bloquea (iSalud permite double-book),
@@ -385,6 +388,10 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
         external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(),
         reason: reasonText, notes: notesText,
+        // El servicio que iSalud dice que es la cita. Venía en el payload desde
+        // siempre y quedaba enterrado en external_data; la secretaria veía
+        // "Sin especificar" y tenía que abrir iSalud para saber qué era.
+        external_service_name: (adm.procedimiento ?? '').trim() || null,
       }
       const { error: insertErr } = await supabaseAdmin.from('appointments').insert(insertPayload)
       if (insertErr) {

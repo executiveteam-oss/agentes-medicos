@@ -20,6 +20,12 @@ export interface CalendarAppointment {
   documents_received: boolean
   free_text_reason: string | null
   consultation_type_name?: string | null
+  /** El servicio tal como lo manda iSalud. Se muestra cuando la cita no está
+   *  vinculada al catálogo — que es el 22% de las importadas, porque el mismo
+   *  procedimiento existe en varias filas y elegir una fabricaría un precio. */
+  external_service_name?: string | null
+  /** El campo `aseguradora` crudo de iSalud, para separarlo en la UI. */
+  external_aseguradora?: string | null
   /** Origen de la cita. 'whatsapp_agent' es la única donde payment_type es un dato real. */
   source?: string | null
   doctor_id: string | null

@@ -16,6 +16,9 @@ export type WhatsAppSendType =
   | 'escalate_service' | 'data_rights_ack' | 'privacy_link' | 'new_patient'
   | 'reminder' | 'ics' | 'reactivation' | 'survey' | 'waitlist'
   | 'auth_rejection' | 'staff_appointment' | 'weekly_report' | 'morning_report'
+  // Prueba manual del resumen diario contra un número propio. Va separado para
+  // que un fallo de prueba no se cuente como un resumen que no le llegó a un médico.
+  | 'morning_report_test'
   | 'contacto_general' | 'solicitud_orden'
   | 'other'
 

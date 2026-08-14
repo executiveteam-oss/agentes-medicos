@@ -40,7 +40,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
   }
 
-  console.log('[Cron:MorningReport] Generando resúmenes diarios...')
+  // ── MODO PRUEBA ────────────────────────────────────────────────
+  // `?test_phone=+57...` manda UN solo resumen a ese número y NO le escribe a
+  // ningún médico. Existe porque un envío que sale bien no se puede verificar de
+  // otra forma: hay que verlo llegar. Sin esto, la única prueba real era
+  // dispararle a los 7 médicos y preguntarles.
+  //
+  // Va protegido por CRON_SECRET, igual que el resto del endpoint.
+  const testPhone = request.nextUrl.searchParams.get('test_phone')?.trim() || null
+  if (testPhone && !/^\+57[0-9]{10}$/.test(testPhone)) {
+    return NextResponse.json({ error: 'test_phone inválido: se espera +57 y 10 dígitos' }, { status: 400 })
+  }
+
+  console.log(testPhone
+    ? `[Cron:MorningReport] MODO PRUEBA — destino único ${testPhone.slice(0, 6)}…, no se le escribe a ningún médico`
+    : '[Cron:MorningReport] Generando resúmenes diarios...')
 
   try {
     const { data: clinics } = await supabaseAdmin
@@ -54,7 +68,10 @@ export async function GET(request: NextRequest) {
 
     for (const clinic of clinics ?? []) {
       try {
-        const r = await sendClinicDoctorSummaries(clinic.id)
+        const r = await sendClinicDoctorSummaries(clinic.id, testPhone)
+        // En modo prueba se manda UNO y se corta: no tiene sentido repetirle
+        // siete veces el mismo mensaje al mismo teléfono.
+        if (testPhone) return NextResponse.json({ status: 'ok', modo: 'prueba', destino: testPhone, ...r })
         sent += r.sent
         skipped += r.skipped
       } catch (err) {
@@ -75,7 +92,13 @@ export async function GET(request: NextRequest) {
  * Para una clínica: envía a CADA médico activo con teléfono el resumen de
  * SUS citas de hoy. Médico sin citas → no se le manda nada.
  */
-async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: number; skipped: number }> {
+async function sendClinicDoctorSummaries(
+  clinicId: string,
+  /** Si viene, TODO se manda a este número y NUNCA al teléfono del médico.
+   *  Es un override de destinatario, no un filtro: la selección de médicos, la
+   *  query de citas, el template y el formato son exactamente los de siempre. */
+  testPhone: string | null = null,
+): Promise<{ sent: number; skipped: number }> {
   const { data: doctors } = await supabaseAdmin
     .from('doctors')
     .select('id, name, phone, daily_summary_enabled')
@@ -122,6 +145,7 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
     )
     if (rows.length === 0) {
       skipped++ // sin citas hoy → no se le manda nada
+      await registrarResumen(clinicId, doctor.id as string, doctor.name as string, 'sin_citas', 0, null)
       continue
     }
 
@@ -150,7 +174,11 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
     const countLabel = count === 1 ? '1 cita' : `${count} citas`
     const secondVar = `${countLabel} — ${listItems.join('  ·  ')}`
 
-    const whatsappNumber = (doctor.phone as string).replace('+', '')
+    // El override gana SIEMPRE. Escrito así —y no con un if más arriba— para que
+    // no exista ninguna rama en la que `test_phone` esté puesto y el mensaje
+    // salga igual al teléfono del médico.
+    const destino = testPhone ?? (doctor.phone as string)
+    const whatsappNumber = destino.replace('+', '')
     const result = await sendWhatsAppTemplate(
       whatsappNumber,
       RESUMEN_TEMPLATE_NAME,
@@ -158,16 +186,64 @@ async function sendClinicDoctorSummaries(clinicId: string): Promise<{ sent: numb
       [toTitleCase(doctor.name as string), secondVar],
       null, // sin botones
       creds,
-      { clinicId, sendType: 'morning_report' },
+      { clinicId, sendType: testPhone ? 'morning_report_test' : 'morning_report' },
     )
 
     if (result.ok) {
       sent++
-      console.log(`[Cron:MorningReport] Resumen enviado a ${doctor.name} (${count} citas)`)
+      console.log(`[Cron:MorningReport] Resumen enviado a ${testPhone ? 'NÚMERO DE PRUEBA' : doctor.name} (${count} citas)`)
+      await registrarResumen(clinicId, doctor.id as string, doctor.name as string, testPhone ? 'prueba' : 'enviado', count, null)
     } else {
-      console.error(`[Cron:MorningReport] Falló resumen a ${doctor.name}: code ${result.errorCode ?? '?'}`)
+      console.error(`[Cron:MorningReport] Falló resumen a ${testPhone ? 'NÚMERO DE PRUEBA' : doctor.name}: code ${result.errorCode ?? '?'}`)
+      await registrarResumen(clinicId, doctor.id as string, doctor.name as string, testPhone ? 'prueba_fallo' : 'fallo', count, result.errorCode ?? null)
     }
+
+    // En modo prueba: uno y listo.
+    if (testPhone) break
   }
 
   return { sent, skipped }
+}
+
+/**
+ * Deja constancia del resumen de CADA médico, en los tres desenlaces.
+ *
+ * POR QUÉ EXISTE: hasta el 2026-08-14 este cron solo hacía console.log. Los
+ * fallos quedaban en `whatsapp_send_failed`, pero los ÉXITOS no dejaban rastro
+ * en ningún lado — así que la pregunta "¿le llegó el resumen a los médicos?" no
+ * tenía respuesta posible: cero filas significaba lo mismo que nunca corrió,
+ * que corrió y salió bien, o que nadie tenía citas.
+ *
+ * Por eso se registra también `sin_citas`: el día que a un médico no le llegue,
+ * lo primero que hay que poder distinguir es "no tenía pacientes" de "se cayó".
+ * Sin esa fila, las dos se ven idénticas — ausencia de registro.
+ *
+ * No es crítico: si falla el registro, el resumen ya se envió y eso importa más.
+ */
+async function registrarResumen(
+  clinicId: string,
+  doctorId: string,
+  doctorName: string,
+  resultado: 'enviado' | 'sin_citas' | 'fallo' | 'prueba' | 'prueba_fallo',
+  citas: number,
+  metaCode: number | string | null,
+): Promise<void> {
+  try {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'morning_report_sent',
+      actor_type: 'system',
+      target_type: 'doctor',
+      target_id: doctorId,
+      details: {
+        resultado,
+        doctor_name: doctorName,
+        citas,
+        fecha: format(nowColombia(), 'yyyy-MM-dd'),
+        ...(metaCode !== null ? { meta_code: metaCode } : {}),
+      },
+    })
+  } catch (err) {
+    console.error('[Cron:MorningReport] No se pudo registrar en audit_log:', err)
+  }
 }

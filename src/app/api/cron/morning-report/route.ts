@@ -69,9 +69,17 @@ export async function GET(request: NextRequest) {
     for (const clinic of clinics ?? []) {
       try {
         const r = await sendClinicDoctorSummaries(clinic.id, testPhone)
-        // En modo prueba se manda UNO y se corta: no tiene sentido repetirle
-        // siete veces el mismo mensaje al mismo teléfono.
-        if (testPhone) return NextResponse.json({ status: 'ok', modo: 'prueba', destino: testPhone, ...r })
+        // En modo prueba se manda UNO y se corta: no tiene sentido repetirle el
+        // mismo mensaje al mismo teléfono.
+        //
+        // El corte va condicionado a que efectivamente se haya ENVIADO algo. La
+        // primera versión cortaba en la primera clínica sin más, y como el loop
+        // arranca por una sin médicos habilitados, devolvía {sent:0} sin haber
+        // llegado nunca a la clínica que sí tenía agenda: una prueba que no
+        // probaba nada y parecía un fallo de envío.
+        if (testPhone && r.sent > 0) {
+          return NextResponse.json({ status: 'ok', modo: 'prueba', destino: testPhone, ...r })
+        }
         sent += r.sent
         skipped += r.skipped
       } catch (err) {
@@ -81,6 +89,15 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(`[Cron:MorningReport] Completado — ${sent} enviados, ${skipped} sin citas, ${failed} clínicas con error`)
+    // En modo prueba, llegar hasta acá significa que ninguna clínica tenía un
+    // médico con citas hoy: no se envió nada y la prueba no probó el camino.
+    if (testPhone) {
+      return NextResponse.json({
+        status: 'sin_envio', modo: 'prueba', destino: testPhone,
+        motivo: 'Ninguna clínica tenía un médico habilitado con citas hoy',
+        sent, skipped, failed,
+      })
+    }
     return NextResponse.json({ status: 'ok', sent, skipped, failed })
   } catch (error) {
     console.error('[Cron:MorningReport] Error:', error)

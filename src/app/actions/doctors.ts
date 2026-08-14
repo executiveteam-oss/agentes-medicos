@@ -7,10 +7,10 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkWritePermission, extractActionError } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
-import { normalizeWorkingHours, validateBlocks, WORKING_HOURS_DAY_KEYS } from '@/lib/utils/working-hours'
+import { normalizeWorkingHours, validateBlocks, stripEmptyBlocks, DAY_LABELS, WORKING_HOURS_DAY_KEYS } from '@/lib/utils/working-hours'
 import { normalizePhone } from '@/lib/utils/dates'
 import { isValidColombianMobile } from '@/lib/utils/whatsapp-url'
-import type { WorkingHours } from '@/types/database'
+import type { WorkingHours, WorkingBlock } from '@/types/database'
 
 export interface CreateDoctorInput {
   name: string
@@ -364,16 +364,20 @@ export async function updateDoctorWorkingHours(
   try {
     const clinicId = await checkWritePermission('whatsapp')
 
-    // Normalizar y validar
+    // Normalizar y validar.
+    // Los bloques en blanco se descartan ANTES de validar: un renglón que nadie
+    // llenó no puede hacer fallar el guardado del horario entero.
     const normalized = normalizeWorkingHours(workingHours)
+    const limpios: Record<string, WorkingBlock[]> = {}
     for (const dayKey of WORKING_HOURS_DAY_KEYS) {
+      limpios[dayKey] = stripEmptyBlocks(normalized[dayKey].blocks)
       const day = normalized[dayKey]
       if (!day.active) continue
-      if (day.blocks.length === 0) {
-        return { ok: false, error: `${dayKey}: día activo debe tener al menos un bloque` }
+      if (limpios[dayKey].length === 0) {
+        return { ok: false, error: `${DAY_LABELS[dayKey]}: el día está activo pero no tiene ningún horario cargado. Agregá un bloque o desactivá el día.` }
       }
-      const err = validateBlocks(day.blocks)
-      if (err) return { ok: false, error: `${dayKey}: ${err}` }
+      const err = validateBlocks(limpios[dayKey])
+      if (err) return { ok: false, error: `${DAY_LABELS[dayKey]}: ${err}` }
     }
 
     // Persistir SIEMPRE en formato nuevo (active + blocks)
@@ -381,7 +385,7 @@ export async function updateDoctorWorkingHours(
     for (const dayKey of WORKING_HOURS_DAY_KEYS) {
       toSave[dayKey] = {
         active: normalized[dayKey].active,
-        blocks: normalized[dayKey].blocks.map((b) => ({ start: b.start, end: b.end })),
+        blocks: limpios[dayKey].map((b) => ({ start: b.start, end: b.end })),
       }
     }
 

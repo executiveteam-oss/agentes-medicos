@@ -20,7 +20,11 @@ import {
 import {
   normalizeWorkingHours,
   validateBlocks,
+  stripEmptyBlocks,
   defaultBlock,
+  // Ya hay un DAY_LABELS local en este archivo (array indexado por número de
+  // día, para otro selector). Alias para no pisarlo.
+  DAY_LABELS as NOMBRE_DIA,
   WORKING_HOURS_DAY_KEYS,
 } from '@/lib/utils/working-hours'
 import type { WorkingHours, NormalizedWorkingHours, WorkingBlock } from '@/types/database'
@@ -1928,7 +1932,9 @@ function DoctorScheduleEditor({
   }
 
   function addBlock(key: keyof WorkingHours) {
-    setDay(key, (prev) => ({ ...prev, blocks: [...prev.blocks, defaultBlock()] }))
+    // El bloque nuevo se propone DESPUÉS de los que ya están, para que apretar
+    // "+" no deje el formulario en estado inválido sin haber escrito nada.
+    setDay(key, (prev) => ({ ...prev, blocks: [...prev.blocks, defaultBlock(prev.blocks)] }))
   }
 
   function removeBlock(key: keyof WorkingHours, idx: number) {
@@ -1947,21 +1953,25 @@ function DoctorScheduleEditor({
   }
 
   function handleSave() {
-    // Validar todos los días activos
+    // Los renglones en blanco se descartan antes de validar: alguien apretó "+"
+    // y no lo llenó, y eso no puede impedir guardar el resto del horario.
+    const limpios: Partial<Record<keyof WorkingHours, WorkingBlock[]>> = {}
     const newErrors: Partial<Record<keyof WorkingHours, string>> = {}
     for (const key of WORKING_HOURS_DAY_KEYS) {
       const day = hours[key]
+      limpios[key] = stripEmptyBlocks(day.blocks)
       if (!day.active) continue
-      if (day.blocks.length === 0) {
-        newErrors[key] = 'Día activo requiere al menos un bloque'
+      if (limpios[key]!.length === 0) {
+        newErrors[key] = 'El día está activo pero no tiene ningún horario cargado. Agregá un bloque o desactivá el día.'
         continue
       }
-      const err = validateBlocks(day.blocks)
+      const err = validateBlocks(limpios[key]!)
       if (err) newErrors[key] = err
     }
     setErrors(newErrors)
     if (Object.keys(newErrors).length > 0) {
-      setGlobalError('Corrige los errores antes de guardar')
+      const dias = WORKING_HOURS_DAY_KEYS.filter((k) => newErrors[k]).map((k) => NOMBRE_DIA[k]).join(', ')
+      setGlobalError(`Revisá ${dias} antes de guardar`)
       return
     }
 
@@ -1972,11 +1982,18 @@ function DoctorScheduleEditor({
       for (const key of WORKING_HOURS_DAY_KEYS) {
         payload[key] = {
           active: hours[key].active,
-          blocks: hours[key].blocks.map((b) => ({ start: b.start, end: b.end })),
+          blocks: limpios[key]!.map((b) => ({ start: b.start, end: b.end })),
         }
       }
       const result = await updateDoctorWorkingHours(doctorId, payload)
       if (result.ok) {
+        // Reflejar en pantalla lo que quedó guardado: si había renglones en
+        // blanco, se descartaron y no deben seguir visibles.
+        setHours((prev) => {
+          const next = { ...prev }
+          for (const key of WORKING_HOURS_DAY_KEYS) next[key] = { ...prev[key], blocks: limpios[key]! }
+          return next
+        })
         setSaved(true)
         setTimeout(() => setSaved(false), 2500)
         onSaved(payload)

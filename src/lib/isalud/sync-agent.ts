@@ -16,6 +16,35 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { scrapeISalud, type ISaludCredentials, type ISaludProfesional, type ISaludAdmision } from './adapter'
 import { decidirEnlace, indexarFichasPorDocumento } from '@/lib/isalud/enlazar-ficha'
 
+/**
+ * 🛑 ESTADOS TERMINALES: el sync NUNCA los revive.
+ *
+ * LA REGLA ES ASIMÉTRICA, y así tiene que quedar. El sync PUEDE crear citas
+ * nuevas, PUEDE actualizar los datos de una existente y PUEDE cancelar si iSalud
+ * canceló. Lo que no puede es resucitar un estado terminal puesto en Omuwan:
+ * Omuwan es la agenda de verdad, iSalud es fuente de importación y facturación.
+ *
+ * POR QUÉ EXISTE: hasta el 2026-08-14 el UPDATE de abajo escribía
+ * `hasPatient ? 'confirmed' : 'blocked_external'` sin mirar el estado local, y
+ * cada corrida —una por hora— revivía lo que el staff había cerrado. El daño
+ * medido: 22 de 22 citas de iSalud canceladas desde el dashboard volvieron a
+ * 'confirmed'. Ninguna sobrevivió. A esas pacientes se les había mandado el
+ * mensaje de cancelación y la cita seguía viva en el sistema. La única
+ * reagendada por el agente ('rescheduled') corrió la misma suerte.
+ *
+ * Estuvo invisible ~50 días porque el UPDATE no tocaba `updated_at` y no había
+ * trigger: las filas conservaban el timestamp de la cancelación y parecían
+ * intactas. El trigger de la migración 00105 es lo que hace visible al próximo.
+ *
+ * QUÉ ES TERMINAL: un estado que representa una decisión ya tomada sobre una
+ * cita que no va a volver a ocurrir. 'confirmed' y 'blocked_external' NO están
+ * acá a propósito — son los estados vivos y el sync tiene que seguir moviéndolos.
+ *
+ * La asistencia (`attendance_outcome`: admitido/facturado/inasistente) vive en
+ * otra columna y este UPDATE nunca la escribió, así que no necesita protección.
+ */
+export const ESTADOS_TERMINALES = new Set(['cancelled', 'rescheduled', 'completed', 'no_show'])
+
 // --- Types ---
 
 interface ISaludDisponibilidadSlot {
@@ -333,6 +362,8 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     console.log(`[iSalud] Índice de fichas: ${fichasPorDocumento.size} documentos únicos sobre ${filas.length} pacientes`)
   }
   const enlaces = { ok: 0, sin_documento: 0, sin_ficha: 0, documento_duplicado: 0 }
+  /** Filas que el sync NO tocó porque su estado local ya era terminal. */
+  let protegidas = 0
   for (const adm of admisiones) {
     let mapping = await supabaseAdmin.from('doctor_external_mappings').select('doctor_id').eq('clinic_id', clinicId).eq('provider', 'isalud').eq('external_name', adm.profesional_nombre).maybeSingle()
     if (!mapping.data) {
@@ -382,8 +413,20 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     const notesText = `[iSalud] ${patientName} | ${adm.procedimiento} | ${adm.aseguradora} | ${adm.profesional_nombre}`
 
     const { data: ex } = await supabaseAdmin.from('appointments')
-      .select('id, patient_id').eq('clinic_id', clinicId).eq('external_his_id', externalId).maybeSingle()
+      .select('id, patient_id, status').eq('clinic_id', clinicId).eq('external_his_id', externalId).maybeSingle()
     if (ex) {
+      // 🛑 ESTADO TERMINAL LOCAL: el sync no lo pisa. Ver ESTADOS_TERMINALES.
+      //
+      // Se saltea la fila ENTERA, no solo el campo `status`. Si se filtrara solo
+      // el status, el día que este UPDATE incluya starts_at/ends_at le movería el
+      // horario a una cita cancelada — y peor: al moverla podría chocar con
+      // idx_appointments_no_double_booking, caer en el fallback 23505 de abajo y
+      // quedar en 'blocked_external', borrando el 'cancelled' por la puerta de
+      // atrás. Salteando la fila, ese camino no existe.
+      if (ESTADOS_TERMINALES.has((ex as { status: string }).status)) {
+        protegidas++
+        continue
+      }
       // Si la cita ya existía SIN ficha y ahora la paciente sí está en el
       // padrón, se enlaza. NO se pisa un patient_id que ya esté puesto: puede
       // haberlo corregido una persona a mano, y el match automático no le gana
@@ -462,6 +505,9 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
     count++
   }
   console.log(`[iSalud] Enlaces a ficha: ${enlaces.ok} ok · ${enlaces.sin_ficha} sin ficha en el padrón · ${enlaces.sin_documento} sin documento · ${enlaces.documento_duplicado} con documento duplicado (NO enlazadas)`)
+  // Si este número crece sostenidamente, iSalud sigue mandando como activas
+  // citas que acá ya se cerraron: es esperable y correcto, pero conviene mirarlo.
+  console.log(`[iSalud] Estados terminales protegidos (fila no tocada): ${protegidas}`)
   return count
 }
 

@@ -11,7 +11,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import type { Clinic, WhatsAppConfig } from '@/types/database'
+import type { Clinic, WhatsAppConfig, WorkingBlock } from '@/types/database'
 
 /** Lo mínimo que hace falta de la clínica. `operational_status` es lo que
  *  distingue "a qué hora abre" de "hoy está abierta". */
@@ -83,7 +83,7 @@ export async function traerDisponibilidadDia(
   fecha: string,
   clinic: ClinicParaDisponibilidad,
 ): Promise<DisponibilidadDelDia> {
-  const [{ data: medico }, { data: bloqueos }, festivos] = await Promise.all([
+  const [{ data: medico }, { data: bloqueos }, festivos, { data: excepciones }] = await Promise.all([
     supabaseAdmin
       .from('doctors')
       .select('name, working_hours, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message')
@@ -96,12 +96,20 @@ export async function traerDisponibilidadDia(
       .or(`doctor_id.eq.${doctorId},doctor_id.is.null`)
       .limit(1),
     traerFestivos(clinicId, fecha, fecha),
+    supabaseAdmin
+      .from('doctor_schedule_exceptions')
+      .select('blocks, reason')
+      .eq('clinic_id', clinicId).eq('doctor_id', doctorId)
+      .eq('exception_date', fecha)
+      .limit(1),
   ])
 
   const nombreFestivo = festivos.get(fecha)
+  const exc = excepciones?.[0]
   return resolverDisponibilidadDia(armarDatos(
     clinicId, doctorId, fecha, clinic, medico, bloqueos?.[0] ?? null,
     nombreFestivo ? { nombre: nombreFestivo } : null,
+    exc ? { blocks: exc.blocks as WorkingBlock[], reason: (exc.reason as string | null) ?? null } : null,
   ))
 }
 
@@ -123,7 +131,7 @@ export async function traerDisponibilidadRango(
   const desde = fechas.reduce((a, b) => (a < b ? a : b))
   const hasta = fechas.reduce((a, b) => (a > b ? a : b))
 
-  const [{ data: medico }, { data: bloqueos }, festivos] = await Promise.all([
+  const [{ data: medico }, { data: bloqueos }, festivos, { data: excepciones }] = await Promise.all([
     supabaseAdmin
       .from('doctors')
       .select('name, working_hours, agenda_closed, agenda_closed_reason, agenda_closed_until, schedule_type, manual_availability_message')
@@ -135,7 +143,22 @@ export async function traerDisponibilidadRango(
       .lte('start_date', hasta).gte('end_date', desde)
       .or(`doctor_id.eq.${doctorId},doctor_id.is.null`),
     traerFestivos(clinicId, desde, hasta),
+    // Todas las excepciones del rango en UNA query, igual que los bloqueos: la
+    // grilla pide 7 días y no puede hacer una consulta por día.
+    supabaseAdmin
+      .from('doctor_schedule_exceptions')
+      .select('exception_date, blocks, reason')
+      .eq('clinic_id', clinicId).eq('doctor_id', doctorId)
+      .gte('exception_date', desde).lte('exception_date', hasta),
   ])
+
+  const porFecha = new Map<string, { blocks: WorkingBlock[]; reason: string | null }>()
+  for (const e of excepciones ?? []) {
+    porFecha.set(e.exception_date as string, {
+      blocks: e.blocks as WorkingBlock[],
+      reason: (e.reason as string | null) ?? null,
+    })
+  }
 
   const out: Record<string, DisponibilidadDelDia> = {}
   for (const fecha of fechas) {
@@ -148,6 +171,7 @@ export async function traerDisponibilidadRango(
     out[fecha] = resolverDisponibilidadDia(armarDatos(
       clinicId, doctorId, fecha, clinic, medico, delDia,
       nombreFestivo ? { nombre: nombreFestivo } : null,
+      porFecha.get(fecha) ?? null,
     ))
   }
   return out
@@ -169,6 +193,7 @@ function armarDatos(
   medico: FilaMedico,
   fechaBloqueada: { doctor_id: string | null; reason: string | null } | null,
   festivo: { nombre: string } | null,
+  excepcion: { blocks: WorkingBlock[]; reason: string | null } | null,
 ): DatosDelDia {
   const wa = clinic.whatsapp_config as WhatsAppConfig | null
   const cfg = wa?.doctors?.[doctorId]
@@ -192,6 +217,11 @@ function armarDatos(
     configWhatsApp: cfg ? { days: cfg.days, start: cfg.start, end: cfg.end } : null,
     horarioClinica: clinic.working_hours,
     festivo,
+    // Sin franjas no es una excepción (lo garantiza también el CHECK de la
+    // tabla): sería "no atiende" dicho en el lugar equivocado.
+    excepcion: excepcion && Array.isArray(excepcion.blocks) && excepcion.blocks.length > 0
+      ? excepcion
+      : null,
     estadoClinica: (clinic.operational_status && clinic.operational_status !== 'operando')
       ? {
           estado: clinic.operational_status as 'contingencia' | 'cerrado',

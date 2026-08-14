@@ -333,6 +333,20 @@ async function checkAvailability(
   const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
   const docConfig = waConfig?.doctors[doctorId]
 
+  // ¿Este médico atiende distinto ESA fecha puntual? Se consulta acá, después de
+  // los bloqueos: una excepción cambia las horas de un día que se atiende, nunca
+  // abre un día cerrado.
+  const { data: excFilas } = await supabaseAdmin
+    .from('doctor_schedule_exceptions')
+    .select('blocks, reason')
+    .eq('clinic_id', clinicId).eq('doctor_id', doctorId)
+    .eq('exception_date', dateStr)
+    .limit(1)
+  const excRaw = excFilas?.[0]
+  const excepcionDelDia = excRaw && Array.isArray(excRaw.blocks) && excRaw.blocks.length > 0
+    ? { blocks: excRaw.blocks as WorkingBlock[], reason: (excRaw.reason as string | null) ?? null }
+    : null
+
   // Las franjas del día salen de la FUENTE ÚNICA que comparte con la agenda del
   // dashboard (lib/calendar/day-availability). Acá vivía una copia de la lógica
   // de precedencia —working_hours del médico > whatsapp_config > clínica, con el
@@ -359,6 +373,11 @@ async function checkAvailability(
     fechaBloqueada: null,   // ídem: ya cortó arriba
     festivo: null,          // ídem
     estadoClinica: null,    // ídem — cortó al principio de la función
+    // La excepción NO cortó arriba: no cierra el día, le cambia las horas. Si
+    // este médico atiende distinto esa fecha puntual, estas son sus franjas y
+    // el horario semanal no se mira. Sin esto el agente ofrecería los horarios
+    // de siempre en un día que la clínica cambió a mano.
+    excepcion: excepcionDelDia,
     configWhatsApp: docConfig ? { days: docConfig.days, start: docConfig.start, end: docConfig.end } : null,
     horarioClinica: clinic.working_hours,
   })

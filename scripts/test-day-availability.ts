@@ -61,6 +61,7 @@ function datos(over: Partial<DatosDelDia>): DatosDelDia {
     fecha: '2026-08-17', diaSemana: 'lunes', indiceDiaSemana: 1,
     medico: ADRIANA, fechaBloqueada: null, configWhatsApp: null,
     horarioClinica: HORARIO_CLINICA, festivo: null, estadoClinica: null,
+    excepcion: null,
     ...over,
   }
 }
@@ -195,6 +196,76 @@ ok('varias franjas: entre medio queda fuera', estadoDeFranja(
       { start: '07:00', end: '11:00' }, { start: '13:00', end: '17:00' }] } } },
     diaSemana: 'lunes', indiceDiaSemana: 1,
   })), '12:00') === 'fuera_de_horario')
+
+// ============================================================
+// EXCEPCIÓN DE HORARIO POR FECHA
+//
+// "Este martes atiendo distinto, los demás martes igual."
+//
+// La regla entera está en DÓNDE se evalúa: después de todos los bloqueos y
+// antes de working_hours. Una excepción cambia las HORAS de un día que se
+// atiende; NUNCA abre un día cerrado. Estos tests son los que impiden que
+// alguien la mueva de lugar "para simplificar".
+// ============================================================
+console.log('\nEXCEPCIÓN DE HORARIO POR FECHA')
+
+const EXC = { blocks: [{ start: '14:00', end: '18:00' }], reason: 'Congreso en la mañana' }
+
+// Adriana atiende los JUEVES de 08:00 a 11:00. Es el par que decide: el jueves
+// con excepción y el jueves siguiente sin ella tienen que verse distinto.
+const conExc = resolverDisponibilidadDia(datos({
+  fecha: '2026-08-27', diaSemana: 'jueves', indiceDiaSemana: 4, excepcion: EXC,
+}))
+ok('la franja de la excepción manda', estadoDeFranja(conExc, '15:00') === 'disponible')
+ok('el horario base de ese día YA NO aplica', estadoDeFranja(conExc, '09:00') === 'fuera_de_horario')
+ok('el día se atiende', conExc.atiende === true && conExc.bloqueo === null)
+ok('queda marcado como excepción', conExc.excepcion?.motivo === 'Congreso en la mañana')
+ok('y expone el horario base para poder comparar',
+  JSON.stringify(conExc.excepcion?.franjasBase) === JSON.stringify([{ start: '08:00', end: '11:00' }]))
+
+// El mismo día de la semana SIN excepción sigue con el horario de siempre.
+const sinExc = resolverDisponibilidadDia(datos({
+  fecha: '2026-09-03', diaSemana: 'jueves', indiceDiaSemana: 4, excepcion: null,
+}))
+ok('otro jueves sigue con el horario base 08–11', estadoDeFranja(sinExc, '09:00') === 'disponible')
+ok('y NO tiene la franja de la excepción', estadoDeFranja(sinExc, '15:00') === 'fuera_de_horario')
+ok('sin excepción no se marca nada', sinExc.excepcion === undefined)
+
+console.log('\nUNA EXCEPCIÓN NUNCA ABRE UN DÍA CERRADO')
+ok('festivo gana sobre la excepción', resolverDisponibilidadDia(datos({
+  excepcion: EXC, festivo: { nombre: 'Asunción de la Virgen' },
+})).bloqueo?.tipo === 'festivo')
+ok('agenda_closed gana sobre la excepción', resolverDisponibilidadDia(datos({
+  excepcion: EXC, medico: { ...ADRIANA, agenda_closed: true },
+})).bloqueo?.tipo === 'agenda_cerrada')
+ok('fecha bloqueada gana sobre la excepción', resolverDisponibilidadDia(datos({
+  excepcion: EXC, fechaBloqueada: { doctor_id: 'x', reason: 'Vacaciones' },
+})).bloqueo?.tipo === 'fecha_bloqueada_medico')
+ok('clínica no operativa gana sobre la excepción', resolverDisponibilidadDia(datos({
+  excepcion: EXC, estadoClinica: { estado: 'cerrado', mensaje: null },
+})).bloqueo?.tipo === 'clinica_no_operativa')
+ok('en todos esos casos NO se atiende', [
+  resolverDisponibilidadDia(datos({ excepcion: EXC, festivo: { nombre: 'x' } })),
+  resolverDisponibilidadDia(datos({ excepcion: EXC, medico: { ...ADRIANA, agenda_closed: true } })),
+  resolverDisponibilidadDia(datos({ excepcion: EXC, fechaBloqueada: { doctor_id: 'x', reason: null } })),
+].every((r) => r.atiende === false && r.franjas.length === 0))
+
+console.log('\nUNA EXCEPCIÓN SIN FRANJAS NO EXISTE')
+ok('excepción con blocks vacío → se ignora, rige el horario base',
+  estadoDeFranja(resolverDisponibilidadDia(datos({
+    fecha: '2026-08-27', diaSemana: 'jueves', indiceDiaSemana: 4,
+    excepcion: { blocks: [], reason: 'vacía' },
+  })), '09:00') === 'disponible')
+
+console.log('\nUNA EXCEPCIÓN SÍ PUEDE DAR HORARIO A UN DÍA QUE EL MÉDICO NO ATIENDE')
+// Adriana tiene el martes inactivo. Una excepción para un martes puntual le da
+// franja: el día no está CERRADO (no hay bloqueo), solo no era su día habitual.
+// Distinto de festivo/vacaciones/bloqueo, donde el día sí está cerrado.
+const martesExcepcional = resolverDisponibilidadDia(datos({
+  fecha: '2026-08-25', diaSemana: 'martes', indiceDiaSemana: 2, excepcion: EXC,
+}))
+ok('martes con excepción → atiende 14–18', estadoDeFranja(martesExcepcional, '15:00') === 'disponible')
+ok('y su horario base era vacío', martesExcepcional.excepcion?.franjasBase.length === 0)
 
 console.log(`\n${pass} pass · ${fail} fail`)
 process.exit(fail > 0 ? 1 : 0)

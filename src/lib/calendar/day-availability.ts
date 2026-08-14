@@ -76,6 +76,10 @@ export interface DatosDelDia {
    *  el agente le afirmara a una paciente "Sí, Algia está abierta" en plena
    *  contingencia por sismo. */
   estadoClinica: { estado: 'contingencia' | 'cerrado'; mensaje: string | null } | null
+  /** Horario distinto SOLO para esta fecha. Cambia las horas de un día que se
+   *  atiende; nunca abre uno cerrado — por eso se evalúa después de los
+   *  bloqueos. Sin `blocks` no es una excepción y se ignora. */
+  excepcion: { blocks: WorkingBlock[]; reason: string | null } | null
   /** Festivo nacional de ese día, si lo hay. `null` = día hábil.
    *
    *  Un festivo NO es un bloqueo que cargó la clínica: es un hecho del
@@ -97,6 +101,12 @@ export interface DisponibilidadDelDia {
   franjas: WorkingBlock[]
   /** Atajo: hay al menos una franja y no hay bloqueo. */
   atiende: boolean
+  /** Presente SOLO cuando las franjas vienen de una excepción de fecha, no del
+   *  horario base. La grilla lo usa para marcar visualmente ese día, y el agente
+   *  para no decir "el horario de siempre". `franjasBase` es lo que habría
+   *  regido sin la excepción — sirve para mostrar "normalmente 08–12, ese día
+   *  14–18" sin recalcularlo en la UI. */
+  excepcion?: { motivo: string | null; franjasBase: WorkingBlock[] }
 }
 
 const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'] as const
@@ -182,9 +192,50 @@ export function resolverDisponibilidadDia(d: DatosDelDia): DisponibilidadDelDia 
     }
   }
 
-  // ── 2. Las franjas del día ─────────────────────────────────────────
-  // Precedencia: working_hours del médico > whatsapp_config > horario de la
-  // clínica. Con una excepción que ya costó un bug:
+  // ── 2. EXCEPCIÓN DE HORARIO PARA ESA FECHA ─────────────────────────
+  //
+  // "Este martes atiendo de 14 a 18, los demás martes sigo igual."
+  //
+  // Va DESPUÉS de todos los bloqueos y ANTES de working_hours, y ese lugar es la
+  // regla entera: una excepción cambia las HORAS de un día que se atiende, nunca
+  // ABRE un día cerrado. Si alguien carga una excepción sobre un festivo, unas
+  // vacaciones o una fecha bloqueada, arriba ya se devolvió el bloqueo y acá no
+  // se llega — el día sigue cerrado y la pantalla dice por qué.
+  //
+  // Cuando hay excepción, se saltea working_hours ENTERO (médico, whatsapp_config
+  // y clínica). No se mezclan: si la secretaria dice "ese día, estas horas", esas
+  // son las horas. Mezclarlas con el horario base daría franjas que nadie cargó.
+  if (d.excepcion && d.excepcion.blocks.length > 0) {
+    return {
+      ...base,
+      bloqueo: null,
+      franjas: d.excepcion.blocks,
+      atiende: true,
+      excepcion: {
+        motivo: d.excepcion.reason?.trim() || null,
+        franjasBase: franjasDelHorarioBase(d),
+      },
+    }
+  }
+
+  // ── 3. Las franjas del día ─────────────────────────────────────────
+  const franjas = franjasDelHorarioBase(d)
+  return { ...base, bloqueo: null, franjas, atiende: franjas.length > 0 }
+}
+
+/**
+ * Las franjas que le corresponden a ese día por HORARIO BASE, ignorando
+ * bloqueos y excepciones.
+ *
+ * Precedencia: working_hours del médico > whatsapp_config > horario de la
+ * clínica. Con una excepción que ya costó un bug (ver `inactivoExplicito`).
+ *
+ * Está extraída porque la necesitan dos lugares: el cálculo normal del día, y
+ * la excepción de fecha —que muestra "antes era X, ese día es Y" y necesita
+ * saber cuál era el X. Calcularlo dos veces era garantizar que un día
+ * divergieran.
+ */
+export function franjasDelHorarioBase(d: DatosDelDia): WorkingBlock[] {
   const clave = CLAVES[d.indiceDiaSemana]
   let franjas: WorkingBlock[] = []
   let activo = false
@@ -217,7 +268,7 @@ export function resolverDisponibilidadDia(d: DatosDelDia): DisponibilidadDelDia 
     }
   }
 
-  return { ...base, bloqueo: null, franjas, atiende: activo && franjas.length > 0 }
+  return activo ? franjas : []
 }
 
 /**

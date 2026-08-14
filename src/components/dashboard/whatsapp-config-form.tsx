@@ -29,6 +29,7 @@ import {
 } from '@/lib/utils/working-hours'
 import type { WorkingHours, NormalizedWorkingHours, WorkingBlock } from '@/types/database'
 import { getBlockedDatesForDoctor, createBlockedDate, deleteBlockedDate, getAffectedAppointments, type BlockedDate, type AffectedAppointment } from '@/app/actions/blocked-dates'
+import { ScheduleExceptions } from '@/components/dashboard/doctors/schedule-exceptions'
 import { getSchedulesForType, saveSchedulesForType, type CtSchedule } from '@/app/actions/consultation-type-schedules'
 import {
   getStagingProducts,
@@ -857,6 +858,11 @@ function DoctorCard({
                 initialWorkingHours={doc.working_hours}
                 onSaved={onWorkingHoursSaved}
               />
+
+              {/* Excepciones por fecha: "este martes atiendo distinto". Va
+                  pegado al horario base porque es la misma pregunta —"¿a qué
+                  hora atiende?"— con una respuesta para un día puntual. */}
+              <ScheduleExceptions doctorId={doc.id} doctorName={doc.name} />
 
               {/* Duration */}
               <div>

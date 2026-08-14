@@ -208,8 +208,12 @@ async function sendClinicDoctorSummaries(
 
     if (result.ok) {
       sent++
-      console.log(`[Cron:MorningReport] Resumen enviado a ${testPhone ? 'NÚMERO DE PRUEBA' : doctor.name} (${count} citas)`)
-      await registrarResumen(clinicId, doctor.id as string, doctor.name as string, testPhone ? 'prueba' : 'enviado', count, null)
+      console.log(`[Cron:MorningReport] Resumen enviado a ${testPhone ? 'NÚMERO DE PRUEBA' : doctor.name} (${count} citas) wamid=${result.messageId ?? 'SIN ID'}`)
+      // El wamid es lo único que permite cruzar "lo mandé" con "llegó": es el id
+      // que devuelve Meta al aceptar y el mismo que viaja en los status updates.
+      // Sin guardarlo, el estado de entrega llega al webhook y no se puede
+      // asociar a ningún médico.
+      await registrarResumen(clinicId, doctor.id as string, doctor.name as string, testPhone ? 'prueba' : 'enviado', count, null, result.messageId ?? null)
     } else {
       console.error(`[Cron:MorningReport] Falló resumen a ${testPhone ? 'NÚMERO DE PRUEBA' : doctor.name}: code ${result.errorCode ?? '?'}`)
       await registrarResumen(clinicId, doctor.id as string, doctor.name as string, testPhone ? 'prueba_fallo' : 'fallo', count, result.errorCode ?? null)
@@ -244,6 +248,9 @@ async function registrarResumen(
   resultado: 'enviado' | 'sin_citas' | 'fallo' | 'prueba' | 'prueba_fallo',
   citas: number,
   metaCode: number | string | null,
+  /** wamid de Meta. Es la llave para cruzar con whatsapp_message_status y saber
+   *  si el resumen se ENTREGÓ, no solo si Meta lo aceptó. */
+  wamid: string | null = null,
 ): Promise<void> {
   try {
     await supabaseAdmin.from('audit_log').insert({
@@ -257,6 +264,7 @@ async function registrarResumen(
         doctor_name: doctorName,
         citas,
         fecha: format(nowColombia(), 'yyyy-MM-dd'),
+        ...(wamid ? { wamid } : {}),
         ...(metaCode !== null ? { meta_code: metaCode } : {}),
       },
     })

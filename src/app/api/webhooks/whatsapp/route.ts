@@ -21,6 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, sendWhatsAppMessageWithResult, markAsRead } from '@/lib/whatsapp/client'
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
+import { registrarEstadosDeEntrega } from '@/lib/whatsapp/delivery-status'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
 import { getWhatsAppConfig, findActiveDoctors, findActiveConsultationTypes, buildExistingPatient, resolveTratantesForClinic } from '@/lib/agent/agent-context'
@@ -188,9 +189,19 @@ async function processWebhook(body: unknown): Promise<void> {
     for (const change of entry.changes) {
       const { value } = change
 
-      // Ignorar actualizaciones de estado (delivered, read, etc.)
+      // ── ESTADOS DE ENTREGA ────────────────────────────────────
+      // Meta manda acá el sent/delivered/read/failed de lo que enviamos NOSOTROS.
+      // Antes se descartaba junto con todo lo que no fuera un mensaje entrante,
+      // y por eso "Meta aceptó el envío" era lo único que el sistema sabía: un
+      // resumen aceptado y no entregado se veía idéntico a uno que llegó.
+      if (value.statuses && value.statuses.length > 0) {
+        const clinicDelStatus = await findClinicByPhoneId(value.metadata.phone_number_id)
+        const n = await registrarEstadosDeEntrega(value.statuses, clinicDelStatus?.id ?? null)
+        console.log(`[Webhook] Estados de entrega registrados: ${n}/${value.statuses.length}`)
+      }
+
+      // Sin mensaje entrante no hay nada más que hacer con este change.
       if (!value.messages || value.messages.length === 0) {
-        console.log('[Webhook] Sin mensajes (probablemente status update), ignorando')
         continue
       }
 

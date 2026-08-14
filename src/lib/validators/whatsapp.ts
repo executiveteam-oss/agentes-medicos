@@ -59,13 +59,31 @@ export const whatsappWebhookSchema = z.object({
                 })
               )
               .optional(),
+            // Estado de entrega de los mensajes que mandamos NOSOTROS.
+            // El schema ya los aceptaba; lo que faltaba era `errors`, que es
+            // donde Meta dice POR QUÉ un mensaje no se entregó (132015 template
+            // pausado, 131030 destinatario no permitido, etc.). Sin ese campo,
+            // un `failed` llegaba sin motivo.
             statuses: z
               .array(
                 z.object({
                   id: z.string(),
                   status: z.string(),
-                  timestamp: z.string(),
-                  recipient_id: z.string(),
+                  // Opcionales a propósito: si Meta agrega o omite un campo, el
+                  // safeParse falla y se descarta el webhook ENTERO — incluidos
+                  // los mensajes de pacientes que vengan en el mismo payload.
+                  timestamp: z.string().optional(),
+                  recipient_id: z.string().optional(),
+                  errors: z
+                    .array(
+                      z.object({
+                        code: z.number().optional(),
+                        title: z.string().optional(),
+                        message: z.string().optional(),
+                        error_data: z.object({ details: z.string().optional() }).optional(),
+                      })
+                    )
+                    .optional(),
                 })
               )
               .optional(),

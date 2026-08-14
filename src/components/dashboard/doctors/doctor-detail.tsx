@@ -47,6 +47,8 @@ import type { AgeLimitConfig, EdgeAction } from '@/lib/rules/age-limit-config'
 import type { PatientConditionConfig, TriggerAnswer, ActionOnTrigger } from '@/lib/rules/patient-condition-config'
 import type { AuthConvenioConfig } from '@/lib/rules/auth-convenio-config'
 import { createBlockedDate, deleteBlockedDate } from '@/app/actions/blocked-dates'
+import { ScheduleExceptions } from '@/components/dashboard/doctors/schedule-exceptions'
+import { defaultBlock, validateBlocks, stripEmptyBlocks } from '@/lib/utils/working-hours'
 import { classifyRes256Category } from '@/app/actions/res256'
 import { getConsultationTypes } from '@/app/actions/consultation-types'
 import { TypesImportPanel } from '@/components/dashboard/doctors/types-import-panel'
@@ -294,7 +296,13 @@ export function DoctorDetailClient({
               <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>Cambia el tipo de horario en la tab Datos basicos</p>
             </div>
           ) : (
-            <ScheduleEditor doctorId={doctor.id} initialHours={doctor.working_hours} onSaved={() => showToast('Horario guardado')} onError={(e) => showToast(e)} canWrite={canWrite} />
+            <>
+              <ScheduleEditor doctorId={doctor.id} initialHours={doctor.working_hours} onSaved={() => showToast('Horario guardado')} onError={(e) => showToast(e)} canWrite={canWrite} />
+              {/* "Este martes atiendo distinto". Va pegado al horario base
+                  porque es la misma pregunta —¿a qué hora atiende?— con una
+                  respuesta para un día puntual. */}
+              {canWrite && <ScheduleExceptions doctorId={doctor.id} doctorName={doctor.name} />}
+            </>
           )}
         </Card>
       )}
@@ -655,8 +663,15 @@ function ScheduleEditor({ doctorId, initialHours, onSaved, onError, canWrite = t
   const [hours, setHours] = useState(() => parseWorkingHours(initialHours))
   const [isPending, startTransition] = useTransition()
 
+  const [error, setError] = useState<string | null>(null)
+
   function addBlock(day: string) {
-    setHours((prev) => ({ ...prev, [day]: [...(prev[day] ?? []), { start: '08:00', end: '12:00' }] }))
+    // El bloque nuevo se propone DESPUÉS de los que ya están. Antes insertaba
+    // 08:00–12:00 fijo: sobre un día que ya tenía un bloque en ese rango, la
+    // secretaria apretaba "+ Bloque" y el formulario quedaba en estado inválido
+    // sin haber escrito nada. Le pasó a Carolina el 14/08.
+    setHours((prev) => ({ ...prev, [day]: [...(prev[day] ?? []), defaultBlock(prev[day] ?? [])] }))
+    setError(null)
   }
 
   function removeBlock(day: string, idx: number) {
@@ -671,11 +686,30 @@ function ScheduleEditor({ doctorId, initialHours, onSaved, onError, canWrite = t
   }
 
   function handleSave() {
+    // Se valida ACÁ además del server action, para que el error señale el día y
+    // el bloque antes de ir y volver. Los renglones en blanco se descartan: uno
+    // que nadie llenó no puede impedir guardar el resto del horario.
+    setError(null)
+    const limpios: Record<string, Array<{ start: string; end: string }>> = {}
+    for (const day of DAYS) {
+      const blocks = stripEmptyBlocks(hours[day] ?? [])
+      limpios[day] = blocks
+      if (blocks.length === 0) continue
+      const err = validateBlocks(blocks)
+      if (err) {
+        const msg = `${DAY_LABELS[day]}: ${err}`
+        setError(msg)
+        onError(msg)
+        return
+      }
+    }
+    setHours(limpios)   // que desaparezcan de la pantalla los renglones vacíos
+
     startTransition(async () => {
-      const forSave = toWorkingHoursForSave(hours)
+      const forSave = toWorkingHoursForSave(limpios)
       const r = await updateDoctorWorkingHours(doctorId, forSave as unknown as import('@/types/database').WorkingHours)
       if (r.ok) onSaved()
-      else onError(r.error ?? 'Error guardando horario')
+      else { setError(r.error ?? 'Error guardando horario'); onError(r.error ?? 'Error guardando horario') }
     })
   }
 
@@ -708,6 +742,11 @@ function ScheduleEditor({ doctorId, initialHours, onSaved, onError, canWrite = t
           )
         })}
       </div>
+      {/* El error va inline y no solo en el toast: dice qué día y qué bloque, y
+          tiene que seguir visible mientras se corrige. */}
+      {error && (
+        <p style={{ fontSize: '12px', color: 'var(--v2-red)', marginTop: '12px', lineHeight: 1.4 }}>{error}</p>
+      )}
       {canWrite && (
         <button onClick={handleSave} disabled={isPending} className="btn-v2-primary" style={{ fontSize: '13px', marginTop: '16px' }}>
           {isPending ? 'Guardando...' : 'Guardar horario'}

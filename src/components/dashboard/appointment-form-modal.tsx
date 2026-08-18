@@ -33,6 +33,8 @@ interface InitialData {
   payment_type: PaymentType
   eps_name: string
   desired_at?: string | null  // YYYY-MM-DD
+  modality?: AppointmentModality
+  virtual_link?: string | null
 }
 
 interface AppointmentFormModalProps {
@@ -113,6 +115,12 @@ export function AppointmentFormModal({
       setPaymentType(initialData.payment_type || 'Particular')
       setEpsName(initialData.eps_name || '')
       setDesiredAt(initialData.desired_at ?? '')
+      // La modalidad NO se precargaba: al editar, el select mostraba siempre
+      // "Presencial" aunque la cita fuera virtual, y guardar la cambiaba sin
+      // que nadie lo hubiera pedido. Una pantalla que no muestra el dato que
+      // dice editar miente en las dos direcciones.
+      setModality(initialData.modality ?? 'presencial')
+      setVirtualLink(initialData.virtual_link ?? '')
     } else {
       // Reset para creación nueva (con paciente pre-seleccionada si viene)
       setPatientId(prefillPatient?.id ?? '')

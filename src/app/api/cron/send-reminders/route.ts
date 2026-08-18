@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, sendWhatsAppTemplate, getClinicCreds } from '@/lib/whatsapp/client'
+import { toTitleCase } from '@/lib/utils/normalize-name'
 import { REMINDER_TEMPLATE_NAME_V2, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
 import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import { calculateNoShowProbability } from '@/lib/utils/noshow'
@@ -177,7 +178,10 @@ async function send72hReminders(
       whatsappNumber,
       REMINDER_TEMPLATE_NAME_V2,
       TEMPLATE_LANGUAGE,
-      [patient.name, clinic.name, `${doctorPrefix} ${doctor.name}`, dateText, timeText, address],
+      // Nombres a Title Case: vienen del import de iSalud en MAYÚSCULAS y con
+      // espacios dobles ("JUANITA  VILLA  DIAZ"). Es lo primero que lee la
+      // paciente. Misma función que ya usa el resumen diario.
+      [toTitleCase(patient.name), clinic.name, `${doctorPrefix} ${toTitleCase(doctor.name)}`, dateText, timeText, address],
       null,   // Quick Reply buttons — sin param de URL
       creds,
       { clinicId: apt.clinic_id, sendType: 'reminder' },
@@ -291,7 +295,8 @@ async function send24hReminders(
       whatsappNumber,
       REMINDER_TEMPLATE_NAME_V2,
       TEMPLATE_LANGUAGE,
-      [patient.name, clinic.name, doctor.name, dateText, timeText, clinic.address],
+      // Ídem 72h: Title Case sobre lo que viene en mayúsculas del import.
+      [toTitleCase(patient.name), clinic.name, toTitleCase(doctor.name), dateText, timeText, clinic.address],
       null,   // Quick Reply buttons — sin param de URL
       creds24,
       { clinicId: apt.clinic_id, sendType: 'reminder' },

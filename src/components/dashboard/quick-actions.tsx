@@ -106,7 +106,12 @@ export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, 
     <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--v2-border-soft)' }}>
       {/* Indicador del estado actual */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <span style={{ fontSize: 11, color: 'var(--v2-text-muted)', fontWeight: 600 }}>Estado</span>
+        {/* "Asistencia", no "Estado". Este bloque muestra attendance_outcome
+            (qué pasó el día de la cita) y la palabra "Estado" ya la usa el
+            badge de arriba para appointments.status. Dos campos distintos con
+            la misma etiqueta es lo que hacía leer "Confirmada" como "la
+            paciente confirmó". */}
+        <span style={{ fontSize: 11, color: 'var(--v2-text-muted)', fontWeight: 600 }}>Asistencia</span>
         <span style={{ fontSize: 12, fontWeight: 700, color: stateColor }}>{stateLabel}</span>
       </div>
 

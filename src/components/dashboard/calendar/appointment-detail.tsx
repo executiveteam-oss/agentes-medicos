@@ -91,9 +91,23 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
         {apt.reason && !motivoEsElNombre(apt.reason, patient?.name ?? apt.reason) && (
           <InfoItem label="Motivo" value={apt.reason} />
         )}
+        {/* DOS preguntas distintas, dos filas.
+            Antes iban mezcladas en una: el valor "Confirmo" pisaba al de envío,
+            así que no se podía saber si se había mandado el recordatorio y
+            además tapaba la única respuesta a "¿la paciente confirmó?" — que es
+            justo lo que la secretaria venía a buscar y terminaba leyendo del
+            badge "Confirmada", que no significa eso.
+
+            `reminder_confirmed !== null` cuenta como enviado: si la paciente
+            respondió, hubo recordatorio. Sin eso, partir la fila dejaba a la
+            vista "Recordatorio: No enviado · Confirmación: Confirmó". */}
         <InfoItem label="Recordatorio"
-          value={apt.reminder_confirmed === true ? 'Confirmo' : apt.reminder_confirmed === false ? 'No confirmo' : apt.reminder_24h_sent ? 'Enviado' : 'No enviado'}
-          valueColor={apt.reminder_confirmed === true ? 'var(--v2-green-deep)' : apt.reminder_confirmed === false ? 'var(--v2-red)' : undefined}
+          value={apt.reminder_24h_sent || apt.reminder_confirmed !== null ? 'Enviado' : 'No enviado'}
+          valueColor={apt.reminder_24h_sent || apt.reminder_confirmed !== null ? undefined : 'var(--v2-text-subtle)'}
+        />
+        <InfoItem label="Confirmación"
+          value={apt.reminder_confirmed === true ? 'Confirmó' : apt.reminder_confirmed === false ? 'No confirmó' : 'Sin respuesta'}
+          valueColor={apt.reminder_confirmed === true ? 'var(--v2-green-deep)' : apt.reminder_confirmed === false ? 'var(--v2-red)' : 'var(--v2-text-subtle)'}
         />
         {/* iSalud manda entidad, régimen y tipo de afiliado PEGADOS:
             "PARTICULARRégimen: ParticularTipo afiliado: Cotizante". Se parsean

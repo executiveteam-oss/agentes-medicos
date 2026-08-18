@@ -336,7 +336,23 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
   📲 Recibirás el enlace de videollamada por este chat 30 minutos antes de tu cita.
 - Para citas PRESENCIALES, usa la confirmación normal con 📍 dirección.
 - NUNCA des un link de videollamada directamente — el sistema lo enviará automáticamente antes de la cita.\n`
-    : ''
+    // Sin tipos virtuales el bloque entero se omitía, y el prompt quedaba MUDO
+    // sobre la modalidad. El silencio no es neutral: lo llena la paciente. El
+    // 2026-08-18 una preguntó si su terapia se podía hacer virtual y el agente
+    // contestó "claro, podemos" —falso— y agendó una videollamada que no existe
+    // (0 de 80 servicios son virtuales y virtual_config.enabled=false).
+    //
+    // Va como AFIRMACIÓN, no como prohibición: "todas son presenciales" es un
+    // hecho que el modelo puede repetirle a la paciente, y es además lo que ella
+    // necesita oír. "No ofrezcas virtual" sería una regla sobre el modelo, que
+    // no le sirve a nadie del otro lado del chat.
+    : `\nMODALIDAD DE LAS CONSULTAS:
+- En ${clinic.name} TODAS las consultas y terapias son PRESENCIALES, en el consultorio.
+- Si la paciente pregunta si puede atenderse virtual, por videollamada, online o a distancia,
+  la respuesta es que no: acá la atención es presencial. Decíselo con amabilidad y de una,
+  sin prometerle que lo vas a consultar.
+- Si necesita algo remoto por vivir lejos o no poder viajar, NO se lo niegues en seco:
+  derivá con escalate_to_human para que el consultorio vea su caso.\n`
 
   // Formatear horario de citas del agente (waConfig)
   const appointmentScheduleText = formatAppointmentSchedule(waConfig)

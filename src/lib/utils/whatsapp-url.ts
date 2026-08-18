@@ -63,6 +63,23 @@ export function buildWhatsAppUrl(phone: string, message: string): string | null 
 export function esNumeroEnviable(phone: string | null | undefined): boolean {
   if (!phone || typeof phone !== 'string') return false
   const digits = phone.replace(/\D/g, '')
+  if (digits.length === 0) return false
+
+  // Con código de país colombiano: se exige el formato completo.
   if (digits.startsWith('57')) return isValidColombianMobile(phone)
+
+  // SIN código de país pero empezando en 3: es un celular colombiano en formato
+  // local, y uno completo tiene 10 dígitos (3XX XXX XXXX). Con menos está
+  // INCOMPLETO y no sirve.
+  //
+  // Este caso se me escapó en la primera versión: "313777578" —9 dígitos, el
+  // celular de una paciente cargado a medias en iSalud— no empieza con "57", así
+  // que caía en la rama de "otro país", pasaba el largo de 8-15 y se habría
+  // intentado el envío. El chequeo existe justamente para eso.
+  //
+  // El techo de 10 dígitos es lo que evita romper a los extranjeros: +31 6…
+  // (Países Bajos) también empieza con 3, pero tiene 11.
+  if (digits.startsWith('3') && digits.length <= 10) return isValidColombianMobile(phone)
+
   return digits.length >= 8 && digits.length <= 15
 }

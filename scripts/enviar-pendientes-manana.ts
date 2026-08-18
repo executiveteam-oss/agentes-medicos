@@ -22,6 +22,7 @@ import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import { toTitleCase, nombreMedicoParaPaciente } from '@/lib/utils/normalize-name'
 
 const ALGIA = 'dac775fe-6ebd-47e3-89b4-eeb1a821facb'
+const DRY = process.env.DRY_RUN === '1'
 
 async function main() {
   const { data: clinic } = await supabaseAdmin.from('clinics').select('name, address, city').eq('id', ALGIA).single()
@@ -32,7 +33,7 @@ async function main() {
   const { data } = await supabaseAdmin
     .from('appointments')
     .select('id, starts_at, clinic_id, patients(name, phone, proactive_contact_opt_in), doctors(name, gender)')
-    .eq('clinic_id', ALGIA).in('status', ['confirmed', 'rescheduled'])
+    .eq('clinic_id', ALGIA).in('status', ['confirmed', 'rescheduled', 'blocked_external'])
     .eq('reminder_24h_sent', false)
     .gte('starts_at', '2026-08-19 05:00+00').lt('starts_at', '2026-08-20 05:00+00')
     .lt('starts_at', new Date(Date.now() + 23 * 3600_000).toISOString())
@@ -50,6 +51,10 @@ async function main() {
   for (const a of enviables) {
     const p = a.patients!, d = a.doctors!
     const tel = `${p.phone.slice(0, 6)}***${p.phone.slice(-2)}`
+    if (DRY) {
+      console.log(`  [DRY] ${tel} · ${toTitleCase(p.name).slice(0, 26)} · ${formatDateForPatient(a.starts_at)} ${formatTimeForPatient(a.starts_at)}`)
+      continue
+    }
     const r = await sendWhatsAppTemplate(
       p.phone.replace('+', ''), REMINDER_TEMPLATE_NAME_V2, TEMPLATE_LANGUAGE,
       [toTitleCase(p.name), clinic!.name, nombreMedicoParaPaciente(d.name, d.gender),

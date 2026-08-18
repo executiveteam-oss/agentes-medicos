@@ -17,6 +17,13 @@ console.log('\nExtranjeros REALES de Algia (no se deben cortar):')
 for (const [p, d] of [['+16317023826','EE.UU.'],['+15189000000','EE.UU.'],['+50767000000','Panamá'],['+521810000000','México'],['+593990000000','Ecuador']] as const) {
   t(`${d} ${p}`, p, true)
 }
+console.log('\nCelulares colombianos INCOMPLETOS (el bug del 18/08):')
+t('9 dígitos empezando en 3 (caso real de Laura Daniela)', '313777578', false)
+t('con + delante', '+313777578', false)
+t('8 dígitos empezando en 3', '31377757', false)
+t('10 dígitos sí es válido', '3137775780', true)
+t('Países Bajos +31 6… (11 dígitos, empieza con 3) NO se rompe', '31612345678', true)
+
 console.log('\nBasura:')
 t('vacío', '', false)
 t('null', null, false)

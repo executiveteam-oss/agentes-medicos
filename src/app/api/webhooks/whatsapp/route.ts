@@ -23,6 +23,7 @@ import { sendWhatsAppMessage, sendWhatsAppMessageWithResult, markAsRead } from '
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { registrarEstadosDeEntrega } from '@/lib/whatsapp/delivery-status'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
+import { detectarTipoDeRespuesta, buscarCitaConRecordatorioPendiente } from '@/lib/whatsapp/reminder-response'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
 import { getWhatsAppConfig, findActiveDoctors, findActiveConsultationTypes, buildExistingPatient, resolveTratantesForClinic } from '@/lib/agent/agent-context'
 import { verifyWebhookSignature } from '@/lib/whatsapp/verify-signature'
@@ -577,6 +578,22 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
+      // 15.4. GATE DE CONSENTIMIENTO — manda el aviso y SIGUE.
+      //
+      // Antes esto vivía después del recordatorio y del NPS, y hacía `return`:
+      // la paciente recibía el aviso de la Ley 1581 y su mensaje se descartaba.
+      // El 2026-08-18 cinco pacientes tocaron "Confirmar"/"Cancelar" y sólo
+      // recibieron el aviso legal — una de ellas cancelaba una cita que quedó
+      // activa. El aviso es una obligación, no una respuesta.
+      //
+      // Va ANTES del recordatorio a propósito: así el aviso sale igual aunque
+      // el mensaje se resuelva ahí abajo y corte. La Capa 0 (crisis, ARCO)
+      // sigue arriba de todo — quien está en crisis no espera a un aviso legal.
+      if (!patient.data_consent_at) {
+        await handleNewPatient(clinic, patient, message.from, conversation.id, clinicCreds)
+        // Sin `return`: el mensaje sigue su curso y se responde de verdad.
+      }
+
       // 15.5. Detectar respuesta a recordatorio ("sí"/"no" a confirmación de cita)
       const reminderHandled = await handleReminderResponse(
         sanitizedText, patient.id, clinic.id, message.from, conversation.id, clinicCreds
@@ -592,12 +609,6 @@ async function processWebhook(body: unknown): Promise<void> {
         sanitizedText, patient.id, clinic.id, message.from, conversation.id, patient.name, clinicCreds
       )
       if (npsHandled) return
-
-      // 16. Si es paciente nuevo (sin consentimiento) → enviar aviso de privacidad
-      if (!patient.data_consent_at) {
-        await handleNewPatient(clinic, patient, message.from, conversation.id, clinicCreds)
-        return
-      }
 
       // 16.5. Verificar palabras clave de escalamiento
       const escalationMatch = checkEscalationKeywords(sanitizedText, waConfig)
@@ -1713,33 +1724,17 @@ async function handleReminderResponse(
   conversationId: string,
   clinicCreds?: ClinicWhatsAppCredentials | null
 ): Promise<boolean> {
-  // Normalizar respuesta
-  const normalized = messageText.toLowerCase().trim()
+  const tipo = detectarTipoDeRespuesta(messageText)
+  if (!tipo) return false
 
-  // Detectar tipo de respuesta
-  const isConfirmation = /^(s[ií]|si|yes|confirmo|confirmar|dale|claro|ok|listo)$/i.test(normalized)
-  const isCancellation = /^(no|cancelar|cancelo|no puedo)$/i.test(normalized)
-  const isReschedule = /^(cambiar|reagendar|reprogramar|cambio|mover)$/i.test(normalized)
-
-  if (!isConfirmation && !isCancellation && !isReschedule) return false
-
-  // Buscar citas con recordatorio enviado pero sin confirmar
-  const { data: pendingAppointment } = await supabaseAdmin
-    .from('appointments')
-    .select('id, starts_at, doctor_id')
-    .eq('clinic_id', clinicId)
-    .eq('patient_id', patientId)
-    .eq('reminder_24h_sent', true)
-    .is('reminder_confirmed', null)
-    .in('status', ['confirmed', 'rescheduled'])
-    .gte('starts_at', new Date().toISOString())
-    .order('starts_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+  // La cita que está contestando: la que ya recibió UN recordatorio, venga de
+  // la ventana que venga. Antes esto exigía la de 24h y perdía los botones del
+  // recordatorio de 72h — ver el comentario de reminder-response.ts.
+  const pendingAppointment = await buscarCitaConRecordatorioPendiente(patientId, clinicId)
 
   if (!pendingAppointment) return false // No hay recordatorio pendiente
 
-  if (isConfirmation) {
+  if (tipo === 'confirmacion') {
     // Marcar como confirmada
     await supabaseAdmin
       .from('appointments')
@@ -1750,14 +1745,13 @@ async function handleReminderResponse(
       .from('reminders')
       .update({ response: 'confirmed', confirmed_at: new Date().toISOString() })
       .eq('appointment_id', pendingAppointment.id)
-      .eq('type', '24h')
 
     const response = '✅ ¡Perfecto, tu cita está confirmada! Te esperamos. Si necesitas algo más, escríbeme.'
     await saveMessage(conversationId, 'agent', response)
     await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
 
     console.log(`[Webhook] Recordatorio CONFIRMADO para cita ${pendingAppointment.id}`)
-  } else if (isCancellation) {
+  } else if (tipo === 'cancelacion') {
     // Cancelar cita de verdad — liberar slot y notificar waitlist
     await supabaseAdmin
       .from('appointments')
@@ -1773,7 +1767,6 @@ async function handleReminderResponse(
       .from('reminders')
       .update({ response: 'cancelled' })
       .eq('appointment_id', pendingAppointment.id)
-      .eq('type', '24h')
 
     // Notificar al siguiente en lista de espera
     try {
@@ -1804,7 +1797,6 @@ async function handleReminderResponse(
       .from('reminders')
       .update({ response: 'rescheduled' })
       .eq('appointment_id', pendingAppointment.id)
-      .eq('type', '24h')
 
     const response = 'Claro, con gusto te ayudo a cambiar la cita. ¿Qué día y hora te quedaría mejor?'
     await saveMessage(conversationId, 'agent', response)

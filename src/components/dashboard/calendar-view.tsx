@@ -20,6 +20,7 @@ import { parseLocalDate, toDateStr, getColombiaDateStr, DAYS_FULL_ES, MONTHS_ES,
 import { ConfirmarFueraHorarioModal } from './calendar/confirmar-fuera-horario-modal'
 import type { DisponibilidadDelDia, EstadoFranja } from '@/lib/calendar/day-availability'
 import { getDisponibilidadAgenda } from '@/app/actions/availability'
+import { getBloqueosDeAgenda } from '@/app/actions/blocked-dates'
 
 // Re-export types for page.tsx imports
 export type { CalendarAppointment, CalendarDoctor }
@@ -267,6 +268,22 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
     return () => { vigente = false }
   }, [doctorFilter, semanaVisible])
 
+  // Bloqueos crudos de la semana, para la vista "Todos los médicos". La
+  // disponibilidad por médico no aplica ahí, pero el bloqueo igual existe y
+  // tiene que verse: si se aplica y no se pinta, es el mismo agujero que el
+  // reload que sacamos — no se sabe si la acción funcionó.
+  const [bloqueosSemana, setBloqueosSemana] = useState<{ doctor_id: string | null; start_date: string; end_date: string; reason: string | null }[]>([])
+  const recargarBloqueos = useCallback(() => {
+    const desde = semanaVisible[0]
+    const hasta = semanaVisible[semanaVisible.length - 1]
+    if (!desde || !hasta) return
+    getBloqueosDeAgenda(desde, hasta)
+      .then((r) => setBloqueosSemana(r.map((b) => ({ doctor_id: b.doctor_id, start_date: b.start_date, end_date: b.end_date, reason: b.reason }))))
+      .catch(() => { /* la grilla se queda con lo último bueno */ })
+  }, [semanaVisible])
+
+  useEffect(() => { recargarBloqueos() }, [recargarBloqueos])
+
   // Releer la disponibilidad SIN recargar la página. Las citas ya viajan por
   // Realtime, pero `blocked_dates` no está en la publicación: sin esto, la
   // secretaria bloqueaba un día y la grilla seguía idéntica — que es
@@ -453,7 +470,14 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           doctorName={doctorFilter !== 'all' ? (doctors.find((d) => d.id === doctorFilter)?.name ?? null) : null}
           surveyConfig={surveyConfig}
           disponibilidadDelDia={doctorFilter !== 'all' ? disponibilidad[toDateStr(selectedDate)] : undefined}
-          onAgendaCambiada={recargarDisponibilidad}
+          onAgendaCambiada={() => { recargarDisponibilidad(); recargarBloqueos() }}
+          bloqueosDelDia={bloqueosSemana.filter((b) => {
+            const dia = toDateStr(selectedDate)
+            if (dia < b.start_date || dia > b.end_date) return false
+            // Con médico filtrado, el rosa ya lo pinta `disponibilidadDelDia`.
+            return doctorFilter === 'all'
+          })}
+          doctoresTotales={doctors.length}
         />
       )}
       {view === 'week' && (

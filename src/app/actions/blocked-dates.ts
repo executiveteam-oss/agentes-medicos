@@ -47,6 +47,27 @@ export async function getBlockedDatesForClinic(): Promise<BlockedDate[]> {
   return (data ?? []) as BlockedDate[]
 }
 
+/**
+ * Todos los bloqueos que caen dentro de un rango — de la clínica entera
+ * (doctor_id null) y de médicos puntuales.
+ *
+ * Existe para la vista "Todos los médicos" de la agenda: ahí no se carga la
+ * disponibilidad por médico (no se puede afirmar el horario de nadie en
+ * particular), así que un día bloqueado se aplicaba sin verse. Un bloqueo que
+ * no se ve es indistinguible de un bloqueo que no se creó.
+ */
+export async function getBloqueosDeAgenda(desde: string, hasta: string): Promise<BlockedDate[]> {
+  const clinicId = await checkReadPermission('whatsapp')
+  const { data } = await supabaseAdmin
+    .from('blocked_dates')
+    .select('*')
+    .eq('clinic_id', clinicId)
+    .lte('start_date', hasta)
+    .gte('end_date', desde)
+    .order('start_date', { ascending: true })
+  return (data ?? []) as BlockedDate[]
+}
+
 /** Consultar citas que se verían afectadas por un bloqueo ANTES de crearlo */
 export async function getAffectedAppointments(input: {
   doctorId?: string | null

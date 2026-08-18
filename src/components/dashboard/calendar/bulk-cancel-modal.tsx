@@ -34,12 +34,16 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
   const [entiendoAlcance, setEntiendoAlcance] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [confirmed, setConfirmed] = useState(false)
+  // Día sin citas: no hay nada que cancelar ni a quién notificar, pero cerrar
+  // el día sigue teniendo sentido (que no entre nadie nuevo). El bloqueo pasa a
+  // ser obligatorio: sin él la acción no haría absolutamente nada.
+  const soloBloqueo = cancellable.length === 0
 
   // Sin médico filtrado, `doctorId` va null — y un blocked_dates con doctor_id
   // null aplica a TODOS los médicos de la clínica ese día (lo lee así
   // fetch-day-availability y también el executor). Era el daño silencioso: el
   // botón dice "cancelar citas" y de paso cerraba la agenda de todo el mundo.
-  const alcanceEsTodaLaClinica = !doctorId && createBlock
+  const alcanceEsTodaLaClinica = !doctorId && (createBlock || soloBloqueo)
 
 
   function handleSubmit() {
@@ -53,7 +57,7 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
       let cancelled = 0
       let notified = 0
 
-      if (createBlock) {
+      if (createBlock || soloBloqueo) {
         // Use createBlockedDate with cancelAndNotify — handles everything
         const result = await createBlockedDate({
           doctorId: doctorId ?? undefined,
@@ -114,7 +118,9 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
           <div>
             <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--v2-text)' }}>
-              Cancelar {cancellable.length} cita{cancellable.length !== 1 ? 's' : ''} del {dateFormatted}
+              {soloBloqueo
+                ? `Bloquear el ${dateFormatted}`
+                : `Cancelar ${cancellable.length} cita${cancellable.length !== 1 ? 's' : ''} del ${dateFormatted}`}
             </h2>
             <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginTop: '2px' }}>
               {doctorName ? `Doctor ${doctorName}` : 'Todos los doctores'}
@@ -126,6 +132,7 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
         </div>
 
         {/* Appointments preview */}
+        {!soloBloqueo && (
         <div
           style={{
             padding: '14px',
@@ -157,6 +164,13 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
             Cada paciente recibira WhatsApp con disculpa y 3 opciones de reagendamiento.
           </p>
         </div>
+        )}
+        {soloBloqueo && (
+          <p style={{ fontSize: '12px', color: 'var(--v2-text-muted)', marginBottom: '16px', lineHeight: 1.45 }}>
+            No hay citas agendadas ese día, así que no hay a quién avisarle.
+            El día queda cerrado y el agente no va a ofrecer cupos.
+          </p>
+        )}
 
         {/* Form */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
@@ -173,7 +187,7 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
             />
             <p style={{ fontSize: '10px', color: 'var(--v2-text-subtle)', marginTop: '2px' }}>Solo visible internamente</p>
           </div>
-          <div>
+          <div style={{ display: soloBloqueo ? 'none' : 'block' }}>
             <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', marginBottom: '4px' }}>
               Motivo para el paciente (opcional)
             </label>
@@ -189,6 +203,7 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
         </div>
 
         {/* Block toggle */}
+        {!soloBloqueo && (
         <div
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
@@ -209,6 +224,7 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
             data-active={createBlock ? 'true' : 'false'}
           />
         </div>
+        )}
 
         {/* Alcance clínica — confirmación PROPIA, distinta del doble clic normal.
             Va acá y no como nota al costado: el aviso tiene que estar en el
@@ -258,12 +274,18 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
             style={{
               flex: 1, fontSize: '13px', fontWeight: 700, padding: '10px 18px',
               borderRadius: 'var(--v2-radius)', border: 'none', cursor: 'pointer',
-              background: confirmed ? 'var(--v2-red)' : 'linear-gradient(135deg, var(--v2-red), #FF7B7B)',
+              background: soloBloqueo
+                ? (confirmed ? '#A3306B' : 'linear-gradient(135deg, #A3306B, #C4508B)')
+                : confirmed ? 'var(--v2-red)' : 'linear-gradient(135deg, var(--v2-red), #FF7B7B)',
               color: '#fff', opacity: isPending || !internalReason.trim() || (alcanceEsTodaLaClinica && !entiendoAlcance) ? 0.5 : 1,
               fontFamily: 'var(--font-manrope), sans-serif',
             }}
           >
-            {isPending ? 'Cancelando...' : confirmed ? `Confirmar: cancelar ${cancellable.length} citas` : `Cancelar ${cancellable.length} citas`}
+            {isPending
+              ? (soloBloqueo ? 'Bloqueando...' : 'Cancelando...')
+              : soloBloqueo
+                ? (confirmed ? 'Confirmar: bloquear el día' : 'Bloquear el día')
+                : confirmed ? `Confirmar: cancelar ${cancellable.length} citas` : `Cancelar ${cancellable.length} citas`}
           </button>
         </div>
       </div>

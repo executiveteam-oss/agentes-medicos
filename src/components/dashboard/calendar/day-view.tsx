@@ -35,12 +35,17 @@ interface Props {
   disponibilidadDelDia?: DisponibilidadDelDia
   /** Releer la disponibilidad tras bloquear, sin recargar la página. */
   onAgendaCambiada?: () => void
+  /** Bloqueos que cubren este día. Sólo viene poblado en "Todos los médicos":
+   *  con médico filtrado el rosa lo pinta `disponibilidadDelDia`. */
+  bloqueosDelDia?: { doctor_id: string | null; reason: string | null }[]
+  /** Cuántos médicos activos tiene la clínica, para decir "3 de 5". */
+  doctoresTotales?: number
 }
 
 
 
 
-export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig, disponibilidadDelDia, onAgendaCambiada }: Props) {
+export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig, disponibilidadDelDia, onAgendaCambiada, bloqueosDelDia, doctoresTotales }: Props) {
   const dateStr = toDateStr(date)
   const isToday = dateStr === todayStr
   const [showBulkCancel, setShowBulkCancel] = useState(false)
@@ -54,15 +59,36 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
   const dateFormatted = format(date, "EEEE d 'de' MMMM", { locale: es })
   const isFilteredDoctor = doctorFilter && doctorFilter !== 'all'
 
+  // Qué decir sobre el día cerrado. Con médico filtrado la respuesta ya la dio
+  // day-availability; sin filtrar hay que resumir los bloqueos crudos, porque
+  // ahí no se puede afirmar el horario de nadie en particular.
+  const bloqueoDeClinica = bloqueosDelDia?.find((b) => b.doctor_id === null)
+  const bloqueosPorMedico = bloqueosDelDia?.filter((b) => b.doctor_id !== null) ?? []
+  const avisoDeCierre = disponibilidadDelDia?.bloqueo
+    ? {
+        titulo: `Día cerrado${doctorName ? ` · ${toTitleCase(doctorName)}` : ''}`,
+        motivo: disponibilidadDelDia.bloqueo.motivo,
+      }
+    : bloqueoDeClinica
+      ? { titulo: 'Día cerrado para TODA la clínica', motivo: bloqueoDeClinica.reason }
+      : bloqueosPorMedico.length > 0
+        ? {
+            titulo: doctoresTotales
+              ? `Día cerrado para ${bloqueosPorMedico.length} de ${doctoresTotales} médicos`
+              : `Día cerrado para ${bloqueosPorMedico.length} médico${bloqueosPorMedico.length === 1 ? '' : 's'}`,
+            motivo: bloqueosPorMedico.find((b) => b.reason)?.reason ?? null,
+          }
+        : null
+
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }} className="space-y-4">
       {/* Día cerrado — el MISMO rosa rayado que usa la vista de semana para
           `bloqueado`. El rayado no es adorno: distingue "cerrado a propósito"
           de "no hay nada agendado". Sin esto, un día bloqueado y un día vacío
           se veían igual en la vista de día. */}
-      {disponibilidadDelDia?.bloqueo && (
+      {avisoDeCierre && (
         <div
-          title={disponibilidadDelDia.bloqueo.motivo ?? 'Día cerrado'}
+          title={avisoDeCierre.motivo ?? 'Día cerrado'}
           style={{
             padding: '12px 14px', borderRadius: 'var(--v2-radius)',
             border: '1px solid rgba(163,48,107,0.35)',
@@ -73,13 +99,9 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
         >
           <Lock size={14} style={{ color: '#A3306B', flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
-            <p style={{ fontSize: '13px', fontWeight: 700, color: '#A3306B' }}>
-              Día cerrado{doctorName ? ` · ${toTitleCase(doctorName)}` : ''}
-            </p>
-            {disponibilidadDelDia.bloqueo.motivo && (
-              <p style={{ fontSize: '12px', color: 'var(--v2-text)', marginTop: '1px' }}>
-                {disponibilidadDelDia.bloqueo.motivo}
-              </p>
+            <p style={{ fontSize: '13px', fontWeight: 700, color: '#A3306B' }}>{avisoDeCierre.titulo}</p>
+            {avisoDeCierre.motivo && (
+              <p style={{ fontSize: '12px', color: 'var(--v2-text)', marginTop: '1px' }}>{avisoDeCierre.motivo}</p>
             )}
             <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '1px' }}>
               El agente no ofrece cupos este día
@@ -100,15 +122,16 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
         <StatCard label="Completadas" value={completed} color="var(--v2-green)" />
         <StatCard label="No-shows" value={noShows} color="var(--v2-red)" />
         </div>
-        {pending > 0 && (
-          <button
+        <button
             onClick={() => setShowBulkCancel(true)}
             className="max-lg:w-full"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
               fontSize: '12px', fontWeight: 600, padding: '10px 14px',
-              borderRadius: 'var(--v2-radius)', border: '1px solid rgba(255,87,87,0.3)',
-              background: 'var(--v2-red-soft)', color: 'var(--v2-red)',
+              borderRadius: 'var(--v2-radius)',
+              border: pending === 0 ? '1px solid rgba(163,48,107,0.3)' : '1px solid rgba(255,87,87,0.3)',
+              background: pending === 0 ? 'rgba(163,48,107,0.10)' : 'var(--v2-red-soft)',
+              color: pending === 0 ? '#A3306B' : 'var(--v2-red)',
               cursor: 'pointer', fontFamily: 'var(--font-manrope), sans-serif',
               // Sin nowrap: "Cancelar citas de JUAN DIEGO VILLEGAS ECHEVERRI" son
               // ~330px indivisibles, más que un teléfono entero. En celular el botón
@@ -116,14 +139,19 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
               minWidth: 0,
             }}
           >
-            <XCircle size={14} />
+            {pending === 0 ? <Lock size={14} /> : <XCircle size={14} />}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
-              {isFilteredDoctor && doctorName
-                ? `Cancelar citas de ${doctorName}`
-                : 'Cancelar todas las citas'}
+              {pending === 0
+                // Sin citas no hay nada que cancelar, pero SÍ hay algo que
+                // hacer: cerrar el día para que no entre nadie nuevo. Antes el
+                // botón no existía y no había forma de bloquear preventivamente
+                // desde la agenda, que es donde te enterás de que el médico no viene.
+                ? (isFilteredDoctor && doctorName ? `Bloquear el día de ${doctorName}` : 'Bloquear el día')
+                : isFilteredDoctor && doctorName
+                  ? `Cancelar citas de ${doctorName}`
+                  : 'Cancelar todas las citas'}
             </span>
-          </button>
-        )}
+        </button>
       </div>
 
       {/* Bulk cancel modal */}

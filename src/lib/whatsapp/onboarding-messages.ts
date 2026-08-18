@@ -17,7 +17,7 @@ const MESSAGE_2 =
   '1️⃣ Agrega los horarios de tus médicos\n' +
   '2️⃣ Configura los tipos de consulta\n' +
   '3️⃣ Haz una prueba — escríbeme como si fueras un paciente\n\n' +
-  '👉 dashboard.omuwan.co/dashboard\n\n' +
+  '👉 omuwan.co/dashboard\n\n' +
   '¿Tienes alguna duda? Escríbeme aquí mismo.'
 
 /**
@@ -33,13 +33,14 @@ export async function sendWhatsAppOnboardingSequence(
     // Verificar que no se haya enviado antes
     const { data: clinic } = await supabaseAdmin
       .from('clinics')
-      .select('whatsapp_onboarding_sent, phone')
+      .select('whatsapp_onboarding_sent, phone, staff_notify_phone')
       .eq('id', clinicId)
       .single()
 
     if (!clinic || clinic.whatsapp_onboarding_sent) return
 
-    const adminPhone = (clinic.phone || '').trim()
+    // Teléfono INTERNO del staff, no el público. Ver migración 00108.
+    const adminPhone = ((clinic.staff_notify_phone as string | null) || clinic.phone || '').trim()
     if (!adminPhone) return
 
     const whatsappNumber = adminPhone.replace('+', '')

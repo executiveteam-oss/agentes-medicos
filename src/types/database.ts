@@ -113,6 +113,10 @@ export interface Clinic {
   name: string
   slug: string
   phone: string
+  /** Teléfono INTERNO del staff: destino de reporte semanal, aviso de cita
+   *  creada y onboarding. NUNCA se le muestra a la paciente — para eso está
+   *  `phone`. NULL cae a `phone` por compatibilidad. Migración 00108. */
+  staff_notify_phone: string | null
   whatsapp_phone_id: string | null
   whatsapp_token: string | null              // DEPRECATED — usar whatsapp_access_token
   whatsapp_access_token: string | null       // Columna canónica para el token de WhatsApp

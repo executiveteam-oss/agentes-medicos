@@ -51,12 +51,13 @@ export async function notifyStaffAppointmentCreated(
     // en el tablero); es la señal operativa del doble-agendamiento.
     const { data: clinic } = await supabaseAdmin
       .from('clinics')
-      .select('phone, whatsapp_phone_id, whatsapp_access_token, name')
+      .select('phone, staff_notify_phone, whatsapp_phone_id, whatsapp_access_token, name')
       .eq('id', params.clinicId)
       .single()
 
     const rec = clinic as Record<string, unknown> | null
-    const rawPhone = rec?.phone as string | null
+    // Teléfono INTERNO del staff, no el público. Ver migración 00108.
+    const rawPhone = (rec?.staff_notify_phone as string | null) ?? (rec?.phone as string | null)
     const phoneId = rec?.whatsapp_phone_id as string | null
     const accessToken = rec?.whatsapp_access_token as string | null
 

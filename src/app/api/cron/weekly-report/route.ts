@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
     // Clínicas activas con al menos 10 citas totales
     const { data: clinics } = await supabaseAdmin
       .from('clinics')
-      .select('id, name, phone, consultation_price, notification_settings, whatsapp_phone_id, whatsapp_access_token')
+      .select('id, name, phone, staff_notify_phone, consultation_price, notification_settings, whatsapp_phone_id, whatsapp_access_token')
       .in('subscription_status', ['trial', 'active'])
 
     let sentCount = 0
@@ -151,10 +151,12 @@ export async function GET(request: NextRequest) {
         message += '\n\n⚠️ Tu tasa de no-shows esta semana fue alta. Activa el recordatorio de 72h en Configuración.'
       }
 
-      message += `\n\nVer detalles:\ndashboard.omuwan.co/dashboard`
+      message += `\n\nVer detalles:\nomuwan.co/dashboard`
 
-      // Reporte periódico (NO escalación) → va por WhatsApp a clinic.phone.
-      const adminPhone = (clinic.phone || '').trim()
+      // Reporte periódico (NO escalación) → va al teléfono INTERNO del staff.
+      // `phone` es el número PÚBLICO (el que el agente le da a la paciente); si
+      // cambia, las notificaciones no tienen por qué mudarse con él.
+      const adminPhone = ((clinic.staff_notify_phone as string | null) || clinic.phone || '').trim()
       if (!adminPhone) {
         skipped++
         continue

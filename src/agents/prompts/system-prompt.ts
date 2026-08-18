@@ -5,6 +5,7 @@
 // ============================================================
 
 import type { Clinic, ConsultationType, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
+import { nombreMedicoParaPaciente } from '@/lib/utils/normalize-name'
 import { nowColombia } from '@/lib/utils/dates'
 import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
@@ -128,8 +129,8 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
   const doctorLines = allDoctors.map((d) => {
     const spec = d.specialty ?? (clinic.specialty.length > 0 ? clinic.specialty.join(', ') : 'General')
     // Tratamiento correcto por médico (Dr./Dra.) — el modelo NO debe adivinarlo.
-    const title = d.gender === 'M' ? 'Dr.' : d.gender === 'F' ? 'Dra.' : ''
-    const displayName = title ? `${title} ${d.name}` : d.name
+    // Sale de tratamientoMedico(), la misma función que usan los recordatorios.
+    const displayName = nombreMedicoParaPaciente(d.name, d.gender)
     const dcConfig = waConfig?.doctors[d.id]
     const duration = dcConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
     let line = `  - ${displayName} — ${spec} | ID: ${d.id} | Duración cita: ${duration} min`
@@ -992,7 +993,7 @@ ESTO ES CRÍTICO: pacientes llegan al consultorio el día equivocado si calculas
 Si el paciente menciona un día de la semana ("lunes", "el viernes", "próximo martes"):
 → SIEMPRE usa calculate_date PRIMERO para obtener la fecha exacta. NUNCA calcules fechas mentalmente.
 → Después de calculate_date, llama check_availability con la fecha retornada.
-→ Si el doctor no atiende ese día, responde: "El Dr/Dra X no atiende los [día]. Atiende [días disponibles]. ¿Quieres alguno de esos días?"
+→ Si el doctor no atiende ese día, check_availability te devuelve el campo dias_que_atiende con los días REALES. Deciles ESOS y ninguno más: "El Dr/Dra X no atiende los [día]. Atiende [copiar dias_que_atiende tal cual]. ¿Quieres alguno de esos días?". 🚫 NUNCA nombres días que no vengan en ese campo, ni los deduzcas por descarte ("todos menos el que pidió"): ya pasó, el agente dijo que un médico atendía sábados cuando no, y una paciente se puede presentar con el consultorio cerrado. Si el campo viene vacío, NO inventes ninguno: decí que lo verificás con el consultorio y escalá.
 → Solo menciona la fecha DESPUÉS de ambos pasos. Responde natural: "Para el lunes 27 tengo estos horarios..."
 → NO expliques el cálculo. NO menciones otras fechas.
 

@@ -16,7 +16,7 @@ import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
-import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart } from '@/lib/calendar/schedule-check'
+import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart, fraseDiasQueAtiende } from '@/lib/calendar/schedule-check'
 import { isSlotFree, BUSY_STATUSES, type BusyAppointment } from '@/lib/calendar/slot-availability'
 import { generateTimeSlots } from '@/lib/calendar/time-slots'
 import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
@@ -434,13 +434,29 @@ async function checkAvailability(
 
   if (!dispDia.atiende) {
     const dow = spanishDayOfWeek(dateStr)
+    // LOS DÍAS QUE SÍ ATIENDE VAN EN LA RESPUESTA.
+    //
+    // Sin esto, el 2026-08-18 el agente contestó "no atiende los jueves.
+    // Atiende lunes, martes, miércoles, viernes y sábado" sobre un médico que
+    // atiende lunes, miércoles y viernes: el prompt le pedía nombrar los días
+    // y ninguna tool se los daba, así que rellenó el hueco con "todos menos el
+    // que preguntó". Una paciente puede presentarse un sábado con la clínica
+    // cerrada.
+    const diasReales = fraseDiasQueAtiende(medico?.working_hours ?? null)
     return {
       success: true,
       data: {
         available: false,
         date: dateStr,
         dayOfWeek: dow,
-        reason: `El doctor no atiende ese día (${dow})`,
+        doctor_name: medico?.name ?? null,
+        dias_que_atiende: diasReales || null,
+        reason: diasReales
+          ? `El doctor no atiende ese día (${dow}). Atiende ${diasReales}.`
+          : `El doctor no atiende ese día (${dow}).`,
+        instruction_for_llm: diasReales
+          ? `Decile a la paciente EXACTAMENTE estos días y NINGÚN otro: ${diasReales}. No agregues días que no estén en esa lista ni deduzcas cuáles son por descarte.`
+          : 'Este médico no tiene días de atención cargados. NO inventes ninguno: decile que lo verificás con el consultorio y usá escalate_to_human.',
       },
     }
   }

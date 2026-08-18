@@ -81,3 +81,62 @@ export function isFutureStart(startsAtIso: string, now: Date): boolean {
   if (!isValid(d)) return false
   return d.getTime() > now.getTime()
 }
+
+
+// ============================================================
+// LOS DÍAS QUE EL MÉDICO SÍ ATIENDE
+//
+// El 2026-08-18 el agente le dijo a una paciente: "El Dr. Jorge Darío no
+// atiende los jueves. Atiende lunes, martes, miércoles, viernes y sábado."
+// Jorge atiende lunes, miércoles y viernes. Lo del jueves era correcto; el
+// resto lo inventó — dio "todos menos el que preguntó y el domingo".
+//
+// No fue desobediencia del modelo: el system prompt le PEDÍA decir los días
+// ("Atiende [días disponibles]") y NADIE se los daba. check_availability
+// respondía sólo "no atiende ese día (jueves)", y el bloque de médicos del
+// prompt inyecta el horario desde `whatsapp_config.doctors[id]`, que en Algia
+// está vacío. Se le pidió afirmar algo que no tenía forma de saber.
+//
+// Esto lo devuelve desde `working_hours`, que es la fuente real — la misma que
+// usa la grilla y el cálculo de franjas.
+// ============================================================
+
+const NOMBRE_DIA: Record<DayKey, string> = {
+  sunday: 'domingo', monday: 'lunes', tuesday: 'martes', wednesday: 'miércoles',
+  thursday: 'jueves', friday: 'viernes', saturday: 'sábado',
+}
+
+/** Orden de lectura humano: lunes primero, domingo al final. */
+const ORDEN_SEMANA: DayKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+
+export interface DiaAtendido { dia: string; desde: string; hasta: string }
+
+/** Los días con `active: true` y al menos un bloque, con su rango horario. */
+export function diasQueAtiende(workingHours: unknown | null): DiaAtendido[] {
+  const out: DiaAtendido[] = []
+  for (const key of ORDEN_SEMANA) {
+    const d = getDoctorDaySchedule(workingHours, key)
+    if (!d.active || d.blocks.length === 0) continue
+    const desde = d.blocks.reduce((a, b) => (b.start < a ? b.start : a), d.blocks[0].start)
+    const hasta = d.blocks.reduce((a, b) => (b.end > a ? b.end : a), d.blocks[0].end)
+    out.push({ dia: NOMBRE_DIA[key], desde, hasta })
+  }
+  return out
+}
+
+/** Frase lista para que el modelo la lea, SIN que tenga que componerla:
+ *  "lunes, miércoles y viernes de 07:30 a 11:00". Vacío si no atiende ninguno. */
+export function fraseDiasQueAtiende(workingHours: unknown | null): string {
+  const dias = diasQueAtiende(workingHours)
+  if (dias.length === 0) return ''
+
+  const nombres = dias.map((d) => d.dia)
+  const lista = nombres.length === 1
+    ? nombres[0]
+    : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`
+
+  // Si todos los días comparten el mismo rango, se dice una vez.
+  const mismoRango = dias.every((d) => d.desde === dias[0].desde && d.hasta === dias[0].hasta)
+  if (mismoRango) return `${lista} de ${dias[0].desde} a ${dias[0].hasta}`
+  return dias.map((d) => `${d.dia} de ${d.desde} a ${d.hasta}`).join(', ')
+}

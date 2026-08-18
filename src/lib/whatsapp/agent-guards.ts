@@ -6,11 +6,13 @@
 // - Cita cancelada sin haber llamado cancel_appointment
 // - Cita reagendada sin haber llamado reschedule_appointment
 // - Cita confirmada sin appointmentData válida
+// - Cita creada con un médico distinto al que el agente le prometió
 //
 // Funciones puras → testeables sin DB/network.
 // ============================================================
 
 import type { Message } from '@/types/database'
+import { detectarMencionDeMedico } from '@/lib/agent/doctor-pin'
 
 // ============================================================
 // Regex compartidos
@@ -170,4 +172,69 @@ export function detectHallucinatedAppointmentConfirmation(args: {
     reason: 'hallucinated_appointment_confirmation',
     details: { tools_used: args.toolsUsed },
   }
+}
+
+// ============================================================
+// GUARD 5: agendó con un médico distinto al que le prometió a la paciente
+//
+// Red final de las tres capas del 2026-08-17. Las capas 1 y 2 (pin + servicio)
+// impiden que pase cuando la paciente NOMBRA al médico. Éste cubre lo que se
+// escapa: cuando el médico salió de un menú que ofreció el agente y la paciente
+// eligió por número, no hay nada que pinear — pero el agente igual escribió el
+// nombre, y ese nombre es una promesa.
+//
+// Los dos casos reales quedaban así:
+//   "✅ Doctor: Dr. Jorge Dario López Isanoa"   ← lo que prometió
+//   create_appointment(doctor_id: JUAN DIEGO)   ← lo que hizo
+//
+// Un menú NO dispara el guard: `detectarMencionDeMedico` devuelve null cuando
+// hay dos o más médicos en el mismo texto, así que "1. Dra. Angélica 2. Dr.
+// Juan Diego" no es una promesa y no se compara. Tampoco dispara cuando el
+// agente propone el cambio de forma explícita y la paciente acepta, porque ese
+// mensaje nombra a los dos.
+// ============================================================
+export function detectDoctorNameMismatch(args: {
+  /** El mensaje que está por salir. */
+  agentText: string
+  /** Los últimos mensajes del AGENTE en esta conversación, del más reciente al
+   *  más viejo. Acá vive la promesa: el mismatch casi nunca está en el mensaje
+   *  final —que suele nombrar bien al médico de la cita— sino en el resumen
+   *  "¿confirmas?" que vino antes. */
+  priorAgentTexts: string[]
+  /** El médico REAL de la cita que se acaba de crear (appointmentData). */
+  appointmentDoctorName: string | null | undefined
+  doctors: { id: string; name: string }[]
+  patientName?: string | null
+}): GuardResult {
+  const real = (args.appointmentDoctorName ?? '').trim()
+  if (!real || args.doctors.length === 0) return { blocked: false }
+
+  const realPin = detectarMencionDeMedico(real, args.doctors)
+  if (!realPin) return { blocked: false }   // no lo pudimos resolver → no inventamos un bloqueo
+
+  // Se miran pocos mensajes hacia atrás a propósito: una mención de hace media
+  // hora, de otro trámite, no es una promesa sobre ESTA cita.
+  //
+  // ⚠️ Se recorren TODOS los candidatos y basta UNO que discrepe. La primera
+  // versión de este guard cortaba con "si la mención más reciente coincide,
+  // está bien" — y no detectaba ninguno de los dos casos reales, porque el
+  // mensaje final SIEMPRE coincide: el modelo lo escribe leyendo el resultado
+  // de la tool. La promesa rota está en el mensaje ANTERIOR, el "¿confirmas?".
+  const candidatos = [args.agentText, ...args.priorAgentTexts.slice(0, 3)]
+  for (const texto of candidatos) {
+    const dicho = detectarMencionDeMedico(texto ?? '', args.doctors, { nombrePaciente: args.patientName ?? null })
+    if (!dicho) continue                                  // ninguno o varios (menú) → no es promesa
+    if (dicho.doctor_id === realPin.doctor_id) continue   // esa mención es coherente; seguir mirando
+    return {
+      blocked: true,
+      reason: 'doctor_name_mismatch',
+      details: {
+        prometido: dicho.doctor_name,
+        agendado: realPin.doctor_name,
+        prometido_doctor_id: dicho.doctor_id,
+        agendado_doctor_id: realPin.doctor_id,
+      },
+    }
+  }
+  return { blocked: false }
 }

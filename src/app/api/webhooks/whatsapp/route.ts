@@ -46,6 +46,8 @@ import {
 } from '@/lib/whatsapp/agent-guards'
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
+import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
+import { detectDoctorNameMismatch } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
@@ -662,6 +664,35 @@ async function processWebhook(body: unknown): Promise<void> {
 
       let agentResponse: { text: string; toolsUsed: string[]; toolCalls: ToolCallAudit[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string } }
 
+      // ── PIN DEL MÉDICO (capa 1) ─────────────────────────────────────
+      // Si la paciente nombra un médico, deja de ser texto y pasa a ser una
+      // restricción que el executor hace cumplir. Se resuelve contra el set
+      // CERRADO de médicos de esta clínica, y ante cualquier ambigüedad no se
+      // pinea (ver doctor-pin.ts: pinear al equivocado sería peor que no
+      // pinear, porque además bloquearía al correcto).
+      //
+      // El primero gana: una vez pineado no se sobreescribe con menciones
+      // posteriores. Si la paciente realmente quiere cambiar de médico, eso lo
+      // resuelve una persona — no un match de texto a mitad de conversación.
+      let pinMedico = leerPin(conversation.context as Record<string, unknown> | null)
+      if (!pinMedico) {
+        const detectado = detectarMencionDeMedico(sanitizedText, doctors, { nombrePaciente: patient.name })
+        if (detectado) {
+          pinMedico = detectado
+          const ctxConPin = contextConPin(conversation.context as Record<string, unknown> | null, detectado)
+          await supabaseAdmin.from('conversations').update({ context: ctxConPin }).eq('id', conversation.id)
+          conversation.context = ctxConPin as typeof conversation.context
+          console.log(`[Webhook] 📌 Médico pineado: ${detectado.doctor_name}`)
+          try {
+            await supabaseAdmin.from('audit_log').insert({
+              clinic_id: clinic.id, action: 'doctor_pinned', actor_type: 'system',
+              target_type: 'conversation', target_id: conversation.id,
+              details: { doctor_id: detectado.doctor_id, doctor_name: detectado.doctor_name },
+            })
+          } catch { /* non-critical */ }
+        }
+      }
+
       const agentParams = {
         patientMessage: sanitizedText,
         messageHistory,
@@ -675,6 +706,7 @@ async function processWebhook(body: unknown): Promise<void> {
         existingPatient,
         tratanteMode,
         tratantes: resolvedTratantes,
+        pinMedico,
       }
       try {
         agentResponse = await runAppointmentAgent(agentParams)
@@ -733,6 +765,7 @@ async function processWebhook(body: unknown): Promise<void> {
           agentResponse.escalate.reason === 'tool_technical_error' ? ESCALATION_REASONS.TOOL_ERROR
           : agentResponse.escalate.reason === 'convenio_no_reconocido' ? ESCALATION_REASONS.UNKNOWN_CONVENIO
           : agentResponse.escalate.reason === 'clinica_no_operativa' ? ESCALATION_REASONS.CLINIC_NOT_OPERATING
+          : agentResponse.escalate.reason === 'servicio_no_existe_con_medico' ? ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR
           : ESCALATION_REASONS.BOOKING_FAILURE
         await supabaseAdmin
           .from('conversations')
@@ -793,6 +826,53 @@ async function processWebhook(body: unknown): Promise<void> {
         await saveMessage(conversation.id, 'agent', lockoutText)
         await sendWhatsAppMessage(message.from, lockoutText, clinicCreds)
         return
+      }
+
+      // GUARD 5 (médico distinto al prometido) — va ANTES del guard 4 porque
+      // acá la cita YA existe: el daño no es un mensaje falso sino una fila en
+      // la agenda del médico equivocado, ocupando un cupo real.
+      //
+      // NO se cancela automáticamente, a propósito. Un falso positivo del guard
+      // cancelaría una cita buena, y eso no se deshace: la paciente ya recibió
+      // el .ics y se organizó. Escalar es reversible; cancelar no. La persona
+      // que la tome ve en la alerta exactamente qué se prometió y qué se agendó.
+      if (agentResponse.appointmentData) {
+        const mismatch = detectDoctorNameMismatch({
+          agentText: agentResponse.text,
+          priorAgentTexts: messageHistory.filter((m) => m.role === 'agent').slice(-3).reverse().map((m) => m.content),
+          appointmentDoctorName: agentResponse.appointmentData.doctor_name,
+          doctors,
+          patientName: patient.name,
+        })
+        if (mismatch.blocked) {
+          const d = (mismatch.details ?? {}) as { prometido?: string; agendado?: string }
+          console.error(`[Webhook] 🚨 GUARD 5 doctor_name_mismatch — prometido="${d.prometido}" agendado="${d.agendado}"`)
+          try {
+            await supabaseAdmin.from('audit_log').insert({
+              clinic_id: clinic.id, action: 'doctor_name_mismatch_blocked', actor_type: 'system',
+              target_type: 'appointment', target_id: agentResponse.appointmentData.id,
+              details: { ...mismatch.details, conversation_id: conversation.id, appointment_id: agentResponse.appointmentData.id },
+            })
+          } catch { /* non-critical */ }
+
+          // La paciente NO recibe la confirmación equivocada. Y no se le pide
+          // que repita nada: el error es nuestro.
+          agentResponse = {
+            ...agentResponse,
+            text: `Disculpá, tuve un cruce con el médico de tu cita y no quiero confirmarte algo equivocado. ` +
+                  `Ya le pasé tu caso a una persona del consultorio para que lo revise y te confirme bien. Te escriben enseguida 🙏`,
+            appointmentData: undefined,
+          }
+          await supabaseAdmin.from('conversations')
+            .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE, `medico_prometido=${d.prometido} agendado=${d.agendado}`) })
+            .eq('id', conversation.id)
+          await refreshEscalationNotifications({
+            conversationId: conversation.id,
+            clinicId: clinic.id,
+            patientName: patient.name,
+            latestMessage: `⚠️ Cita creada con médico distinto al prometido: se le dijo ${d.prometido} y quedó con ${d.agendado}. Revisar cita ${agentResponse.appointmentData?.id ?? ''}`,
+          })
+        }
       }
 
       // GUARD 4 (alucinación de confirmación de cita) — corregir al MODELO, no a

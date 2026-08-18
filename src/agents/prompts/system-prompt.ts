@@ -266,7 +266,8 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
 
 - La clínica tiene ${openDoctors.length} doctor${openDoctors.length !== 1 ? 'es' : ''} con agenda abierta${closedDoctors.length > 0 ? ` (${closedDoctors.length} con agenda cerrada)` : ''}.
 - NUNCA asumas un doctor — siempre confirma la elección del paciente antes de usar check_availability.
-- Usa el doctor_id correcto del doctor elegido en todas las tools.\n`
+- Usa el doctor_id correcto del doctor elegido en todas las tools.
+- 🔒 SI LA PACIENTE YA NOMBRÓ UN MÉDICO, ESE MÉDICO ESTÁ FIJADO. Todas las tools tienen que ir con SU doctor_id. Si el servicio que ella pide no existe con él, NO lo busques con otro médico: decíselo con claridad, ofrecé los servicios que él SÍ atiende, y si ninguno le sirve usá escalate_to_human. Cambiarla de médico por tu cuenta —aunque otro tenga el servicio o mejor horario— es el peor error posible; el sistema lo va a rechazar igual.\n`
     : ''
 
   // Reglas de disponibilidad manual

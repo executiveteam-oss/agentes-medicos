@@ -28,6 +28,7 @@ import { mismoConvenioPorAlias, dijoParticular } from '@/lib/rules/convenio-alia
 import { mensajeFechaBloqueada } from '@/lib/calendar/blocked-date-message'
 import { resolverDisponibilidadDia } from '@/lib/calendar/day-availability'
 import { indiceDiaSemanaCOT, traerFestivos } from '@/lib/calendar/fetch-day-availability'
+import type { DoctorPin } from '@/lib/agent/doctor-pin'
 
 const TIMEZONE = 'America/Bogota'
 const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -35,6 +36,41 @@ const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves',
 /** Día de la semana en español para una fecha YYYY-MM-DD */
 function spanishDayOfWeek(dateStr: string): string {
   return SPANISH_DAY_NAMES[toZonedTime(parseISO(`${dateStr}T12:00:00-05:00`), TIMEZONE).getDay()]
+}
+
+// ============================================================
+// EL MÉDICO PINEADO — backstop duro
+//
+// Si la paciente nombró un médico, eso dejó de ser texto: es una restricción.
+// El executor rechaza cualquier tool que apunte a otro `doctor_id`, igual que
+// rechaza un tipo de consulta que no corresponde al médico.
+//
+// Existe porque el 2026-08-17 el modelo mandó doctor_id y consultation_type_id
+// AMBOS del médico equivocado — coherentes entre sí, así que la validación que
+// ya había no tenía contra qué contrastarlos. Esta sí: contra lo que pidió la
+// paciente.
+// ============================================================
+function bloqueoPorPinDeMedico(
+  doctorIdPedido: string | undefined | null,
+  pin: DoctorPin | null | undefined,
+): ToolResult | null {
+  if (!pin?.doctor_id || !doctorIdPedido) return null
+  if (doctorIdPedido === pin.doctor_id) return null
+  return {
+    success: false,
+    error: `BLOCKED_BY_DOCTOR_PIN — La paciente pidió cita con ${pin.doctor_name}, no con otro médico.`,
+    data: {
+      pinned_doctor_id: pin.doctor_id,
+      pinned_doctor_name: pin.doctor_name,
+      requested_doctor_id: doctorIdPedido,
+      instruction_for_llm:
+        `La paciente pidió expresamente al ${pin.doctor_name}. NO consultes ni agendes con otro médico ` +
+        `bajo ninguna circunstancia, ni siquiera si el servicio que pidió no existe con él o si otro ` +
+        `médico tiene mejor horario. Volvé a llamar la tool con doctor_id="${pin.doctor_id}". ` +
+        `Si lo que necesita no se puede con ${pin.doctor_name}, decíselo con claridad y escalá con ` +
+        `escalate_to_human — nunca la cambies de médico por tu cuenta.`,
+    },
+  }
 }
 
 // Tipo para el resultado que devolvemos a Claude
@@ -57,15 +93,24 @@ export async function executeTool(
   input: Record<string, unknown>,
   clinicId: string,
   clinic: Clinic,
-  doctor: Doctor
+  doctor: Doctor,
+  /** El médico que la paciente nombró en la conversación, si nombró alguno.
+   *  Restringe TODA tool que apunte a un médico. */
+  pinMedico?: DoctorPin | null
 ): Promise<ToolResult> {
   try {
     switch (toolName) {
       case 'check_availability':
-        return await checkAvailability(input, clinicId, clinic, doctor)
+        return (
+          bloqueoPorPinDeMedico(input.doctor_id as string | undefined, pinMedico) ??
+          (await checkAvailability(input, clinicId, clinic, doctor, pinMedico))
+        )
 
       case 'create_appointment':
-        return await createAppointment(input, clinicId, clinic)
+        return (
+          bloqueoPorPinDeMedico(input.doctor_id as string | undefined, pinMedico) ??
+          (await createAppointment(input, clinicId, clinic, pinMedico))
+        )
 
       case 'get_patient_appointments':
         return await getPatientAppointments(input, clinicId)
@@ -74,7 +119,7 @@ export async function executeTool(
         return await cancelAppointment(input, clinicId)
 
       case 'reschedule_appointment':
-        return await rescheduleAppointment(input, clinicId, clinic)
+        return await rescheduleAppointment(input, clinicId, clinic, pinMedico)
 
       case 'escalate_to_human':
         return await escalateToHuman(input, clinicId)
@@ -134,7 +179,8 @@ async function checkAvailability(
   input: Record<string, unknown>,
   clinicId: string,
   clinic: Clinic,
-  doctorPorDefecto: Doctor
+  doctorPorDefecto: Doctor,
+  pinMedico?: DoctorPin | null
 ): Promise<ToolResult> {
   // 🔴 ¿LA CLÍNICA ESTÁ OPERANDO HOY? Va antes que cualquier otra cosa.
   //
@@ -163,7 +209,10 @@ async function checkAvailability(
   const preferredDate = input.preferred_date as string | undefined
   // ÚNICO uso de `doctorPorDefecto` en toda la función: el fallback cuando el
   // modelo no manda doctor_id. Después de esta línea no se vuelve a tocar.
-  const doctorId = (input.doctor_id as string) || doctorPorDefecto.id
+  // Con pin puesto, el default de la clínica NO aplica: si el modelo omite
+  // doctor_id, el médico es el que pidió la paciente. Sin esta línea el pin se
+  // evadía simplemente no mandando el argumento.
+  const doctorId = (input.doctor_id as string) || pinMedico?.doctor_id || doctorPorDefecto.id
 
   // El médico PEDIDO. De acá salen el nombre, los horarios y el estado de la
   // agenda — no hay otra fuente más abajo.
@@ -525,7 +574,8 @@ async function checkAvailability(
 async function createAppointment(
   input: Record<string, unknown>,
   clinicId: string,
-  clinic: Clinic
+  clinic: Clinic,
+  pinMedico?: DoctorPin | null
 ): Promise<ToolResult> {
   const doctorId = input.doctor_id as string
   const patientName = input.patient_name as string
@@ -578,6 +628,73 @@ async function createAppointment(
             : `NO agendes sin consultation_type_id. El médico tiene ${types.length} tipos agendables: ${types.map((t) => t.name).join(', ')}. Preguntá al paciente cuál necesita y volvé a llamar create_appointment con el consultation_type_id correcto.`,
         },
       }
+    }
+  }
+
+  // ¿EL SERVICIO ES DE ESTE MÉDICO? Va ANTES de todas las reglas del tipo.
+  //
+  // Estaba al final, justo antes del insert, y ese orden tenía un costo que se
+  // vio en producción: a Lina Marcela el agente le preguntó "¿estás embarazada?"
+  // —una regla del servicio de OTRO médico— cuando ella había pedido a Jorge
+  // Darío. Se le hicieron preguntas de un servicio que nunca le correspondía.
+  //
+  // Si el tipo no es de este médico, ninguna de sus reglas aplica: se corta acá.
+  if (consultationTypeId) {
+    const { data: ctDueño } = await supabaseAdmin
+      .from('consultation_types')
+      .select('doctor_id')
+      .eq('id', consultationTypeId)
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+
+    if (ctDueño?.doctor_id && ctDueño.doctor_id !== doctorId) {
+      // CAPA 2 — con pin puesto no hay "cambiémosla de médico": se le devuelve
+      // al modelo el catálogo REAL del médico que pidió la paciente y, si nada
+      // encaja, escala. Ver appointment-agent (corte BLOCKED_BY_DOCTOR_PIN_SERVICE).
+      if (pinMedico?.doctor_id) {
+        const { data: suyos } = await supabaseAdmin
+          .from('consultation_types')
+          .select('id, name')
+          .eq('clinic_id', clinicId)
+          .eq('doctor_id', pinMedico.doctor_id)
+          .eq('is_active', true)
+          .eq('bookable_via_whatsapp', true)
+
+        // Dedup por NOMBRE: el convenio es dimensión de fila, así que el mismo
+        // servicio aparece N veces (una por eps_name). Sin esto, una médica con
+        // 27 filas y 9 servicios reales le devuelve al modelo una lista ilegible.
+        const vistos = new Set<string>()
+        const lista = (suyos ?? [])
+          .filter((c) => { const k = (c.name as string).toLowerCase(); if (vistos.has(k)) return false; vistos.add(k); return true })
+          .map((c) => `${c.name} (tipo_id: ${c.id})`)
+
+        await supabaseAdmin.from('audit_log').insert({
+          clinic_id: clinicId,
+          action: 'servicio_no_existe_con_medico',
+          actor_type: 'agent',
+          target_type: 'consultation_type',
+          target_id: consultationTypeId,
+          details: { pinned_doctor_id: pinMedico.doctor_id, pinned_doctor_name: pinMedico.doctor_name, requested_doctor_id: doctorId },
+        }).then(() => {}, () => {})
+
+        return {
+          success: false,
+          error: 'BLOCKED_BY_DOCTOR_PIN_SERVICE — El tipo de consulta pedido no existe bajo el médico que pidió la paciente.',
+          data: {
+            pinned_doctor_name: pinMedico.doctor_name,
+            servicios_disponibles_con_ese_medico: lista,
+            instruction_for_llm: lista.length > 0
+              ? `Ese servicio NO lo presta ${pinMedico.doctor_name}. NO lo agendes con otro médico. ` +
+                `Estos son los ÚNICOS servicios que él/ella sí atiende: ${lista.join(' · ')}. ` +
+                `Si alguno es lo que la paciente necesita, confirmáselo y agendá ese. Si ninguno lo es, ` +
+                `decíselo con honestidad ("ese servicio no lo atiende ${pinMedico.doctor_name}") y llamá ` +
+                `escalate_to_human para que una persona del consultorio la oriente.`
+              : `${pinMedico.doctor_name} no tiene servicios agendables por WhatsApp. Decíselo a la ` +
+                `paciente y llamá escalate_to_human. NO la agendes con otro médico.`,
+          },
+        }
+      }
+      return { success: false, error: 'Ese tipo de consulta no corresponde al doctor seleccionado. Pregunta al paciente qué tipo de consulta necesita con este doctor.' }
     }
   }
 
@@ -1066,6 +1183,46 @@ async function createAppointment(
       return { success: false, error: 'Tipo de consulta no encontrado. Verifica el ID y ofrece las opciones disponibles al paciente.' }
     }
     if (ctData.doctor_id && ctData.doctor_id !== doctorId) {
+      // CAPA 2 — el servicio no existe bajo el médico que pidió la paciente.
+      //
+      // Éste es el momento exacto donde se rompió el 2026-08-17: la paciente
+      // pidió "control o seguimiento" con Jorge Darío, ese tipo NO existe bajo
+      // él (sí bajo Juan Diego y Angélica), y el modelo —en vez de decirlo— se
+      // mudó de médico. Con pin puesto eso ya no es una opción: se le devuelve
+      // el catálogo REAL del médico pedido y, si nada aplica, escala.
+      if (pinMedico?.doctor_id) {
+        const { data: suyos } = await supabaseAdmin
+          .from('consultation_types')
+          .select('id, name')
+          .eq('clinic_id', clinicId)
+          .eq('doctor_id', pinMedico.doctor_id)
+          .eq('is_active', true)
+          .eq('bookable_via_whatsapp', true)
+
+        // Dedup por NOMBRE: el convenio es dimensión de fila, así que el mismo
+        // servicio aparece N veces (una por eps_name). Sin esto la lista de una
+        // médica con 27 filas y 9 servicios reales sería ilegible para el modelo.
+        const vistos = new Set<string>()
+        const lista = (suyos ?? [])
+          .filter((c) => { const k = (c.name as string).toLowerCase(); if (vistos.has(k)) return false; vistos.add(k); return true })
+          .map((c) => `${c.name} (tipo_id: ${c.id})`)
+        return {
+          success: false,
+          error: 'BLOCKED_BY_DOCTOR_PIN_SERVICE — El tipo de consulta pedido no existe bajo el médico que pidió la paciente.',
+          data: {
+            pinned_doctor_name: pinMedico.doctor_name,
+            servicios_disponibles_con_ese_medico: lista,
+            instruction_for_llm: lista.length > 0
+              ? `Ese servicio NO lo presta ${pinMedico.doctor_name}. NO lo agendes con otro médico. ` +
+                `Estos son los ÚNICOS servicios que él/ella sí atiende: ${lista.join(' · ')}. ` +
+                `Si alguno es lo que la paciente necesita, confirmáselo y agendá ese. Si ninguno lo es, ` +
+                `decíselo con honestidad ("ese servicio no lo atiende ${pinMedico.doctor_name}") y llamá ` +
+                `escalate_to_human para que una persona del consultorio la oriente.`
+              : `${pinMedico.doctor_name} no tiene servicios agendables por WhatsApp. Decíselo a la ` +
+                `paciente y llamá escalate_to_human. NO la agendes con otro médico.`,
+          },
+        }
+      }
       return { success: false, error: 'Ese tipo de consulta no corresponde al doctor seleccionado. Pregunta al paciente qué tipo de consulta necesita con este doctor.' }
     }
     duration = ctData.duration_minutes
@@ -1615,7 +1772,8 @@ async function cancelAppointment(
 async function rescheduleAppointment(
   input: Record<string, unknown>,
   clinicId: string,
-  clinic: Clinic
+  clinic: Clinic,
+  pinMedico?: DoctorPin | null
 ): Promise<ToolResult> {
   const appointmentId = input.appointment_id as string
   const newStartsAt = input.new_starts_at as string
@@ -1630,6 +1788,34 @@ async function rescheduleAppointment(
 
   if (!appointment) {
     return { success: false, error: 'Cita no encontrada' }
+  }
+
+  // ¿Es la cita del médico que pidió la paciente?
+  //
+  // Acá el pin se chequea distinto que en las otras tools: reschedule no recibe
+  // `doctor_id`, hereda el de la cita. El riesgo no es que el modelo apunte a
+  // otro médico, sino que MUEVA la cita equivocada — una paciente con citas con
+  // dos médicos nombra a uno y el modelo reagenda la del otro.
+  //
+  // Por eso NO es un bloqueo terminal: es probable que quiera mover esa otra
+  // cita a propósito. Se le devuelve al modelo para que lo confirme con ella en
+  // palabras, en vez de decidirlo por su cuenta.
+  if (pinMedico?.doctor_id && appointment.doctor_id && appointment.doctor_id !== pinMedico.doctor_id) {
+    const { data: docCita } = await supabaseAdmin
+      .from('doctors').select('name').eq('id', appointment.doctor_id).maybeSingle()
+    return {
+      success: false,
+      error: 'BLOCKED_BY_DOCTOR_PIN_RESCHEDULE — La cita que se intenta mover es de otro médico.',
+      data: {
+        pinned_doctor_name: pinMedico.doctor_name,
+        appointment_doctor_name: docCita?.name ?? 'otro médico',
+        instruction_for_llm:
+          `En esta conversación la paciente nombró a ${pinMedico.doctor_name}, pero la cita que ibas a ` +
+          `reagendar es con ${docCita?.name ?? 'otro médico'}. NO la muevas todavía. Preguntale a ella, ` +
+          `con los dos nombres explícitos, cuál de las dos citas quiere cambiar. Recién con su respuesta ` +
+          `volvé a llamar reschedule_appointment con el appointment_id correcto.`,
+      },
+    }
   }
 
   // Backstop de fecha: ni la cita original ni la nueva pueden estar en el pasado.

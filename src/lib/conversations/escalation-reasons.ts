@@ -48,6 +48,11 @@ export const ESCALATION_REASONS = {
   // — No sabemos, y no es lo mismo que "no hay" —
   UNKNOWN_CONVENIO: 'convenio_no_reconocido',
 
+  // — La paciente pidió un médico y el servicio no existe con él. No es falla
+  //   técnica: el sistema funcionó y la respuesta honesta es "con él no se
+  //   puede". Cambiarla de médico sola es lo que NO se hace. —
+  SERVICE_NOT_WITH_DOCTOR: 'servicio_no_existe_con_medico',
+
   // — La clínica no está operando (contingencia, cierre) —
   CLINIC_NOT_OPERATING: 'clinica_no_operativa',
 
@@ -90,6 +95,7 @@ export const ESCALATION_MECHANISM: Record<EscalationReason, EscalationMechanism>
   [ESCALATION_REASONS.TOOL_ERROR]: 'falla_tecnica',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'falla_tecnica',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'falta_de_dato',
+  [ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR]: 'falta_de_dato',
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'operacion',
   [ESCALATION_REASONS.MEDIA_DISABLED]: 'documento',
   [ESCALATION_REASONS.AUTHORIZATION_REVIEW]: 'documento',
@@ -110,6 +116,7 @@ export const ESCALATION_LABEL: Record<EscalationReason, string> = {
   [ESCALATION_REASONS.TOOL_ERROR]: 'Error técnico de una tool',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'Falla al agendar',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'Convenio que no tenemos registrado',
+  [ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR]: 'El servicio no existe con el médico que pidió',
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'La clínica no está operando',
   [ESCALATION_REASONS.MEDIA_DISABLED]: 'Archivo recibido con recepción deshabilitada',
   [ESCALATION_REASONS.AUTHORIZATION_REVIEW]: 'Autorización recibida, pendiente de revisión',

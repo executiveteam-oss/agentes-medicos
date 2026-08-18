@@ -15,6 +15,7 @@ import { anthropic, CLAUDE_CONFIG } from '@/lib/anthropic/client'
 import { agentTools } from '@/lib/anthropic/tools'
 import { buildSystemPrompt, PROMPT_CACHE_SPLIT_ANCHOR } from '@/agents/prompts/system-prompt'
 import { executeTool } from '@/agents/tools/executor'
+import type { DoctorPin } from '@/lib/agent/doctor-pin'
 import { isHardBookingFailure, isTechnicalError, isUnknownConvenio, isClinicaNoOperativa } from '@/agents/booking-failure'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { formatTimestampColombia } from '@/lib/utils/dates'
@@ -53,6 +54,9 @@ interface AgentParams {
   // que la cita quedó agendada SIN llamar create_appointment. Reinyectamos su
   // propio texto + una corrección para que llame la tool. La paciente NO ve esto.
   selfCorrection?: { priorAssistantText: string; note: string }
+  /** El médico que la paciente nombró (pineado en la conversación). Restringe
+   *  las tools de forma determinista — ver executor.bloqueoPorPinDeMedico. */
+  pinMedico?: DoctorPin | null
 }
 
 export interface AppointmentData {
@@ -272,7 +276,8 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
           toolUse.input as Record<string, unknown>,
           clinic.id,
           clinic,
-          doctor
+          doctor,
+          params.pinMedico ?? null
         )
 
         // Capture appointment data for .ics calendar invite
@@ -307,6 +312,26 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
             toolCalls,
             tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
             escalate: { reason: 'clinica_no_operativa', code: 'CLINICA_NO_OPERATIVA' },
+          }
+        }
+
+        // CAPA 2 — el servicio no existe bajo el médico que pidió la paciente.
+        // Corte propio: el modelo YA recibió el catálogo real de ese médico en
+        // el error y aun así insistió con un servicio que no es suyo. No se le
+        // da una tercera chance de "resolverlo" cambiándola de médico — que es
+        // exactamente lo que hizo el 2026-08-17. La paciente recibe la verdad y
+        // una persona la toma.
+        if (resultObj?.success === false && String(resultObj.error ?? '').startsWith('BLOCKED_BY_DOCTOR_PIN_SERVICE')) {
+          const d = (resultObj.data ?? {}) as { pinned_doctor_name?: string }
+          const quien = d.pinned_doctor_name ?? 'ese médico'
+          console.warn(`[Agent] 🚨 Servicio inexistente bajo ${quien} → escalar, NO cambiar de médico`)
+          return {
+            text: `Ese servicio no lo atiende ${quien}. No quiero agendarte con otro médico sin que vos lo decidas, ` +
+                  `así que ya le pasé tu caso a una persona del consultorio para que te oriente. Te escriben enseguida 🙏`,
+            toolsUsed,
+            toolCalls,
+            tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
+            escalate: { reason: 'servicio_no_existe_con_medico', code: 'BLOCKED_BY_DOCTOR_PIN_SERVICE' },  // ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR
           }
         }
 

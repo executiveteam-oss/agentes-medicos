@@ -177,3 +177,48 @@ export function getWeekDates(monday: Date): Date[] {
     return d
   })
 }
+
+
+// ============================================================
+// ¿LA PACIENTE CONFIRMÓ AL RESPONDER EL RECORDATORIO?
+//
+// Sale de `appointments.reminder_confirmed`, el MISMO dato que alimenta la fila
+// "Confirmación" del panel de detalle. Una sola fuente para la pregunta.
+//
+// Es una dimensión ORTOGONAL al estado de la cita: una cita puede estar
+// Agendada y confirmada, o Agendada y rechazada. Por eso NO se pinta con el
+// mismo mecanismo que el estado —el fondo de la píldora sigue siendo suyo— sino
+// encima: un símbolo, y para el caso malo también el borde izquierdo.
+//
+// Y es ASIMÉTRICO a propósito. "Confirmó" es la buena noticia y le alcanza un
+// ✓ discreto. "No confirmó" es la que la secretaria tiene que cazar barriendo
+// la columna con la vista para llamarla o liberar el cupo, así que grita.
+//
+// Los colores esquivan los seis que ya significan algo: violeta (agendada),
+// ámbar (reagendada), verde (completada / "atiende" en la grilla), rojo oscuro
+// (no-show), rosa (cupo compartido / cerrado) y gris (cancelada / fuera de
+// horario). Teal y rojo-naranja saturado quedaban libres.
+// ============================================================
+export interface MarcaConfirmacion {
+  color: string
+  simbolo: string
+  label: string
+  /** true = además del símbolo, tiñe el borde izquierdo. Solo el caso malo. */
+  resalta: boolean
+}
+
+export const CONFIRMO: MarcaConfirmacion = {
+  color: '#0E7C86', simbolo: '✓', label: 'Confirmó', resalta: false,
+}
+export const NO_CONFIRMO: MarcaConfirmacion = {
+  color: '#D4351C', simbolo: '✕', label: 'No confirmó', resalta: true,
+}
+
+/** null = sin respuesta o sin recordatorio → se ve como hoy, SIN cambio.
+ *  Es la abrumadora mayoría (2.929 de 2.933 al escribir esto) y no puede
+ *  leerse como un problema. */
+export function marcaConfirmacion(reminderConfirmed: boolean | null | undefined): MarcaConfirmacion | null {
+  if (reminderConfirmed === true) return CONFIRMO
+  if (reminderConfirmed === false) return NO_CONFIRMO
+  return null
+}

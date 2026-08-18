@@ -9,7 +9,7 @@ import { Calendar, XCircle } from 'lucide-react'
 import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
-import { STATUS_STYLES, etiquetaEstado, toDateStr, MONTHS_ES } from './types'
+import { STATUS_STYLES, etiquetaEstado, toDateStr, MONTHS_ES, marcaConfirmacion } from './types'
 
 /** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
 function toTitleCase(str: string): string {
@@ -147,6 +147,10 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
             const st = STATUS_STYLES[apt.status] ?? STATUS_STYLES.confirmed
             const patientName = toTitleCase(patient?.name ?? apt.reason ?? 'Sin nombre')
 
+            // Solo el caso malo tiñe el borde: "confirmó" ya se lee en el ✓.
+            const marca = marcaConfirmacion(apt.reminder_confirmed)
+            const resalta = marca?.resalta ? marca : null
+
             return (
               <div key={apt.id} style={{ borderBottom: '1px solid var(--v2-border-soft)' }}>
                 <button
@@ -158,8 +162,10 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
                     alignItems: 'center',
                     gap: '12px',
                     padding: '12px 20px',
-                    background: 'none',
+                    background: resalta ? 'rgba(212,53,28,0.06)' : 'none',
                     border: 'none',
+                    // DESPUÉS de `border: none`, si no lo pisa.
+                    borderLeft: resalta ? `4px solid ${resalta.color}` : '4px solid transparent',
                     textAlign: 'left',
                     transition: 'background 0.1s',
                     fontFamily: 'var(--font-manrope), sans-serif',
@@ -200,6 +206,15 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
                   {/* Info */}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: '13.5px', fontWeight: 700, color: apt.attendance_outcome === 'inasistente' ? 'var(--v2-text-subtle)' : 'var(--v2-text)', textDecoration: apt.attendance_outcome === 'inasistente' ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {/* ✓/✕ de confirmación — ver marcaConfirmacion en ./types */}
+                      {marcaConfirmacion(apt.reminder_confirmed) && (
+                        <span
+                          title={marcaConfirmacion(apt.reminder_confirmed)!.label}
+                          style={{ color: marcaConfirmacion(apt.reminder_confirmed)!.color, fontWeight: 800, marginRight: '5px' }}
+                        >
+                          {marcaConfirmacion(apt.reminder_confirmed)!.simbolo}
+                        </span>
+                      )}
                       {patientName}
                     </p>
                     {doctor && <p style={{ fontSize: '11px', color: 'var(--v2-text-subtle)' }}>{doctor.name}</p>}

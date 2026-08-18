@@ -8,7 +8,7 @@ import { Tooltip } from '@/components/ui/tooltip'
 import { AppointmentDetail } from './appointment-detail'
 import type { CalendarAppointment } from './types'
 import { estadoDeFranja, motivoParaConfirmar, type EstadoFranja, type DisponibilidadDelDia } from '@/lib/calendar/day-availability'
-import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, etiquetaEstado, esCupoCompartido } from './types'
+import { DAYS_ES, HOURS, getMonday, getWeekDates, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, etiquetaEstado, esCupoCompartido, marcaConfirmacion } from './types'
 
 /** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
 function toTitleCase(str: string): string {
@@ -218,6 +218,10 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                       {/* Appointment cells */}
                       {hourAppts.map((apt) => {
                         const colors = STATUS_CELL_COLORS[apt.status] ?? STATUS_CELL_COLORS.confirmed
+                        // El FONDO sigue siendo del estado; el borde izquierdo pasa a
+                        // la confirmación solo cuando la paciente dijo que no va.
+                        const marcaConf = marcaConfirmacion(apt.reminder_confirmed)
+                        const bordeConf = marcaConf?.resalta ? marcaConf.color : null
                         const minutes = getColombiaMinutes(apt.starts_at)
                         const topPx = minutes * PX_PER_MIN
 
@@ -293,8 +297,8 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                                 transition: 'box-shadow 0.1s',
                                 fontFamily: 'var(--font-manrope), sans-serif',
                                 borderLeftStyle: 'solid',
-                                borderLeftWidth: '3px',
-                                borderLeftColor: colors.border,
+                                borderLeftWidth: bordeConf ? '5px' : '3px',
+                                borderLeftColor: bordeConf ?? colors.border,
                                 display: 'flex',
                                 flexDirection: 'column',
                                 // flex-start, NO center: con center el excedente se recorta
@@ -307,6 +311,11 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                               onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none' }}
                             >
                               <p style={{ fontSize, fontWeight: 700, color: 'var(--v2-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: 1.2 }}>
+                                {marcaConf && (
+                                  <span title={marcaConf.label} style={{ color: marcaConf.color, fontWeight: 800, marginRight: '3px' }}>
+                                    {marcaConf.simbolo}
+                                  </span>
+                                )}
                                 {patientName}
                               </p>
                               {showSecondLine && (

@@ -16,7 +16,7 @@ import { DoctorSelector, getStoredDoctorId, storeDoctorId } from './calendar/doc
 import { getAppointmentForCalendar } from '@/app/actions/appointments'
 import { AppointmentFormModal } from './appointment-form-modal'
 import type { CalendarAppointment, CalendarDoctor, ViewMode } from './calendar/types'
-import { parseLocalDate, toDateStr, getColombiaDateStr, DAYS_FULL_ES, MONTHS_ES, getMonday, DOCTOR_COLORS } from './calendar/types'
+import { parseLocalDate, toDateStr, getColombiaDateStr, DAYS_FULL_ES, MONTHS_ES, getMonday, DOCTOR_COLORS, CONFIRMO, NO_CONFIRMO } from './calendar/types'
 import { ConfirmarFueraHorarioModal } from './calendar/confirmar-fuera-horario-modal'
 import type { DisponibilidadDelDia, EstadoFranja } from '@/lib/calendar/day-availability'
 import { getDisponibilidadAgenda } from '@/app/actions/availability'
@@ -375,22 +375,36 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
         </div>
       </div>
 
-      {/* ===== Status legend (only for single-doctor view) ===== */}
-      {doctorFilter !== 'all' && (
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '11px', fontWeight: 500, color: 'var(--v2-text-subtle)' }}>
-          {[
-            { label: 'Agendada', color: '#534AB7' },
-            { label: 'Reagendada', color: '#BA7517' },
-            { label: 'Completada', color: '#1D9E75' },
-            { label: 'No-show', color: '#A32D2D' },
-          ].map((s) => (
-            <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color }} />
-              {s.label}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* ===== Leyenda de estados — SIEMPRE visible =====
+          Antes sólo aparecía con un médico filtrado, y la vista por defecto es
+          "todos": los colores quedaban sin explicación justo donde más gente
+          los mira. Un color nuevo sin leyenda visible no sirve de nada. */}
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '11px', fontWeight: 500, color: 'var(--v2-text-subtle)', alignItems: 'center' }}>
+        {[
+          { label: 'Agendada', color: '#534AB7' },
+          { label: 'Reagendada', color: '#BA7517' },
+          { label: 'Completada', color: '#1D9E75' },
+          { label: 'No-show', color: '#A32D2D' },
+        ].map((s) => (
+          <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color }} />
+            {s.label}
+          </span>
+        ))}
+
+        {/* Respuesta al recordatorio — otra dimensión, separada con un divisor
+            para que no se lea como un estado más de la cita. */}
+        <span style={{ width: '1px', height: '12px', background: 'var(--v2-border-soft)' }} />
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="La paciente respondió que sí al recordatorio">
+          <span style={{ color: CONFIRMO.color, fontWeight: 800 }}>{CONFIRMO.simbolo}</span>
+          {CONFIRMO.label}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="La paciente respondió que NO va — hay que llamarla o liberar el cupo">
+          <span style={{ display: 'inline-block', width: '4px', height: '12px', background: NO_CONFIRMO.color, borderRadius: '1px' }} />
+          <span style={{ color: NO_CONFIRMO.color, fontWeight: 800 }}>{NO_CONFIRMO.simbolo}</span>
+          {NO_CONFIRMO.label}
+        </span>
+      </div>
 
       {/* Leyenda de la GRILLA — qué significa cada fondo. Sin esto los colores
           son adivinanza: el reporte que originó esto fue justamente "no sabía si

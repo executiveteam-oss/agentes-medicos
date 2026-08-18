@@ -479,6 +479,23 @@ rediseñar el contrato de salida del agente, con riesgo propio: hay que
 verificar que ningún mensaje pre-tool legítimo se pierda. No es de una línea, y
 por eso está acá y no como comentario suelto.
 
+### Menor — dos citas el mismo día = dos recordatorios casi idénticos
+
+El recordatorio se arma **por cita**, no por paciente. Quien tiene dos citas el
+mismo día recibe dos mensajes que sólo se diferencian en la hora y el médico.
+
+Ya pasó dos veces el 2026-08-18: Natalia Gaviria (7:00 con Jorge y 7:30 con
+Juan Diego — dos consultas seguidas, legítimo) y Diana Milena Puerta (dos citas
+a la MISMA hora con médicos distintos, que además es un dato imposible y hay
+que revisar aparte).
+
+Debería salir **un** mensaje con las dos citas listadas. Ojo al construirlo:
+`reminder_24h_sent` es por fila de `appointments`, así que agrupar implica
+marcar todas las citas del grupo cuando se manda el mensaje único — y que un
+fallo de envío no deje la mitad marcada.
+
+Prioridad baja: molesta, no engaña.
+
 ### Menor — la regla de condición pregunta sin mirar a quién
 
 `consultation_type_rules` con `rule_type='patient_condition'` dispara su

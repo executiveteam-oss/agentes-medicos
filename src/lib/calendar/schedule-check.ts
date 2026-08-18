@@ -140,3 +140,52 @@ export function fraseDiasQueAtiende(workingHours: unknown | null): string {
   if (mismoRango) return `${lista} de ${dias[0].desde} a ${dias[0].hasta}`
   return dias.map((d) => `${d.dia} de ${d.desde} a ${d.hasta}`).join(', ')
 }
+
+
+/**
+ * Las PRÓXIMAS fechas concretas en que el médico atiende.
+ *
+ * Existe por el mismo motivo que `diasQueAtiende`, una capa más abajo. Con los
+ * días ya resueltos, el agente pasó a decir bien "lunes, miércoles y viernes"
+ * — y acto seguido inventó las fechas: "lunes 19, miércoles 21 o viernes 22 de
+ * agosto", cuando el 19 era miércoles, el 21 viernes y el 22 sábado. Los tres
+ * mal. Volvió a componer un dato que nadie le había dado.
+ *
+ * Devuelve la fecha ya formateada para que el modelo la copie, no la arme.
+ * Trabaja en COT: la fecha se construye a mediodía con offset explícito, si no
+ * `new Date('YYYY-MM-DD')` cae en UTC y en Vercel corre el día.
+ */
+const NOMBRE_MES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+
+export interface FechaAtendida { fecha: string; texto: string }
+
+export function proximasFechasQueAtiende(
+  workingHours: unknown | null,
+  desdeISO: string,
+  cantidad = 3,
+): FechaAtendida[] {
+  const activos = new Set(diasQueAtiende(workingHours).map((d) => d.dia))
+  if (activos.size === 0) return []
+
+  const out: FechaAtendida[] = []
+  // Se empieza en el día SIGUIENTE al pedido: si preguntó por el jueves, no
+  // tiene sentido devolverle el jueves.
+  for (let i = 1; i <= 60 && out.length < cantidad; i++) {
+    const base = new Date(`${desdeISO}T12:00:00-05:00`)
+    if (Number.isNaN(base.getTime())) return []
+    base.setDate(base.getDate() + i)
+
+    const y = base.getFullYear()
+    const m = base.getMonth()
+    const d = base.getDate()
+    const iso = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    const nombre = DAY_KEYS[new Date(`${iso}T12:00:00-05:00`).getDay()]
+    const dia = ({ sunday: 'domingo', monday: 'lunes', tuesday: 'martes', wednesday: 'miércoles',
+      thursday: 'jueves', friday: 'viernes', saturday: 'sábado' } as Record<string, string>)[nombre]
+
+    if (!activos.has(dia)) continue
+    out.push({ fecha: iso, texto: `${dia} ${d} de ${NOMBRE_MES[m]}` })
+  }
+  return out
+}

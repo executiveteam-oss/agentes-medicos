@@ -16,7 +16,7 @@ import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
-import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart, fraseDiasQueAtiende } from '@/lib/calendar/schedule-check'
+import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart, fraseDiasQueAtiende, proximasFechasQueAtiende } from '@/lib/calendar/schedule-check'
 import { isSlotFree, BUSY_STATUSES, type BusyAppointment } from '@/lib/calendar/slot-availability'
 import { generateTimeSlots } from '@/lib/calendar/time-slots'
 import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
@@ -443,6 +443,12 @@ async function checkAvailability(
     // que preguntó". Una paciente puede presentarse un sábado con la clínica
     // cerrada.
     const diasReales = fraseDiasQueAtiende(medico?.working_hours ?? null)
+    // Y las FECHAS concretas, no sólo los días. Con los días ya resueltos el
+    // modelo pasó a decir bien "lunes, miércoles y viernes" y acto seguido
+    // inventó "lunes 19, miércoles 21 o viernes 22": los tres caían en otra
+    // fecha. Se le da el dato compuesto para que lo copie, no lo arme.
+    const proximas = proximasFechasQueAtiende(medico?.working_hours ?? null, dateStr, 3)
+    const listaFechas = proximas.map((f) => f.texto).join(', ')
     return {
       success: true,
       data: {
@@ -451,11 +457,12 @@ async function checkAvailability(
         dayOfWeek: dow,
         doctor_name: medico?.name ?? null,
         dias_que_atiende: diasReales || null,
+        proximas_fechas: proximas.length > 0 ? proximas : null,
         reason: diasReales
           ? `El doctor no atiende ese día (${dow}). Atiende ${diasReales}.`
           : `El doctor no atiende ese día (${dow}).`,
         instruction_for_llm: diasReales
-          ? `Decile a la paciente EXACTAMENTE estos días y NINGÚN otro: ${diasReales}. No agregues días que no estén en esa lista ni deduzcas cuáles son por descarte.`
+          ? `Decile a la paciente EXACTAMENTE estos días y NINGÚN otro: ${diasReales}. No agregues días que no estén en esa lista ni deduzcas cuáles son por descarte.` + (listaFechas ? ` Si le ofrecés FECHAS concretas, usá SOLO éstas, copiadas tal cual: ${listaFechas}. NUNCA calcules vos qué fecha cae en cada día — ya pasó y las tres estaban mal.` : '')
           : 'Este médico no tiene días de atención cargados. NO inventes ninguno: decile que lo verificás con el consultorio y usá escalate_to_human.',
       },
     }

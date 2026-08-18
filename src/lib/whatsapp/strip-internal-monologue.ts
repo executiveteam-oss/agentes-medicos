@@ -45,6 +45,14 @@ const PATRONES_INTERNOS: RegExp[] = [
   // El "ID de la cita" es vocabulario del sistema: una paciente nunca lo pide
   // ni lo necesita, así que un texto que lo menciona no era para ella.
   /\b(id|identificador)\s+(interno\s+)?(de\s+)?(la\s+|el\s+)?(cita|paciente|consulta|registro)\b/i,
+  // El modelo narrando que el SISTEMA le rechazó algo. Salió a una paciente:
+  // "Disculpa, acabo de verificar y veo que el Dr. Jorge Dario está
+  // identificado en el sistema con otro ID. Déjame revisar sus horarios
+  // correctamente:". Es el pin del médico rebotándolo, contado en voz alta.
+  /\b(en el sistema|del sistema)\b[^.]*\b(id|identificado|registrado)\b/i,
+  /\bacabo de\s+(verificar|revisar|comprobar|chequear)\b/i,
+  // Se corrige a sí mismo en voz alta: "déjame revisar … correctamente".
+  /\b(déjame|dejame|permíteme|permitime)\s+(revisar|verificar|buscar|consultar)\b[^.]*\b(correctamente|de nuevo|otra vez|nuevamente)\b/i,
 ]
 
 /** ¿Este bloque de texto es monólogo interno? */

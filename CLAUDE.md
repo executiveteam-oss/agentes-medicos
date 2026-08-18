@@ -448,6 +448,21 @@ Ojo con la distinción, que es fácil de mezclar: `proactive_contact_opt_in` es 
 (por dónde se la contacta). `patients.data_consent_at` es el consentimiento de **tratamiento de
 datos**, y es otro gate, con su propia Capa 0. Resolver uno no toca al otro.
 
+### Menor — la regla de condición pregunta sin mirar a quién
+
+`consultation_type_rules` con `rule_type='patient_condition'` dispara su
+pregunta a cualquiera que pida ese servicio. El 2026-08-18 el agente le
+preguntó **"¿estás embarazada actualmente?" a un usuario hombre**.
+
+No es un bug de la regla: la regla hace lo que dice. Falta que la pregunta
+pueda condicionarse a algo del paciente —`patients.gender`, la edad— o que se
+formule de modo que no dé por sentado quién está del otro lado. Hoy
+`condition_config` no tiene dónde expresar eso.
+
+Prioridad baja: no bloquea ni agenda mal, pero es de las cosas que la paciente
+—o el paciente— cuenta después. Cuando se toque, ojo con el default seguro que
+ya existe: **ante respuesta ambigua se deriva**, y eso no se cambia.
+
 ### SEC-001 — Credenciales en texto plano
 
 `clinics.whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token` y

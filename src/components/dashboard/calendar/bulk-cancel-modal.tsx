@@ -27,10 +27,23 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
   const [internalReason, setInternalReason] = useState('')
   const [patientReason, setPatientReason] = useState('')
   const [createBlock, setCreateBlock] = useState(true)
+  // Confirmación PROPIA para el bloqueo sin médico filtrado. No alcanza con el
+  // doble clic normal: bloquear a toda la clínica y bloquear a un médico se
+  // hacían con los mismos dos clics, y la diferencia no estaba escrita en
+  // ningún lado. Ver `alcanceEsTodaLaClinica`.
+  const [entiendoAlcance, setEntiendoAlcance] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [confirmed, setConfirmed] = useState(false)
 
+  // Sin médico filtrado, `doctorId` va null — y un blocked_dates con doctor_id
+  // null aplica a TODOS los médicos de la clínica ese día (lo lee así
+  // fetch-day-availability y también el executor). Era el daño silencioso: el
+  // botón dice "cancelar citas" y de paso cerraba la agenda de todo el mundo.
+  const alcanceEsTodaLaClinica = !doctorId && createBlock
+
+
   function handleSubmit() {
+    if (alcanceEsTodaLaClinica && !entiendoAlcance) return
     if (!confirmed) {
       setConfirmed(true)
       return
@@ -184,8 +197,10 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
           }}
         >
           <div>
-            <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>Bloquear agenda del dia</p>
-            <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)' }}>El agente no ofrecera nuevos slots ese dia</p>
+            <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>
+              {doctorId ? `Bloquear el día de ${doctorName ?? 'este médico'}` : 'Bloquear el día de TODA la clínica'}
+            </p>
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)' }}>El agente no va a ofrecer cupos nuevos ese día</p>
           </div>
           <button
             onClick={() => setCreateBlock(!createBlock)}
@@ -195,6 +210,43 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
           />
         </div>
 
+        {/* Alcance clínica — confirmación PROPIA, distinta del doble clic normal.
+            Va acá y no como nota al costado: el aviso tiene que estar en el
+            camino, no al lado del camino. */}
+        {alcanceEsTodaLaClinica && (
+          <div
+            style={{
+              padding: '14px', borderRadius: 'var(--v2-radius)',
+              background: 'var(--v2-red-soft)', border: '1px solid var(--v2-red)',
+              marginBottom: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
+              <AlertTriangle size={16} style={{ color: 'var(--v2-red)', flexShrink: 0, marginTop: '1px' }} />
+              <div>
+                <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-red)' }}>
+                  No hay ningún médico filtrado
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--v2-text)', marginTop: '2px', lineHeight: 1.45 }}>
+                  El bloqueo va a cerrar el día para <strong>TODOS los médicos</strong> de la clínica,
+                  no solo para uno. Nadie va a poder agendar ese día hasta que lo quites.
+                  Si querías cerrar el día de un solo médico, volvé y filtrá la agenda por él.
+                </p>
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)' }}>
+              <input
+                type="checkbox"
+                checked={entiendoAlcance}
+                onChange={(e) => setEntiendoAlcance(e.target.checked)}
+                disabled={isPending}
+                style={{ width: '16px', height: '16px', accentColor: 'var(--v2-red)', cursor: 'pointer' }}
+              />
+              Entiendo que se bloquea para todos los médicos
+            </label>
+          </div>
+        )}
+
         {/* Footer */}
         <div style={{ display: 'flex', gap: '10px' }}>
           <button onClick={onClose} disabled={isPending} className="btn-v2-secondary" style={{ flex: 1, fontSize: '13px' }}>
@@ -202,12 +254,12 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
           </button>
           <button
             onClick={handleSubmit}
-            disabled={isPending || !internalReason.trim()}
+            disabled={isPending || !internalReason.trim() || (alcanceEsTodaLaClinica && !entiendoAlcance)}
             style={{
               flex: 1, fontSize: '13px', fontWeight: 700, padding: '10px 18px',
               borderRadius: 'var(--v2-radius)', border: 'none', cursor: 'pointer',
               background: confirmed ? 'var(--v2-red)' : 'linear-gradient(135deg, var(--v2-red), #FF7B7B)',
-              color: '#fff', opacity: isPending || !internalReason.trim() ? 0.5 : 1,
+              color: '#fff', opacity: isPending || !internalReason.trim() || (alcanceEsTodaLaClinica && !entiendoAlcance) ? 0.5 : 1,
               fontFamily: 'var(--font-manrope), sans-serif',
             }}
           >

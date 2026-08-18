@@ -5,10 +5,11 @@
 import { useState } from 'react'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { formatTimeForPatient } from '@/lib/utils/dates'
-import { Calendar, XCircle } from 'lucide-react'
+import { Calendar, XCircle, Lock } from 'lucide-react'
 import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
+import type { DisponibilidadDelDia } from '@/lib/calendar/day-availability'
 import { STATUS_STYLES, etiquetaEstado, toDateStr, MONTHS_ES, marcaConfirmacion } from './types'
 
 /** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
@@ -29,12 +30,17 @@ interface Props {
   doctorFilter?: string  // 'all' or doctor_id
   doctorName?: string | null
   surveyConfig?: SurveyPropsForQuickActions
+  /** Disponibilidad del día para el médico filtrado. Sin médico filtrado va
+   *  undefined: no se puede afirmar el horario de nadie en particular. */
+  disponibilidadDelDia?: DisponibilidadDelDia
+  /** Releer la disponibilidad tras bloquear, sin recargar la página. */
+  onAgendaCambiada?: () => void
 }
 
 
 
 
-export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig }: Props) {
+export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig, disponibilidadDelDia, onAgendaCambiada }: Props) {
   const dateStr = toDateStr(date)
   const isToday = dateStr === todayStr
   const [showBulkCancel, setShowBulkCancel] = useState(false)
@@ -50,6 +56,38 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
 
   return (
     <div style={{ fontFamily: 'var(--font-manrope), sans-serif' }} className="space-y-4">
+      {/* Día cerrado — el MISMO rosa rayado que usa la vista de semana para
+          `bloqueado`. El rayado no es adorno: distingue "cerrado a propósito"
+          de "no hay nada agendado". Sin esto, un día bloqueado y un día vacío
+          se veían igual en la vista de día. */}
+      {disponibilidadDelDia?.bloqueo && (
+        <div
+          title={disponibilidadDelDia.bloqueo.motivo ?? 'Día cerrado'}
+          style={{
+            padding: '12px 14px', borderRadius: 'var(--v2-radius)',
+            border: '1px solid rgba(163,48,107,0.35)',
+            background: 'rgba(163,48,107,0.10)',
+            backgroundImage: 'repeating-linear-gradient(135deg, rgba(163,48,107,0.14) 0 5px, transparent 5px 10px)',
+            display: 'flex', alignItems: 'center', gap: '8px',
+          }}
+        >
+          <Lock size={14} style={{ color: '#A3306B', flexShrink: 0 }} />
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: '13px', fontWeight: 700, color: '#A3306B' }}>
+              Día cerrado{doctorName ? ` · ${toTitleCase(doctorName)}` : ''}
+            </p>
+            {disponibilidadDelDia.bloqueo.motivo && (
+              <p style={{ fontSize: '12px', color: 'var(--v2-text)', marginTop: '1px' }}>
+                {disponibilidadDelDia.bloqueo.motivo}
+              </p>
+            )}
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '1px' }}>
+              El agente no ofrece cupos este día
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Stat cards + bulk cancel button */}
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
         {/* minWidth:0 — sin esto la grilla no se achica por debajo del ancho de
@@ -99,8 +137,14 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
           onClose={() => setShowBulkCancel(false)}
           onDone={(cancelled, notified) => {
             setShowBulkCancel(false)
-            setToast(`${cancelled} citas canceladas · ${notified} pacientes notificados`)
-            setTimeout(() => { setToast(null); window.location.reload() }, 3000)
+            setToast(cancelled > 0
+              ? `${cancelled} citas canceladas · ${notified} pacientes notificados`
+              : 'Día bloqueado')
+            // Sin reload: las citas llegan por Realtime y el bloqueo lo trae
+            // onAgendaCambiada. La grilla tiene que cambiar sola — si hay que
+            // recargar para ver el resultado, no se sabe si funcionó.
+            onAgendaCambiada?.()
+            setTimeout(() => setToast(null), 3000)
           }}
         />
       )}

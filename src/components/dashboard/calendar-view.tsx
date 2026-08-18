@@ -267,6 +267,17 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
     return () => { vigente = false }
   }, [doctorFilter, semanaVisible])
 
+  // Releer la disponibilidad SIN recargar la página. Las citas ya viajan por
+  // Realtime, pero `blocked_dates` no está en la publicación: sin esto, la
+  // secretaria bloqueaba un día y la grilla seguía idéntica — que es
+  // exactamente "no sé si funcionó". Antes acá había un window.location.reload().
+  const recargarDisponibilidad = useCallback(() => {
+    if (doctorFilter === 'all') return
+    getDisponibilidadAgenda(doctorFilter, semanaVisible)
+      .then(setDisponibilidad)
+      .catch(() => { /* la grilla se queda con lo último bueno */ })
+  }, [doctorFilter, semanaVisible])
+
   // Confirmación pendiente cuando el clic cayó en una celda cerrada.
   const [confirmarFuera, setConfirmarFuera] = useState<
     { date: string; hour: number; estado: EstadoFranja; motivo: string } | null
@@ -441,6 +452,8 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           doctorFilter={doctorFilter}
           doctorName={doctorFilter !== 'all' ? (doctors.find((d) => d.id === doctorFilter)?.name ?? null) : null}
           surveyConfig={surveyConfig}
+          disponibilidadDelDia={doctorFilter !== 'all' ? disponibilidad[toDateStr(selectedDate)] : undefined}
+          onAgendaCambiada={recargarDisponibilidad}
         />
       )}
       {view === 'week' && (

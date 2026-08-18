@@ -379,6 +379,39 @@ conjunto y políticas con `IN`). No alcanza con cambiar el `ORDER BY`.
 pisamos igual — porque nadie abre ese archivo antes de escribir una migración. Si esta deuda
 también termina solo ahí, se repite.
 
+### 🔴 Ningún cron filtra por estado de clínica — RESOLVER ANTES DE VENDER EL SEGUNDO CLIENTE
+
+**Misma familia que el `LIMIT 1` de arriba, y revientan el mismo día.** Las dos son deudas que
+hoy no duelen porque hay un solo cliente real: una elige tenant a dedo cuando hay dos, la otra
+procesa a todos los tenants como si fueran uno. Las dos se cobran con el segundo cliente.
+**Antes de vender, las dos.**
+
+Ningún cron filtra las clínicas que procesa. `send-reminders`, `survey-post-consulta`,
+`reactivacion`, `morning-report`, `weekly-report` y `post-consulta` hacen `.select(...)` sobre
+`clinics` **sin una sola condición**: cada corrida barre las 20 filas de la tabla — clientes
+reales, demos, pruebas y los seis duplicados de "Los Puchis".
+
+Y no existe el campo con el que filtrar: **`clinics` no tiene `is_active`**. Lo más cercano es
+`subscription_status` (default `'trial'`, nunca se lee para esto) y los flags de
+`feature_config`.
+
+Hoy no hace daño **por accidente**: casi ninguna de esas clínicas tiene credenciales de WhatsApp,
+así que los envíos hacen `skip` antes de mandar nada. Es una barrera lateral, no una decisión —
+el día que alguien cargue credenciales en una clínica de prueba, esa prueba le escribe a
+pacientes reales.
+
+Ya dejó rastro: "Centro Médico Bolívar" (demo) tenía credenciales válidas y un teléfono
+imposible, y **cada cron intentaba el envío todos los días** y escribía un `whatsapp_send_failed`
+por corrida — tapando con ruido el log que existe para detectar fallos de entrega reales. Se
+desactivó a mano el 2026-08-18 (credenciales a NULL + `feature_config.agent/dashboard` en false),
+que es un parche por fila, no una solución.
+
+Cuando se resuelva: `clinics.is_active` (o `subscription_status` leído de verdad), el filtro en
+los seis crons, y un default seguro — una clínica nueva **no** entra en los procesos automáticos
+hasta que alguien la active. Y ojo con lo mismo de siempre: verde procesando cero no verifica
+nada, así que al agregar el filtro hay que contar cuántas clínicas quedan dentro y confirmar que
+son las que se esperaba.
+
 ### SEC-001 — Credenciales en texto plano
 
 `clinics.whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token` y

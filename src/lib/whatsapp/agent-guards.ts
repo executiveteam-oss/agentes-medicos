@@ -238,3 +238,160 @@ export function detectDoctorNameMismatch(args: {
   }
   return { blocked: false }
 }
+
+// ============================================================
+// GUARD 6: días, fechas y horarios que no salieron de una tool
+//
+// REQUISITO: el agente no le afirma a una paciente ningún día, fecha ni horario
+// que no haya salido de una tool en ESE turno.
+//
+// Sale de dos casos reales del 2026-08-18, uno arriba del otro:
+//   "Atiende lunes, martes, miércoles, viernes y sábado"  (atiende L-X-V)
+//   "lunes 19, miércoles 21 o viernes 22 de agosto"       (19=X, 21=V, 22=S)
+// Se le dio el dato compuesto en la tool y el modelo mejoró, pero eso es capa
+// A. Esto es capa B: se contrasta lo que escribió contra lo que la tool dijo.
+//
+// LOS TRES CHEQUEOS NO PESAN IGUAL, y eso es deliberado:
+//   1. fecha ↔ día    → DURO. "lunes 19" es verificable sin ninguna tool: o el
+//                       19 es lunes o no lo es.
+//   2. días atendidos → DURO, pero SOLO sobre afirmaciones positivas. "no
+//                       atiende los martes" es correcto y no se toca.
+//   3. horas          → ACOTADO. Sólo si el turno llamó check_availability Y el
+//                       mensaje ofrece una lista de horarios. Fuera de ahí no
+//                       opina, porque confirmar una cita ("quedó a las 8:15") y
+//                       recordarla ("tenés cita a las 2:00") son la mitad de lo
+//                       que hace el agente y sus horas vienen de OTRAS tools.
+//                       Compara por MINUTOS, no por texto: "8:15 AM" y "8:15 de
+//                       la mañana" son la misma hora.
+// ============================================================
+
+const MESES_ES: Record<string, number> = {
+  enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
+  julio: 6, agosto: 7, septiembre: 8, setiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
+}
+const DIAS_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado']
+const DIA_A_INDICE: Record<string, number> = {
+  domingo: 0, lunes: 1, martes: 2, miércoles: 3, miercoles: 3, jueves: 4, viernes: 5, sábado: 6, sabado: 6,
+}
+
+/** "lunes 19 de agosto" → { dia:'lunes', d:19, mes:7 }. Sin día nombrado, no
+ *  hay nada que validar y se ignora. */
+export function fechasConDiaEnTexto(texto: string): { crudo: string; dia: string; d: number; mes: number }[] {
+  const re = new RegExp(`\\b(${DIAS_ES.join('|')})\\s+(\\d{1,2})\\s+de\\s+(${Object.keys(MESES_ES).join('|')})\\b`, 'gi')
+  const out: { crudo: string; dia: string; d: number; mes: number }[] = []
+  for (const m of texto.matchAll(re)) {
+    out.push({ crudo: m[0], dia: m[1].toLowerCase(), d: Number(m[2]), mes: MESES_ES[m[3].toLowerCase()] })
+  }
+  return out
+}
+
+/** Los días que el texto afirma que SÍ se atiende. Ignora negaciones. */
+export function diasAfirmadosEnTexto(texto: string): string[] {
+  const out = new Set<string>()
+  // Se corta en el punto: cada oración se juzga sola.
+  for (const oracion of texto.split(/[.\n]/)) {
+    const o = oracion.toLowerCase()
+    if (!/\b(atiende|atienden|consulta los|disponible los)\b/.test(o)) continue
+    if (/\bno\s+(atiende|atienden|consulta)\b/.test(o)) continue   // "no atiende los martes" es correcto
+    for (const d of DIAS_ES) {
+      if (new RegExp(`\\b${d}\\b`).test(o)) out.add(d.replace('miercoles', 'miércoles').replace('sabado', 'sábado'))
+    }
+  }
+  return [...out]
+}
+
+/** Horas del texto, en minutos desde medianoche. Entiende 12h con AM/PM. */
+export function horasEnTexto(texto: string): { crudo: string; minutos: number }[] {
+  const out: { crudo: string; minutos: number }[] = []
+  const re = /\b(\d{1,2})[:.](\d{2})\s*(a\.?m\.?|p\.?m\.?|de la mañana|de la tarde|de la noche)?/gi
+  for (const m of texto.matchAll(re)) {
+    let h = Number(m[1]); const min = Number(m[2])
+    if (h > 23 || min > 59) continue
+    const suf = (m[3] ?? '').toLowerCase().replace(/[.\s]/g, '')
+    if ((suf.startsWith('pm') || suf.includes('tarde') || suf.includes('noche')) && h < 12) h += 12
+    if ((suf.startsWith('am') || suf.includes('mañana')) && h === 12) h = 0
+    out.push({ crudo: m[0].trim(), minutos: h * 60 + min })
+  }
+  return out
+}
+
+/** ¿El mensaje está OFRECIENDO horarios? (2+ horas, o pregunta cuál prefiere) */
+export function pareceOfertaDeHorarios(texto: string): boolean {
+  const horas = horasEnTexto(texto)
+  if (horas.length >= 2) return true
+  return horas.length === 1 && /\b(cuál|cual|prefer|te sirve|te queda|disponib)\b/i.test(texto)
+}
+
+export interface Guard6Args {
+  agentText: string
+  hechos: {
+    diasQueAtiende: string[]
+    fechasDeTools: string[]
+    minutosDeSlots: number[]
+    huboSlots: boolean
+  } | null | undefined
+  /** Año de referencia para resolver "19 de agosto" (hoy, en COT). */
+  anioRef: number
+}
+
+export function detectDatosSinRespaldo(args: Guard6Args): GuardResult {
+  const { agentText, hechos, anioRef } = args
+  if (!agentText.trim()) return { blocked: false }
+
+  // ── 1. Fecha ↔ día de la semana. No necesita tool: es aritmética. ──
+  for (const f of fechasConDiaEnTexto(agentText)) {
+    // Se prueba el año de referencia y el siguiente: "5 de enero" dicho en
+    // diciembre cae en el año que viene y es legítimo.
+    const candidatos = [anioRef, anioRef + 1].map((y) => new Date(Date.UTC(y, f.mes, f.d, 12)))
+    const alguno = candidatos.some((dt) =>
+      dt.getUTCMonth() === f.mes && dt.getUTCDate() === f.d && dt.getUTCDay() === DIA_A_INDICE[f.dia])
+    if (!alguno) {
+      const real = candidatos[0]
+      return {
+        blocked: true,
+        reason: 'fecha_no_cae_en_ese_dia',
+        details: {
+          chequeo: 1,
+          dicho: f.crudo,
+          dia_real: real.getUTCMonth() === f.mes && real.getUTCDate() === f.d
+            ? DIAS_ES[real.getUTCDay() === 0 ? 0 : real.getUTCDay() >= 3 ? real.getUTCDay() + 1 : real.getUTCDay()]
+            : 'fecha inexistente',
+        },
+      }
+    }
+  }
+
+  // ── 2. Días afirmados vs los que devolvió la tool ──
+  const afirmados = diasAfirmadosEnTexto(agentText)
+  const frasesDias = (hechos?.diasQueAtiende ?? []).join(' ').toLowerCase()
+  if (afirmados.length > 0 && frasesDias.trim() !== '') {
+    const sobran = afirmados.filter((d) => !frasesDias.includes(d) && !frasesDias.includes(d.replace('é', 'e').replace('á', 'a')))
+    if (sobran.length > 0) {
+      return {
+        blocked: true,
+        reason: 'dias_no_devueltos_por_tool',
+        details: { chequeo: 2, dias_afirmados: afirmados, dias_de_la_tool: frasesDias, sobran },
+      }
+    }
+  }
+
+  // ── 3. Horas ofrecidas vs slots. ACOTADO: sólo con slots y con oferta. ──
+  if (hechos?.huboSlots && hechos.minutosDeSlots.length > 0 && pareceOfertaDeHorarios(agentText)) {
+    const validos = new Set(hechos.minutosDeSlots)
+    const fuera = horasEnTexto(agentText).filter((h) => !validos.has(h.minutos))
+    if (fuera.length > 0) {
+      return {
+        blocked: true,
+        reason: 'horas_no_ofrecidas_por_tool',
+        details: {
+          chequeo: 3,
+          horas_dichas: fuera.map((h) => h.crudo),
+          slots_de_la_tool: [...validos].sort((a, b) => a - b)
+            .map((m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`),
+        },
+      }
+    }
+  }
+
+  return { blocked: false }
+}

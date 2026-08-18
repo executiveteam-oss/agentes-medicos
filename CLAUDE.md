@@ -448,6 +448,37 @@ Ojo con la distinción, que es fácil de mezclar: `proactive_contact_opt_in` es 
 (por dónde se la contacta). `patients.data_consent_at` es el consentimiento de **tratamiento de
 datos**, y es otro gate, con su propia Capa 0. Resolver uno no toca al otro.
 
+### 🔴 El contrato de salida del agente mezcla lo que lee la paciente con lo que el modelo se narra
+
+`appointment-agent` acumula el texto de **todas** las vueltas del loop de tools
+(`collectedTexts.push()` por iteración → `join('\n\n')` al final) y eso es lo
+que se envía. No hay ninguna marca que separe "esto es para la paciente" de
+"esto es el modelo pensando en voz alta".
+
+Consecuencia: cada vez que el modelo narra algo interno, sale por WhatsApp. Ya
+pasó tres veces con formas distintas:
+
+- *"Tienes razón. Debo llamar create_appointment ahora."*
+- *"Déjame obtener primero el ID de la cita actual del paciente."*
+- *"Disculpa, acabo de verificar y veo que el Dr. Jorge Dario está identificado
+  en el sistema con otro ID. Déjame revisar sus horarios correctamente:"*
+
+La defensa hoy es `strip-internal-monologue`, una lista de patrones que crece
+con cada caso nuevo. **Es tapar agujeros de a uno**: el modelo tiene infinitas
+formas de narrarse y nosotros vamos siempre un caso atrás.
+
+**Y no se arregla mandando sólo el último bloque.** La acumulación existe a
+propósito: el prompt le exige emitir el `message_for_patient` ANTES de llamar
+`escalate_to_human`, así que el texto pre-tool es legítimo y necesario. Si se
+manda sólo la última vuelta, la paciente escalada se queda sin la explicación.
+
+Lo que hace falta es que el modelo **marque** qué texto es para la paciente
+—una tool `responder_a_paciente`, un delimitador que el prompt exija, o separar
+el turno en "pensar" y "responder"— y que el webhook envíe sólo eso. Es
+rediseñar el contrato de salida del agente, con riesgo propio: hay que
+verificar que ningún mensaje pre-tool legítimo se pierda. No es de una línea, y
+por eso está acá y no como comentario suelto.
+
 ### Menor — la regla de condición pregunta sin mirar a quién
 
 `consultation_type_rules` con `rule_type='patient_condition'` dispara su

@@ -47,7 +47,7 @@ import {
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
-import { detectDoctorNameMismatch } from '@/lib/whatsapp/agent-guards'
+import { detectDoctorNameMismatch, detectDatosSinRespaldo } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
@@ -662,7 +662,7 @@ async function processWebhook(body: unknown): Promise<void> {
       const existingPatient = buildExistingPatient(patient)
       const { tratanteMode, tratantes: resolvedTratantes } = await resolveTratantesForClinic(clinic, patient, conversation.id)
 
-      let agentResponse: { text: string; toolsUsed: string[]; toolCalls: ToolCallAudit[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string } }
+      let agentResponse: { text: string; toolsUsed: string[]; toolCalls: ToolCallAudit[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string }; hechosDeTools?: { diasQueAtiende: string[]; fechasDeTools: string[]; minutosDeSlots: number[]; huboSlots: boolean } }
 
       // ── PIN DEL MÉDICO (capa 1) ─────────────────────────────────────
       // Si la paciente nombra un médico, deja de ser texto y pasa a ser una
@@ -826,6 +826,74 @@ async function processWebhook(body: unknown): Promise<void> {
         await saveMessage(conversation.id, 'agent', lockoutText)
         await sendWhatsAppMessage(message.from, lockoutText, clinicCreds)
         return
+      }
+
+      // GUARD 6 (días/fechas/horarios sin respaldo de tool) — corrige al MODELO.
+      //
+      // Mismo patrón que el guard 4: el mensaje no sale, se le devuelve al
+      // modelo su propio texto con la corrección y se re-corre el turno. Si en
+      // el 2º intento vuelve a inventar, AHÍ se escala. La paciente no ve nada
+      // de esto: el error es nuestro y no se le traslada.
+      //
+      // TODO bloqueo se audita con el texto que se iba a enviar, qué chequeo lo
+      // frenó y qué decía la tool. Sin eso, un guard que corta de más se
+      // descubre por una paciente sin respuesta, no por una query.
+      {
+        const anioRef = Number(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 4))
+        let g6 = detectDatosSinRespaldo({ agentText: agentResponse.text, hechos: agentResponse.hechosDeTools, anioRef })
+        if (g6.blocked) {
+          const auditar = async (intento: number, escalado: boolean) => {
+            try {
+              await supabaseAdmin.from('audit_log').insert({
+                clinic_id: clinic.id, action: 'datos_sin_respaldo_blocked', actor_type: 'system',
+                target_type: 'conversation', target_id: conversation.id,
+                details: {
+                  intento, escalado,
+                  chequeo: (g6.details as { chequeo?: number })?.chequeo ?? null,
+                  motivo: g6.reason,
+                  detalle: g6.details ?? null,
+                  texto_bloqueado: agentResponse.text.slice(0, 600),
+                  hechos_de_tools: agentResponse.hechosDeTools ?? null,
+                  tools_usadas: agentResponse.toolsUsed,
+                },
+              })
+            } catch { /* non-critical */ }
+          }
+          console.error(`[Webhook] 🚨 GUARD 6 ${g6.reason} (chequeo ${(g6.details as {chequeo?:number})?.chequeo}) — re-corriendo al modelo`)
+          await auditar(1, false)
+
+          const textoMalo = agentResponse.text
+          try {
+            agentResponse = await runAppointmentAgent({
+              ...agentParams,
+              selfCorrection: {
+                priorAssistantText: textoMalo,
+                note: '[Corrección interna del sistema — la paciente NO ve este mensaje] En tu respuesta anterior afirmaste un día, una fecha o un horario que NO salió de ninguna tool en este turno: ' +
+                  JSON.stringify(g6.details ?? {}) +
+                  '. Reescribí el mensaje usando ÚNICAMENTE los días, fechas y horarios que las tools devolvieron, copiados tal cual. Si no tenés el dato, NO lo inventes: pedí disculpas y ofrecé verificarlo.',
+              },
+            })
+          } catch (e) {
+            console.error('[Webhook] Re-run guard 6 falló:', e instanceof Error ? e.message : e)
+          }
+
+          g6 = detectDatosSinRespaldo({ agentText: agentResponse.text, hechos: agentResponse.hechosDeTools, anioRef })
+          if (g6.blocked) {
+            console.error('[Webhook] 🚨 GUARD 6 persistió tras re-run — escalando')
+            await auditar(2, true)
+            agentResponse = {
+              ...agentResponse,
+              text: 'Disculpá, quiero confirmarte los horarios exactos antes de decirte algo equivocado. Ya le pasé tu caso a una persona del consultorio y te escriben enseguida 🙏',
+            }
+            await supabaseAdmin.from('conversations')
+              .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE, `datos_sin_respaldo:${g6.reason}`) })
+              .eq('id', conversation.id)
+            await refreshEscalationNotifications({
+              conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name,
+              latestMessage: `⚠️ El agente afirmó días/fechas/horarios que no salieron de una tool (${g6.reason}). Revisar con la paciente.`,
+            })
+          }
+        }
       }
 
       // GUARD 5 (médico distinto al prometido) — va ANTES del guard 4 porque

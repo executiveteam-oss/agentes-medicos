@@ -26,6 +26,22 @@ import { auditableToolCall, type ToolCallAudit } from '@/lib/safety/tool-input-a
 
 const MAX_TOOL_ITERATIONS = 5 // Máximo de veces que Claude puede usar tools en una conversación
 
+/**
+ * Los hechos que las tools devolvieron en ESTE turno, para que el guard pueda
+ * contrastar lo que el modelo afirma. Se acumula entre iteraciones porque el
+ * modelo puede llamar check_availability varias veces en un mismo turno.
+ */
+export interface HechosDeTools {
+  /** Frase de días de check_availability, ej "lunes, miércoles y viernes de 07:30 a 11:00" */
+  diasQueAtiende: string[]
+  /** Fechas ISO que alguna tool devolvió como ofrecibles o como cita real */
+  fechasDeTools: string[]
+  /** Horas ofrecibles (minutos desde medianoche COT) de los slots devueltos */
+  minutosDeSlots: number[]
+  /** ¿Alguna llamada a check_availability devolvió slots en este turno? */
+  huboSlots: boolean
+}
+
 interface ExistingPatientData {
   name: string
   phone: string
@@ -80,6 +96,10 @@ interface AgentResponse {
     output: number
   }
   appointmentData?: AppointmentData  // Datos de cita creada/reagendada/cancelada (para .ics)
+  /** Lo que las tools DIJERON en este turno. Es contra esto que el guard de
+   *  días/fechas/horarios contrasta lo que el modelo escribió: sin este dato el
+   *  guard no tiene con qué comparar y no puede existir. */
+  hechosDeTools?: HechosDeTools
   // Falla DURA de agendamiento (el executor rechazó create/reschedule por slot/horario).
   // NO es una regla de negocio: el agente intentó agendar y el sistema lo rechazó → hay
   // que escalar a una persona, no disfrazarlo de "se acaba de ocupar". El webhook, al ver
@@ -157,6 +177,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   // 3. Loop de tool-use: Claude puede usar hasta 5 tools antes de responder
   const toolsUsed: string[] = []
   const toolCalls: ToolCallAudit[] = []
+  const hechos: HechosDeTools = { diasQueAtiende: [], fechasDeTools: [], minutosDeSlots: [], huboSlots: false }
   let totalInputTokens = 0
   let totalOutputTokens = 0
 
@@ -240,6 +261,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         toolCalls,
         tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
         appointmentData,
+        hechosDeTools: hechos,
       }
     }
 
@@ -283,6 +305,37 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         // Capture appointment data for .ics calendar invite
         const resultObj = result as unknown as Record<string, unknown> | null
         const resultData = resultObj?.data as Record<string, unknown> | undefined
+
+        // ── Hechos verificables de esta tool (los consume el guard) ──
+        if (typeof resultData?.dias_que_atiende === 'string') {
+          hechos.diasQueAtiende.push(resultData.dias_que_atiende as string)
+        }
+        for (const f of (resultData?.proximas_fechas as { fecha?: string }[] | undefined) ?? []) {
+          if (f?.fecha) hechos.fechasDeTools.push(f.fecha)
+        }
+        const slots = resultData?.slots as { starts_at?: string }[] | undefined
+        if (Array.isArray(slots) && slots.length > 0) {
+          hechos.huboSlots = true
+          for (const sl of slots) {
+            if (!sl?.starts_at) continue
+            const d = new Date(sl.starts_at)
+            if (Number.isNaN(d.getTime())) continue
+            // A minutos COT: comparar por instante, no por el texto del formato.
+            const cot = new Date(d.getTime() - 5 * 3600_000)
+            hechos.minutosDeSlots.push(cot.getUTCHours() * 60 + cot.getUTCMinutes())
+            hechos.fechasDeTools.push(cot.toISOString().slice(0, 10))
+          }
+        }
+        if (typeof resultData?.date === 'string') hechos.fechasDeTools.push(resultData.date as string)
+        const apptD = resultData?.appointmentData as { starts_at?: string } | undefined
+        if (apptD?.starts_at) {
+          const d = new Date(apptD.starts_at)
+          if (!Number.isNaN(d.getTime())) {
+            const cot = new Date(d.getTime() - 5 * 3600_000)
+            hechos.fechasDeTools.push(cot.toISOString().slice(0, 10))
+            hechos.minutosDeSlots.push(cot.getUTCHours() * 60 + cot.getUTCMinutes())
+          }
+        }
         console.log(`[Agent] Tool ${toolUse.name} result: success=${resultObj?.success}, hasAppointmentData=${!!resultData?.appointmentData}`)
 
         // BUG #4 — falla DURA de agendamiento: create/reschedule rechazado por slot

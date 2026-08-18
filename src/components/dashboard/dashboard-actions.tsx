@@ -7,7 +7,7 @@
 import { useState, useTransition } from 'react'
 import { Plus } from 'lucide-react'
 import { AppointmentFormModal } from '@/components/dashboard/appointment-form-modal'
-import { cancelAppointmentWithNotification } from '@/app/actions/appointments'
+import { cancelAppointmentFromPanel } from '@/app/actions/appointments'
 
 interface Doctor {
   id: string
@@ -130,7 +130,7 @@ export function CancelAppointmentButton({ appointmentId }: { appointmentId: stri
           disabled={isPending || !reason.trim()}
           onClick={() => {
             startTransition(async () => {
-              const result = await cancelAppointmentWithNotification(appointmentId, reason, patientReason || null)
+              const result = await cancelAppointmentFromPanel(appointmentId, reason, patientReason || null, true)
               if (result.ok) {
                 if (result.warning) setWarning(result.warning)
                 else window.location.reload()
@@ -151,6 +151,38 @@ export function CancelAppointmentButton({ appointmentId }: { appointmentId: stri
         >
           Volver
         </button>
+      </div>
+
+      {/* ── Cancelación SILENCIOSA ────────────────────────────────────
+          Deliberadamente secundaria y discreta: lo normal es avisarle a la
+          paciente, lo excepcional es no hacerlo. Es para cita duplicada, creada
+          por error o corrección interna — no para evitar una conversación
+          incómoda.
+          El motivo es OBLIGATORIO (el botón no se habilita sin él, y la server
+          action lo vuelve a exigir): una cancelación que la paciente nunca supo
+          es justo la que después nadie puede explicar. */}
+      <div style={{ borderTop: '1px solid var(--v2-border-soft)', marginTop: '2px', paddingTop: '8px' }}>
+        <button
+          disabled={isPending || !reason.trim()}
+          onClick={() => {
+            if (!confirm('La paciente NO va a recibir ningún aviso de esta cancelación.\n\n¿Confirmás?')) return
+            startTransition(async () => {
+              const result = await cancelAppointmentFromPanel(appointmentId, reason, null, false)
+              if (result.ok) window.location.reload()
+              else setError(result.error ?? 'Error')
+            })
+          }}
+          className="btn-v2-ghost"
+          style={{
+            fontSize: '11px', padding: '4px 8px', color: 'var(--v2-text-muted)',
+            textDecoration: 'underline', opacity: isPending || !reason.trim() ? 0.4 : 1,
+          }}
+        >
+          Cancelar sin avisar a la paciente
+        </button>
+        <p style={{ fontSize: '9px', color: 'var(--v2-text-subtle)', marginTop: '2px' }}>
+          Sin WhatsApp. Solo para citas duplicadas o creadas por error. Requiere motivo y queda registrado con tu usuario.
+        </p>
       </div>
     </div>
   )

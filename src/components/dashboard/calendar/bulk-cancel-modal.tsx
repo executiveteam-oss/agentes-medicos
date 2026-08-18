@@ -7,7 +7,7 @@
 import { useState, useTransition } from 'react'
 import { AlertTriangle, X } from 'lucide-react'
 import { createBlockedDate } from '@/app/actions/blocked-dates'
-import { cancelAppointmentWithNotification } from '@/app/actions/appointments'
+import { cancelAppointmentFromPanel } from '@/app/actions/appointments'
 import { formatTimeForPatient } from '@/lib/utils/dates'
 import type { CalendarAppointment } from './types'
 
@@ -57,7 +57,7 @@ export function BulkCancelModal({ date, dateFormatted, appointments, doctorId, d
       } else {
         // Cancel each individually without creating block
         for (const apt of cancellable) {
-          const result = await cancelAppointmentWithNotification(
+          const result = await cancelAppointmentFromPanel(
             apt.id,
             internalReason.trim() || 'Cancelacion masiva',
             patientReason.trim() || null,

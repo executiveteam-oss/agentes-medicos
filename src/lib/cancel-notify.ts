@@ -18,15 +18,34 @@ export interface CancelNotifyResult {
 }
 
 /**
- * Cancel a single appointment and send WhatsApp with reagendamiento options.
- * Returns whether WhatsApp was sent (may fail if patient has no phone or creds missing).
+ * UN SOLO camino de cancelación desde el panel. `notificar` decide si la
+ * paciente se entera, nada más.
+ *
+ * Antes había TRES implementaciones: ésta, `cancelAppointment` en
+ * actions/appointments (que no llamaba nadie) y el corte del agente. Las dos
+ * del panel ya divergían en cosas que no dependen de si se avisa: sólo una
+ * notificaba a la lista de espera, aunque el cupo se libera igual. Duplicar la
+ * lógica de cancelación es el error que este repo ya pagó cinco veces.
+ *
+ * Con `notificar: false` NO se manda WhatsApp a la paciente ni al staff de la
+ * especialidad, y no se crea pending_contact — no hay entrega que reclamar.
+ * Todo lo demás (estado, motivo, audit, lista de espera) es idéntico.
  */
 export async function cancelAndNotifyPatient(
   appointmentId: string,
   clinicId: string,
   internalReason: string,
   patientReason?: string | null,
+  opts?: { notificar?: boolean; actorId?: string | null },
 ): Promise<CancelNotifyResult> {
+  const notificar = opts?.notificar !== false   // default: avisar
+
+  // Sin motivo no se cancela en silencio. Va acá y no sólo en la UI: una
+  // cancelación que la paciente nunca supo es justo la que después nadie puede
+  // explicar, y el motivo es lo único que queda para explicarla.
+  if (!notificar && !internalReason.trim()) {
+    return { ok: false, whatsappSent: false, warning: 'La cancelación sin aviso exige un motivo.' }
+  }
   // 1. Get appointment + patient + doctor info
   const { data: apt } = await supabaseAdmin
     .from('appointments')
@@ -50,15 +69,36 @@ export async function cancelAndNotifyPatient(
     updated_at: new Date().toISOString(),
   }).eq('id', appointmentId)
 
-  // 3. Audit log
+  // 3. Audit — acción DISTINTA según se haya avisado o no. Son dos hechos
+  // distintos y el informe tiene que poder separarlos: una cancelación que la
+  // paciente nunca supo se explica sola sólo si quedó escrita como tal.
   await supabaseAdmin.from('audit_log').insert({
     clinic_id: clinicId,
-    action: 'appointment_cancelled_with_notification',
+    action: notificar ? 'appointment_cancelled_with_notification' : 'appointment_cancelled_silently',
     actor_type: 'staff',
+    actor_id: opts?.actorId ?? null,
     target_type: 'appointment',
     target_id: appointmentId,
-    details: { internalReason, patientReason, patientName: patient?.name },
+    details: {
+      internalReason,
+      patientReason: notificar ? patientReason : null,
+      patientName: patient?.name,
+      notificada: notificar,
+    },
   })
+
+  // 3b. La lista de espera se avisa SIEMPRE: el cupo se liberó igual, se le
+  // haya avisado a la paciente o no. Antes esto vivía sólo en la otra
+  // implementación, así que cancelar con aviso dejaba el cupo sin ofrecer.
+  try {
+    const { notifyHighestPriorityWaitlistPatient } = await import('@/app/actions/priority')
+    if (apt.doctor_id) await notifyHighestPriorityWaitlistPatient(clinicId, apt.doctor_id as string)
+  } catch { /* no bloquear la cancelación si falla */ }
+
+  // 4bis. Corte silencioso: se canceló y quedó auditado, pero nadie recibe nada.
+  if (!notificar) {
+    return { ok: true, whatsappSent: false }
+  }
 
   // 4. Send WhatsApp if possible
   if (!patient?.phone) {

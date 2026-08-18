@@ -6,6 +6,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { after } from 'next/server'
 import type { PaymentType, AttendanceOutcome } from '@/types/database'
@@ -353,74 +354,39 @@ export async function createAppointment(
   }
 }
 
-/** Cancelar cita con motivo + notificar paciente prioritario en lista de espera */
-export async function cancelAppointment(
-  appointmentId: string,
-  reason: string
-): Promise<{ ok: boolean; error?: string; waitlistNotified?: string }> {
-  try {
-    const clinicId = await checkWritePermission('agenda')
-
-    // Obtener info de la cita antes de cancelar (para doctor_id)
-    const { data: apt } = await supabaseAdmin
-      .from('appointments')
-      .select('doctor_id')
-      .eq('id', appointmentId)
-      .eq('clinic_id', clinicId)
-      .single()
-
-    const { error } = await supabaseAdmin
-      .from('appointments')
-      .update({
-        status: 'cancelled',
-        cancelled_at: new Date().toISOString(),
-        cancellation_reason: reason.trim() || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', appointmentId)
-      .eq('clinic_id', clinicId)
-
-    if (error) return { ok: false, error: 'Error cancelando cita' }
-
-    await supabaseAdmin.from('audit_log').insert({
-      clinic_id: clinicId,
-      action: 'appointment_cancelled_dashboard',
-      actor_type: 'staff',
-      target_type: 'appointment',
-      target_id: appointmentId,
-      details: { reason: reason.trim() },
-    })
-
-    // Notificar al paciente de mayor prioridad en lista de espera
-    let waitlistNotified: string | undefined
-    if (apt?.doctor_id) {
-      try {
-        const { notifyHighestPriorityWaitlistPatient } = await import('@/app/actions/priority')
-        const result = await notifyHighestPriorityWaitlistPatient(clinicId, apt.doctor_id)
-        if (result) waitlistNotified = result
-      } catch {
-        // No bloquear cancelación si falla la notificación
-      }
-    }
-
-    revalidatePath('/dashboard')
-    revalidatePath('/dashboard/espera')
-    return { ok: true, waitlistNotified }
-  } catch {
-    return { ok: false, error: 'Error de permisos o sesión' }
-  }
-}
-
-/** Cancelar cita con notificación WhatsApp empática + opciones de reagendamiento */
-export async function cancelAppointmentWithNotification(
+/**
+ * Cancelar una cita desde el panel. `notificar` decide si la paciente se entera.
+ *
+ * UN solo camino: antes convivían tres implementaciones de "cancelar una cita"
+ * y ya divergían entre sí. Acá sólo se resuelve el permiso y el actor; la
+ * lógica vive en cancelAndNotifyPatient.
+ *
+ * notificar=false es para el staff (citas duplicadas, creadas por error,
+ * correcciones internas) y EXIGE motivo — se valida abajo y otra vez en
+ * cancel-notify, porque el gate no puede depender de la pantalla.
+ */
+export async function cancelAppointmentFromPanel(
   appointmentId: string,
   internalReason: string,
   patientReason?: string | null,
+  notificar: boolean = true,
 ): Promise<{ ok: boolean; error?: string; whatsappSent?: boolean; warning?: string }> {
   try {
     const clinicId = await checkWritePermission('agenda')
+    if (!notificar && !internalReason.trim()) {
+      return { ok: false, error: 'Para cancelar sin avisar a la paciente hay que dejar el motivo.' }
+    }
+    let actorId: string | null = null
+    try {
+      const supabase = await createSupabaseServerClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      actorId = user?.id ?? null
+    } catch { /* el actor es deseable, no bloqueante */ }
+
     const { cancelAndNotifyPatient } = await import('@/lib/cancel-notify')
-    const result = await cancelAndNotifyPatient(appointmentId, clinicId, internalReason, patientReason)
+    const result = await cancelAndNotifyPatient(
+      appointmentId, clinicId, internalReason, patientReason, { notificar, actorId },
+    )
     revalidatePath('/dashboard')
     return { ok: result.ok, whatsappSent: result.whatsappSent, warning: result.warning }
   } catch {

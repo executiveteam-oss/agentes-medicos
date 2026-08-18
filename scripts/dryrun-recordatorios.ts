@@ -22,7 +22,7 @@ async function ventana(label: string, desdeH: number, hastaH: number, flag: 'rem
   const { data: clinic } = await supabaseAdmin.from('clinics').select('name, address, city').eq('id', ALGIA).single()
   const { data } = await supabaseAdmin
     .from('appointments')
-    .select('id, starts_at, patients(name, phone), doctors(name, specialty)')
+    .select('id, starts_at, patients(name, phone), doctors(name, specialty, title)')
     .eq('clinic_id', ALGIA)
     .in('status', ['confirmed', 'rescheduled'])
     .eq(flag, false)
@@ -33,22 +33,31 @@ async function ventana(label: string, desdeH: number, hastaH: number, flag: 'rem
   const filas = (data ?? []) as unknown as {
     id: string; starts_at: string
     patients: { name: string; phone: string } | null
-    doctors: { name: string; specialty: string | null } | null
+    doctors: { name: string; specialty: string | null; title: string | null } | null
   }[]
 
-  console.log(`\n${'═'.repeat(74)}\n${label} — ${filas.length} mensajes\n${'═'.repeat(74)}`)
-  if (filas.length === 0) return 0
+  // Mismo corte que el cron (`if (!patient || !doctor || !clinic) continue`):
+  // hay citas futuras sin ficha vinculada y el cron NO les manda nada. Contarlas
+  // inflaba el volumen estimado.
+  const enviables = filas.filter((f) => f.patients?.phone && f.doctors)
+  const sinFicha = filas.length - enviables.length
 
-  const a = filas[0]
+  console.log(`\n${'═'.repeat(74)}\n${label} — ${enviables.length} mensajes` +
+    (sinFicha > 0 ? `   (+${sinFicha} citas sin ficha/teléfono que el cron saltea)` : '') +
+    `\n${'═'.repeat(74)}`)
+  if (enviables.length === 0) return 0
+
+  const a = enviables[0]
   const p = a.patients!, d = a.doctors!
-  const esGineco = /ginec|obstet|pediatr/i.test(d.specialty ?? '')
-  const prefijo = esGineco ? 'Dra.' : 'Dr.'
+  // Igual que el cron: sale de doctors.title. Sin dato, sin prefijo.
+  const nombreMedico = d.title?.trim() ? `${d.title.trim()} ${toTitleCase(d.name)}` : toTitleCase(d.name)
 
   // Los params difieren entre ventanas — así están hoy en el cron.
   const params = label.startsWith('72h')
-    ? [toTitleCase(p.name), clinic!.name, `${prefijo} ${toTitleCase(d.name)}`, formatDateForPatient(a.starts_at), formatTimeForPatient(a.starts_at),
+    ? [toTitleCase(p.name), clinic!.name, nombreMedico, formatDateForPatient(a.starts_at), formatTimeForPatient(a.starts_at),
        clinic!.city ? `${clinic!.address}, ${clinic!.city}` : clinic!.address]
-    : [toTitleCase(p.name), clinic!.name, toTitleCase(d.name), formatDateForPatient(a.starts_at), formatTimeForPatient(a.starts_at), clinic!.address]
+    : [toTitleCase(p.name), clinic!.name, nombreMedico, formatDateForPatient(a.starts_at), formatTimeForPatient(a.starts_at),
+       clinic!.city ? `${clinic!.address}, ${clinic!.city}` : clinic!.address]
 
   console.log(`caso real → cita ${a.id.slice(0, 8)} · ${p.phone.slice(0, 6)}***${p.phone.slice(-2)}\n`)
   console.log('┌─ lo que lee la paciente ' + '─'.repeat(46))
@@ -56,7 +65,7 @@ async function ventana(label: string, desdeH: number, hastaH: number, flag: 'rem
   console.log('│')
   console.log('│ [' + REMINDER_BUTTONS.join('] [') + ']')
   console.log('└' + '─'.repeat(70))
-  return filas.length
+  return enviables.length
 }
 
 async function main() {

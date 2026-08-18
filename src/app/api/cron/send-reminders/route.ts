@@ -25,6 +25,13 @@ import { refreshEscalationNotifications } from '@/lib/notifications/escalation-n
 // Máximo tiempo de ejecución
 export const maxDuration = 30
 
+/** UNA sola forma de escribir la dirección de la clínica en un recordatorio.
+ *  Vivía duplicada: la ventana de 72h agregaba la ciudad y la de 24h no, así
+ *  que la misma clínica tenía dos direcciones según qué mensaje te llegara. */
+function direccionClinica(c: { address: string; city?: string | null }): string {
+  return c.city ? `${c.address}, ${c.city}` : c.address
+}
+
 // Defaults para notification_settings
 const NOTIFICATION_DEFAULTS: NotificationSettings = {
   reminder_72h: true,
@@ -128,7 +135,7 @@ async function send72hReminders(
     .select(`
       id, starts_at, clinic_id, patient_id, doctor_id,
       patients(name, phone, proactive_contact_opt_in),
-      doctors(name, specialty),
+      doctors(name, specialty, title),
       clinics(name, address, city),
       consultation_types(name)
     `)
@@ -151,7 +158,7 @@ async function send72hReminders(
     if (!settings?.reminder_72h) continue
 
     const patient = apt.patients as unknown as { name: string; phone: string; proactive_contact_opt_in: boolean } | null
-    const doctor = apt.doctors as unknown as { name: string; specialty: string | null } | null
+    const doctor = apt.doctors as unknown as { name: string; specialty: string | null; title: string | null } | null
     const clinic = apt.clinics as unknown as { name: string; address: string; city: string | null } | null
     const ctName = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
 
@@ -161,15 +168,17 @@ async function send72hReminders(
     const dateText = formatDateForPatient(apt.starts_at)
     const timeText = formatTimeForPatient(apt.starts_at)
 
-    // Prefijo Dr./Dra. según especialidad (heurística simple)
-    const doctorPrefix = doctor.specialty?.toLowerCase().includes('ginec') ||
-      doctor.specialty?.toLowerCase().includes('obstet') ||
-      doctor.specialty?.toLowerCase().includes('pediatr')
-      ? 'Dra.' : 'Dr.'
+    // Tratamiento del médico: SALE DEL DATO, no de una deducción.
+    //
+    // Antes se infería de la especialidad (ginec|obstet|pediatr → "Dra.", el
+    // resto → "Dr."). Sobre el plantel real de Algia erraba en 6 de 7: "Dra.
+    // JORGE DARIO", "Dr. DANIELA OSORIO". Iba en un mensaje a pacientes.
+    //
+    // Sin dato cargado no se antepone nada — igual que la ventana de 24h, que
+    // nunca tuvo el problema justamente porque no adivinaba.
+    const doctorPrefix = (doctor.title as string | null)?.trim() || null
 
-    const address = clinic.city
-      ? `${clinic.address}, ${clinic.city}`
-      : clinic.address
+    const address = direccionClinica(clinic)
 
     const whatsappNumber = patient.phone.replace('+', '')
     const creds = await getClinicCreds(apt.clinic_id)
@@ -181,7 +190,7 @@ async function send72hReminders(
       // Nombres a Title Case: vienen del import de iSalud en MAYÚSCULAS y con
       // espacios dobles ("JUANITA  VILLA  DIAZ"). Es lo primero que lee la
       // paciente. Misma función que ya usa el resumen diario.
-      [toTitleCase(patient.name), clinic.name, `${doctorPrefix} ${toTitleCase(doctor.name)}`, dateText, timeText, address],
+      [toTitleCase(patient.name), clinic.name, doctorPrefix ? `${doctorPrefix} ${toTitleCase(doctor.name)}` : toTitleCase(doctor.name), dateText, timeText, address],
       null,   // Quick Reply buttons — sin param de URL
       creds,
       { clinicId: apt.clinic_id, sendType: 'reminder' },
@@ -251,8 +260,8 @@ async function send24hReminders(
     .select(`
       id, starts_at, clinic_id, patient_id, doctor_id, consultation_type_id,
       patients(name, phone, proactive_contact_opt_in),
-      doctors(name),
-      clinics(name, address),
+      doctors(name, title),
+      clinics(name, address, city),
       consultation_types(name, preparation_instructions, requires_documents, required_documents_description)
     `)
     .in('status', ['confirmed', 'rescheduled'])
@@ -273,8 +282,8 @@ async function send24hReminders(
     if (!settings?.reminder_24h) continue
 
     const patient = apt.patients as unknown as { name: string; phone: string; proactive_contact_opt_in: boolean } | null
-    const doctor = apt.doctors as unknown as { name: string } | null
-    const clinic = apt.clinics as unknown as { name: string; address: string } | null
+    const doctor = apt.doctors as unknown as { name: string; title: string | null } | null
+    const clinic = apt.clinics as unknown as { name: string; address: string; city: string | null } | null
     const ctData = apt.consultation_types as unknown as {
       name: string | null
       preparation_instructions: string | null
@@ -295,8 +304,13 @@ async function send24hReminders(
       whatsappNumber,
       REMINDER_TEMPLATE_NAME_V2,
       TEMPLATE_LANGUAGE,
-      // Ídem 72h: Title Case sobre lo que viene en mayúsculas del import.
-      [toTitleCase(patient.name), clinic.name, toTitleCase(doctor.name), dateText, timeText, clinic.address],
+      // Ídem 72h: Title Case, mismo tratamiento y MISMA dirección. Antes esta
+      // ventana mandaba `clinic.address` a secas y la de 72h le agregaba la
+      // ciudad: dos direcciones distintas para la misma clínica según qué
+      // recordatorio te tocara.
+      [toTitleCase(patient.name), clinic.name,
+       doctor.title?.trim() ? `${doctor.title.trim()} ${toTitleCase(doctor.name)}` : toTitleCase(doctor.name),
+       dateText, timeText, direccionClinica(clinic)],
       null,   // Quick Reply buttons — sin param de URL
       creds24,
       { clinicId: apt.clinic_id, sendType: 'reminder' },

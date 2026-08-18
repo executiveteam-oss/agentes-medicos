@@ -68,8 +68,21 @@ export const DAYS_FULL_ES = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes'
 export const MONTHS_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 export const HOURS = Array.from({ length: 14 }, (_, i) => i + 7) // 7am - 8pm
 
+// `confirmed` se muestra como "Agendada", NO como "Confirmada".
+//
+// Es el status TÉCNICO de la fila: el sync de iSalud lo pone en 'confirmed' a
+// toda cita que llega con paciente, sin que nadie confirme nada. Las
+// secretarias lo leían como "la paciente confirmó al recibir el recordatorio"
+// —en la misma tarjeta donde dice "Recordatorio: No enviado"—, y con eso
+// dejaban de llamar a pacientes que nunca habían confirmado.
+//
+// Quien SÍ responde "¿la paciente confirmó?" es `reminder_confirmed`, y se
+// muestra aparte en la fila "Recordatorio" del panel.
+//
+// Solo cambia la etiqueta. El valor 'confirmed' en la DB no se toca: lo usan
+// BUSY_STATUSES, el índice único de doble-booking y los crons.
 export const STATUS_LABELS: Record<string, string> = {
-  confirmed: 'Confirmada', rescheduled: 'Reagendada', completed: 'Completada',
+  confirmed: 'Agendada', rescheduled: 'Reagendada', completed: 'Completada',
   no_show: 'No-show', blocked_external: 'Cupo compartido', cancelled: 'Cancelada',
 }
 

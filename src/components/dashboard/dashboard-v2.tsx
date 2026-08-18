@@ -190,7 +190,7 @@ export function KPIRow({ kpis }: { kpis: DashboardKPI[] }) {
 // ---- Upcoming Appointments ----
 
 const STATUS_COLORS: Record<string, { bg: string; fg: string; label: string }> = {
-  confirmed: { bg: 'var(--v2-green-soft)', fg: 'var(--v2-green-deep)', label: 'Confirmada' },
+  confirmed: { bg: 'var(--v2-green-soft)', fg: 'var(--v2-green-deep)', label: 'Agendada' },   // status técnico, no "la paciente confirmó" — ver calendar/types.ts
   rescheduled: { bg: 'var(--v2-amber-soft)', fg: '#b07d00', label: 'Reagendada' },
   completed: { bg: 'var(--v2-primary-soft)', fg: 'var(--v2-primary)', label: 'Completada' },
   no_show: { bg: 'var(--v2-red-soft)', fg: 'var(--v2-red)', label: 'No-show' },

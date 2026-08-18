@@ -379,7 +379,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
       {doctorFilter !== 'all' && (
         <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', fontSize: '11px', fontWeight: 500, color: 'var(--v2-text-subtle)' }}>
           {[
-            { label: 'Confirmada', color: '#534AB7' },
+            { label: 'Agendada', color: '#534AB7' },
             { label: 'Reagendada', color: '#BA7517' },
             { label: 'Completada', color: '#1D9E75' },
             { label: 'No-show', color: '#A32D2D' },

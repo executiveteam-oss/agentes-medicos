@@ -139,7 +139,16 @@ async function send72hReminders(
       clinics(name, address, city),
       consultation_types(name)
     `)
-    .in('status', ['confirmed', 'rescheduled'])
+    // `blocked_external` VA en el filtro. No es un bloqueo de agenda: son citas
+    // que iSalud puso en un cupo ya ocupado y el sync degradó para no perderlas
+    // (ver ESTADOS_TERMINALES en isalud/sync-agent). De 399 en Algia, 30 tienen
+    // ficha con paciente real — y no recibían recordatorio por este filtro, no
+    // por falta de datos: 14 pacientes por semana.
+    //
+    // Los bloqueos de agenda DE VERDAD no tienen `patient_id`, así que el
+    // `if (!patient …) continue` de abajo los saltea solo. No hace falta un
+    // segundo chequeo acá.
+    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
     .eq('reminder_72h_sent', false)
     .gte('starts_at', in71h.toISOString())
     .lte('starts_at', in73h.toISOString())
@@ -264,7 +273,16 @@ async function send24hReminders(
       clinics(name, address, city),
       consultation_types(name, preparation_instructions, requires_documents, required_documents_description)
     `)
-    .in('status', ['confirmed', 'rescheduled'])
+    // `blocked_external` VA en el filtro. No es un bloqueo de agenda: son citas
+    // que iSalud puso en un cupo ya ocupado y el sync degradó para no perderlas
+    // (ver ESTADOS_TERMINALES en isalud/sync-agent). De 399 en Algia, 30 tienen
+    // ficha con paciente real — y no recibían recordatorio por este filtro, no
+    // por falta de datos: 14 pacientes por semana.
+    //
+    // Los bloqueos de agenda DE VERDAD no tienen `patient_id`, así que el
+    // `if (!patient …) continue` de abajo los saltea solo. No hace falta un
+    // segundo chequeo acá.
+    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
     .eq('reminder_24h_sent', false)
     .gte('starts_at', in23h.toISOString())
     .lte('starts_at', in25h.toISOString())
@@ -390,7 +408,16 @@ async function send2hReminders(
       clinics(name, address, city),
       consultation_types(name)
     `)
-    .in('status', ['confirmed', 'rescheduled'])
+    // `blocked_external` VA en el filtro. No es un bloqueo de agenda: son citas
+    // que iSalud puso en un cupo ya ocupado y el sync degradó para no perderlas
+    // (ver ESTADOS_TERMINALES en isalud/sync-agent). De 399 en Algia, 30 tienen
+    // ficha con paciente real — y no recibían recordatorio por este filtro, no
+    // por falta de datos: 14 pacientes por semana.
+    //
+    // Los bloqueos de agenda DE VERDAD no tienen `patient_id`, así que el
+    // `if (!patient …) continue` de abajo los saltea solo. No hace falta un
+    // segundo chequeo acá.
+    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
     .eq('reminder_2h_sent', false)
     .gte('starts_at', in1h30m.toISOString())
     .lte('starts_at', in2h30m.toISOString())

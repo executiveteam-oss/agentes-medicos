@@ -479,6 +479,43 @@ rediseñar el contrato de salida del agente, con riesgo propio: hay que
 verificar que ningún mensaje pre-tool legítimo se pierda. No es de una línea, y
 por eso está acá y no como comentario suelto.
 
+### 🔴 La identidad de una paciente es su TELÉFONO, y en Colombia el teléfono se comparte
+
+`patients` tiene **`UNIQUE (clinic_id, phone)`**. Eso convierte al teléfono en la
+identidad de una paciente, y choca con cómo es el dato real: madres e hijas,
+parejas y familias comparten celular.
+
+**Lo que ya costó**, medido el 2026-08-18 al importar `isalud_clientes`:
+
+- **433 teléfonos** de `isalud_clientes` están usados por **dos o más personas
+  distintas**.
+- De 1.577 documentos que faltaban en el padrón, **solo 719 se pudieron crear**.
+  **858 rebotaron**: 461 porque su teléfono ya lo usaba otra ficha, y **397
+  porque `phone = ''` —el "sin teléfono" del padrón— también entra en el UNIQUE
+  y sólo admite UNA fila.**
+- Quedaron **26 citas futuras sin recordatorio** por esto: la paciente existe en
+  iSalud, tiene documento, y no se le puede crear ficha.
+
+Dos casos concretos, para que se vea la forma del problema: Sharon Bustos no se
+pudo crear porque su celular ya lo usa Natalia Elena Montoya; Diana María
+Escobar, porque el suyo lo usa Yeimy Yohana Escobar Gallego — documentos
+consecutivos, mismo apellido. Son familiares compartiendo teléfono, no
+duplicados.
+
+**Y no es sólo el import.** Una paciente nueva que escriba por WhatsApp desde un
+celular ya registrado a nombre de un familiar tampoco puede tener ficha propia.
+
+El arreglo es mover la identidad de *teléfono* a *documento*:
+`UNIQUE (clinic_id, document_number)` y teléfono repetible. Riesgo real, y por
+eso no se hizo sobre la marcha: **el webhook resuelve la paciente entrante por
+teléfono** (`route.ts`, búsqueda por `phone`), así que hay que inventariar todo
+el código que asume "un teléfono = una paciente" antes de tocar el constraint.
+Con dos personas en el mismo celular, ¿de quién es el mensaje que llega? Esa
+pregunta hay que contestarla en el diseño, no en la migración.
+
+Va con las otras deudas de multi-tenant: no duele hasta que duele, y hoy ya
+cuesta 858 fichas.
+
 ### Menor — dos citas el mismo día = dos recordatorios casi idénticos
 
 El recordatorio se arma **por cita**, no por paciente. Quien tiene dos citas el

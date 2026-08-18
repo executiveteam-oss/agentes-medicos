@@ -412,6 +412,42 @@ hasta que alguien la active. Y ojo con lo mismo de siempre: verde procesando cer
 nada, así que al agregar el filtro hay que contar cuántas clínicas quedan dentro y confirmar que
 son las que se esperaba.
 
+### 🔴 El consentimiento de canal lo prendemos NOSOTROS por SQL — RESOLVER ANTES DE VENDER EL SEGUNDO CLIENTE
+
+**Tercera de la misma familia**, junto con el `LIMIT 1` de `get_user_clinic_id` y los crons sin
+filtro. Las tres son deudas de multi-tenant que hoy no duelen porque hay un solo cliente real, y
+las tres se cobran el mismo día. **Antes de vender, las tres.**
+
+`patients.proactive_contact_opt_in` es el gate de todo envío proactivo: sin él no sale
+recordatorio, ni encuesta, ni reactivación. El 2026-08-18 se prendió para las 14.123 pacientes de
+Algia — por orden de la clínica, pero ejecutado con un `UPDATE` a mano desde acá.
+
+**Hoy la única prueba de que Algia lo pidió es una conversación de WhatsApp.** No hay fila, no hay
+`audit_log`, no hay pantalla donde la clínica lo haya marcado. Para un dato de consentimiento
+—Ley 1581, y estos son datos de salud— eso no alcanza: la trazabilidad tiene que estar en el
+sistema, no en el chat de quien lo ejecutó.
+
+Y en el mismo movimiento se cambió el **DEFAULT de la columna a `true`**, que es peor de lo que
+parece: es a nivel de columna, así que **está decidiendo el consentimiento de pacientes de
+clientes que todavía no existen**. La clínica que entre el mes que viene arranca con todo su
+padrón en opt-in sin que nadie de esa clínica lo haya pedido.
+
+Cuando se resuelva:
+
+1. **Flag a nivel clínica** (`clinics.proactive_contact_enabled` o equivalente), **apagado por
+   defecto** para clínicas nuevas.
+2. **Lo prende la clínica desde su pantalla de notificaciones**, no nosotros por SQL. Al
+   activarlo se aplica a sus pacientes.
+3. **Queda en `audit_log`: quién lo activó y cuándo.** Ese registro es la prueba que hoy no
+   existe.
+4. **Revertir el `DEFAULT true` de `patients.proactive_contact_opt_in`** una vez que el flag
+   exista. El default deja de tener sentido cuando la decisión es por clínica.
+5. **Algia queda como está**, ya prendido — no se le vuelve a pedir nada.
+
+Ojo con la distinción, que es fácil de mezclar: `proactive_contact_opt_in` es opt-in de **canal**
+(por dónde se la contacta). `patients.data_consent_at` es el consentimiento de **tratamiento de
+datos**, y es otro gate, con su propia Capa 0. Resolver uno no toca al otro.
+
 ### SEC-001 — Credenciales en texto plano
 
 `clinics.whatsapp_access_token`, `whatsapp_app_secret`, `whatsapp_verify_token` y

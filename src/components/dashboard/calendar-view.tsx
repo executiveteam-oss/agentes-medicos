@@ -16,7 +16,7 @@ import { DoctorSelector, getStoredDoctorId, storeDoctorId } from './calendar/doc
 import { getAppointmentForCalendar } from '@/app/actions/appointments'
 import { AppointmentFormModal } from './appointment-form-modal'
 import type { CalendarAppointment, CalendarDoctor, ViewMode } from './calendar/types'
-import { parseLocalDate, toDateStr, getColombiaDateStr, DAYS_FULL_ES, MONTHS_ES, getMonday, DOCTOR_COLORS, CONFIRMO, NO_CONFIRMO } from './calendar/types'
+import { parseLocalDate, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, DAYS_FULL_ES, MONTHS_ES, getMonday, DOCTOR_COLORS, CONFIRMO, NO_CONFIRMO } from './calendar/types'
 import { ConfirmarFueraHorarioModal } from './calendar/confirmar-fuera-horario-modal'
 import type { DisponibilidadDelDia, EstadoFranja } from '@/lib/calendar/day-availability'
 import { getDisponibilidadAgenda } from '@/app/actions/availability'
@@ -59,6 +59,9 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
   const [appointments, setAppointments] = useState(initialAppointments)
   const [showNewAptModal, setShowNewAptModal] = useState(false)
   const [newAptPrefill, setNewAptPrefill] = useState<{ date: string; time: string; doctor_id: string; fuera_de_horario_confirmado?: boolean } | null>(null)
+  // Cita que se está editando. Distinta de `newAptPrefill`: ésta lleva `id`, y
+  // ese id es lo que hace que el modal llame a updateAppointment en vez de crear.
+  const [editApt, setEditApt] = useState<CalendarAppointment | null>(null)
 
   // En celular la agenda abre en vista DÍA. La semana es una grilla de 8
   // columnas (56px + 7 días): en 390px cada día mide ~48px y es ilegible.
@@ -267,6 +270,11 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
     // de la semana que la secretaria ya tiene en pantalla.
     return () => { vigente = false }
   }, [doctorFilter, semanaVisible])
+
+  const abrirEdicion = useCallback((apt: CalendarAppointment) => {
+    setEditApt(apt)
+    setShowNewAptModal(true)
+  }, [])
 
   // Bloqueos crudos de la semana, para la vista "Todos los médicos". La
   // disponibilidad por médico no aplica ahí, pero el bloqueo igual existe y
@@ -478,6 +486,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
             return doctorFilter === 'all'
           })}
           doctoresTotales={doctors.length}
+          onEditarCita={abrirEdicion}
         />
       )}
       {view === 'week' && (
@@ -492,6 +501,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           disponibilidad={doctorFilter !== 'all' ? disponibilidad : undefined}
           doctorName={doctorFilter !== 'all' ? (doctors.find((d) => d.id === doctorFilter)?.name ?? null) : null}
           surveyConfig={surveyConfig}
+          onEditarCita={abrirEdicion}
         />
       )}
       {view === 'month' && (
@@ -523,9 +533,28 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
 
       <AppointmentFormModal
         isOpen={showNewAptModal}
-        onClose={() => { setShowNewAptModal(false); setNewAptPrefill(null) }}
+        onClose={() => { setShowNewAptModal(false); setNewAptPrefill(null); setEditApt(null) }}
         doctors={doctors as { id: string; name: string; specialty: string | null }[]}
-        initialData={newAptPrefill ? {
+        initialData={editApt ? {
+          // Con `id` real el modal entra en modo edición y llama a
+          // updateAppointmentFromDashboard. La hora va en COT: la cita se
+          // guarda en UTC y el input type="time" muestra hora local.
+          id: editApt.id,
+          patient_id: editApt.patient?.id ?? '',
+          patient_name: editApt.patient?.name ?? '',
+          doctor_id: editApt.doctor_id ?? '',
+          date: getColombiaDateStr(editApt.starts_at),
+          time: `${String(getColombiaHour(editApt.starts_at)).padStart(2, '0')}:${String(getColombiaMinutes(editApt.starts_at)).padStart(2, '0')}`,
+          duration_minutes: Math.max(
+            5,
+            Math.round((new Date(editApt.ends_at).getTime() - new Date(editApt.starts_at).getTime()) / 60000),
+          ),
+          reason: editApt.reason ?? '',
+          payment_type: (editApt.payment_type || 'Particular') as 'Particular' | 'EPS' | 'Prepagada',
+          eps_name: editApt.eps_name ?? '',
+          modality: (editApt.modality === 'virtual' ? 'virtual' : 'presencial') as 'presencial' | 'virtual',
+          virtual_link: editApt.virtual_link,
+        } : newAptPrefill ? {
           id: '',
           patient_id: '',
           patient_name: '',
@@ -541,7 +570,11 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
         onSaved={() => {
           setShowNewAptModal(false)
           setNewAptPrefill(null)
-          window.location.reload()
+          setEditApt(null)
+          // Las citas llegan por Realtime; sólo hay que releer disponibilidad
+          // y bloqueos, que no viajan por ahí.
+          recargarDisponibilidad()
+          recargarBloqueos()
         }}
       />
     </div>

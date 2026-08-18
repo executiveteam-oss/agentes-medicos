@@ -78,6 +78,11 @@ export function AppointmentFormModal({
   const [paymentType, setPaymentType] = useState<PaymentType>('Particular')
   const [epsName, setEpsName] = useState('')
   const [modality, setModality] = useState<AppointmentModality>('presencial')
+  // Aviso a la paciente cuando la cita se MUEVE. Por defecto se avisa; el
+  // silencio existe pero cuesta un motivo, igual que cancelar.
+  const [avisarPaciente, setAvisarPaciente] = useState(true)
+  const [motivoPaciente, setMotivoPaciente] = useState('')
+  const [motivoInterno, setMotivoInterno] = useState('')
   const [virtualLink, setVirtualLink] = useState('')
   const [desiredAt, setDesiredAt] = useState('')
 
@@ -121,6 +126,7 @@ export function AppointmentFormModal({
       // dice editar miente en las dos direcciones.
       setModality(initialData.modality ?? 'presencial')
       setVirtualLink(initialData.virtual_link ?? '')
+      setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno('')
     } else {
       // Reset para creación nueva (con paciente pre-seleccionada si viene)
       setPatientId(prefillPatient?.id ?? '')
@@ -176,6 +182,13 @@ export function AppointmentFormModal({
     return Object.keys(errors).length === 0
   }
 
+  // Mismos campos que el server considera avisables. Si divergen, la pantalla
+  // pediría un motivo que el server no exige (o al revés).
+  const seMovioLaCita = Boolean(
+    isEditing && initialData &&
+    (date !== initialData.date || time !== initialData.time || doctorId !== initialData.doctor_id),
+  )
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -201,7 +214,11 @@ export function AppointmentFormModal({
 
     startTransition(async () => {
       const result = isEditing
-        ? await updateAppointmentFromDashboard(initialData!.id, input)
+        ? await updateAppointmentFromDashboard(initialData!.id, input, {
+            notificar: seMovioLaCita ? avisarPaciente : true,
+            motivoInterno,
+            motivoParaPaciente: motivoPaciente.trim() || null,
+          })
         : await createAppointment(input)
 
       if (!result.ok) {
@@ -212,6 +229,8 @@ export function AppointmentFormModal({
         return
       }
 
+      const aviso = (result as { warning?: string }).warning
+      if (aviso) window.alert(aviso)
       onSaved()
       onClose()
     })
@@ -374,6 +393,57 @@ export function AppointmentFormModal({
               className="input-v2 w-full"
             />
           </div>
+
+          {/* Aviso a la paciente — sólo cuando la cita se MUEVE.
+              Una cita movida en silencio es peor que una cancelada con aviso:
+              la paciente llega el día que ya no es. */}
+          {seMovioLaCita && (
+            <div style={{ padding: '14px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-amber-soft)', border: '1px solid rgba(255,184,69,0.35)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                <div>
+                  <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>Avisarle a la paciente</p>
+                  <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)' }}>
+                    Cambiaste la fecha, la hora o el médico. Recibe la cita nueva y el archivo para su calendario, en un solo mensaje.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAvisarPaciente(!avisarPaciente)}
+                  className="toggle-v2"
+                  data-active={avisarPaciente ? 'true' : 'false'}
+                />
+              </div>
+
+              {avisarPaciente ? (
+                <div style={{ marginTop: '10px' }}>
+                  <label className="label" style={{ fontSize: '11px' }}>Motivo para la paciente (opcional)</label>
+                  <input
+                    className="input-v2 w-full"
+                    value={motivoPaciente}
+                    onChange={(e) => setMotivoPaciente(e.target.value)}
+                    placeholder="el doctor tuvo una urgencia"
+                    style={{ fontSize: '12px' }}
+                  />
+                </div>
+              ) : (
+                <div style={{ marginTop: '10px' }}>
+                  <label className="label" style={{ fontSize: '11px', color: 'var(--v2-red)' }}>
+                    Motivo interno * — obligatorio para mover sin avisar
+                  </label>
+                  <input
+                    className="input-v2 w-full"
+                    value={motivoInterno}
+                    onChange={(e) => setMotivoInterno(e.target.value)}
+                    placeholder="la paciente ya lo sabe, lo coordinamos por teléfono"
+                    style={{ fontSize: '12px' }}
+                  />
+                  <p style={{ fontSize: '10px', color: 'var(--v2-red)', marginTop: '4px' }}>
+                    La paciente no se va a enterar del cambio por este medio.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Modalidad */}
           <div>

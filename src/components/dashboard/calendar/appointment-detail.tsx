@@ -2,6 +2,7 @@
 // AppointmentDetail v2 — Inline expand for day/week views
 // ============================================================
 
+import { Pencil } from 'lucide-react'
 import { formatTimeForPatient, formatDateForPatient, formatPhone } from '@/lib/utils/dates'
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { CancelAppointmentButton } from '@/components/dashboard/dashboard-actions'
@@ -22,9 +23,13 @@ interface Props {
   appointment: CalendarAppointment
   onClose: () => void
   surveyConfig?: SurveyPropsForQuickActions
+  /** Abre el formulario con esta cita cargada. Sin esto, `updateAppointment
+   *  FromDashboard` existía completa y no la llamaba nadie: la hora, el médico
+   *  y el tipo de pago de una cita eran ineditables desde el panel. */
+  onEditar?: (apt: CalendarAppointment) => void
 }
 
-export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: Props) {
+export function AppointmentDetail({ appointment: apt, onClose, surveyConfig, onEditar }: Props) {
   const patient = apt.patient
   const doctor = apt.doctor
   const st = STATUS_STYLES[apt.status] ?? STATUS_STYLES.confirmed
@@ -222,7 +227,23 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig }: P
         />
       </div>
       {(apt.status === 'confirmed' || apt.status === 'rescheduled') && (
-        <CancelAppointmentButton appointmentId={apt.id} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {onEditar && (
+            <button
+              onClick={() => onEditar(apt)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                width: '100%', fontSize: '12px', fontWeight: 600, padding: '9px 14px',
+                borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)',
+                background: 'transparent', color: 'var(--v2-text)', cursor: 'pointer',
+                fontFamily: 'var(--font-manrope), sans-serif',
+              }}
+            >
+              <Pencil size={13} /> Editar cita
+            </button>
+          )}
+          <CancelAppointmentButton appointmentId={apt.id} />
+        </div>
       )}
     </div>
   )

@@ -40,12 +40,14 @@ interface Props {
   bloqueosDelDia?: { doctor_id: string | null; reason: string | null }[]
   /** Cuántos médicos activos tiene la clínica, para decir "3 de 5". */
   doctoresTotales?: number
+  /** Abrir el formulario con la cita cargada. */
+  onEditarCita?: (apt: CalendarAppointment) => void
 }
 
 
 
 
-export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig, disponibilidadDelDia, onAgendaCambiada, bloqueosDelDia, doctoresTotales }: Props) {
+export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig, disponibilidadDelDia, onAgendaCambiada, bloqueosDelDia, doctoresTotales, onEditarCita }: Props) {
   const dateStr = toDateStr(date)
   const isToday = dateStr === todayStr
   const [showBulkCancel, setShowBulkCancel] = useState(false)
@@ -309,7 +311,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
                 </button>
 
                 {isExpanded && (
-                  <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} surveyConfig={surveyConfig} />
+                  <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} surveyConfig={surveyConfig} onEditar={onEditarCita} />
                 )}
               </div>
             )

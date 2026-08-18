@@ -14,6 +14,9 @@ export interface CalendarAppointment {
   reminder_24h_sent: boolean
   reminder_confirmed: boolean | null
   payment_type: string
+  /** Hace falta para editar la cita: el update reescribe el campo desde el
+   *  formulario, así que si no llega hasta acá se borra al guardar. */
+  eps_name?: string | null
   modality: string
   virtual_link: string | null
   documents_requested: boolean

@@ -19,6 +19,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { ventanaAbierta } from '@/lib/whatsapp/ventana-24h'
 import { checkWritePermission } from '@/lib/actions-helpers'
 import { revalidatePath } from 'next/cache'
 import { sendWhatsAppMessageWithResult, sendWhatsAppTemplate, getClinicCreds } from '@/lib/whatsapp/client'
@@ -29,7 +30,6 @@ import {
 import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import type { ContextPendientes } from '@/lib/conversations/pendientes'
 
-const VENTANA_MS = 24 * 60 * 60 * 1000
 
 /** Rellena {{1}}, {{2}}… en orden. Solo para la VISTA PREVIA — el envío real
  *  manda los parámetros y Meta arma el texto con la plantilla aprobada. */
@@ -37,19 +37,6 @@ export async function renderTemplate(body: string, params: string[]): Promise<st
   return params.reduce((txt, v, i) => txt.replaceAll(`{{${i + 1}}}`, v), body)
 }
 
-/** ¿Se puede mandar texto libre? Solo si la paciente escribió hace < 24h. */
-async function ventanaAbierta(conversationId: string): Promise<boolean> {
-  const { data } = await supabaseAdmin
-    .from('messages')
-    .select('created_at')
-    .eq('conversation_id', conversationId)
-    .eq('role', 'patient')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (!data?.created_at) return false
-  return Date.now() - new Date(data.created_at as string).getTime() < VENTANA_MS
-}
 
 export interface PreviewContacto {
   ok: boolean

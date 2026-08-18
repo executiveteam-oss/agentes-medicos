@@ -16,6 +16,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { getUserSession } from '@/lib/session'
 import { traerDisponibilidadDia } from '@/lib/calendar/fetch-day-availability'
 import { estadoDeFranja, motivoParaConfirmar, type EstadoFranja } from '@/lib/calendar/day-availability'
+import { notifyAppointmentMoved } from '@/lib/appointment-move-notify'
 
 // ============================================================
 // Marcado de asistencia (campo attendance_outcome — migración 00073)
@@ -395,17 +396,70 @@ export async function cancelAppointmentFromPanel(
 }
 
 /** Actualizar cita desde el dashboard */
+/** Lo que la secretaria decide sobre el aviso cuando mueve una cita. */
+export interface EdicionOpts {
+  /** Default: avisar. En false exige motivo interno, igual que cancelar. */
+  notificar?: boolean
+  motivoInterno?: string
+  motivoParaPaciente?: string | null
+}
+
+/** Campos cuyo cambio la paciente TIENE que saber: es a dónde y con quién ir. */
+const CAMPOS_QUE_SE_AVISAN = ['starts_at', 'doctor_id'] as const
+
 export async function updateAppointmentFromDashboard(
   appointmentId: string,
-  input: AppointmentInput
-): Promise<{ ok: boolean; error?: string }> {
+  input: AppointmentInput,
+  opts?: EdicionOpts,
+): Promise<{ ok: boolean; error?: string; warning?: string; whatsappSent?: boolean }> {
   try {
     const clinicId = await checkWritePermission('agenda')
+
+    // Estado ANTES: hace falta para el diff del audit y para saber si el cambio
+    // es de los que la paciente tiene que saber.
+    const { data: antes } = await supabaseAdmin
+      .from('appointments')
+      .select('starts_at, ends_at, doctor_id, patient_id, reason, payment_type, eps_name, modality, virtual_link, reminder_confirmed, calendar_sequence, status')
+      .eq('id', appointmentId)
+      .eq('clinic_id', clinicId)
+      .single()
+    if (!antes) return { ok: false, error: 'Cita no encontrada' }
 
     const startsAt = new Date(input.starts_at)
     const endsAt = new Date(startsAt.getTime() + (input.duration_minutes || 30) * 60 * 1000)
 
-    // Verificar conflicto (excluyendo la cita actual)
+    const cambioHorario = new Date(antes.starts_at as string).getTime() !== startsAt.getTime()
+    const cambioMedico = (antes.doctor_id as string) !== input.doctor_id
+    const hayQueAvisar = cambioHorario || cambioMedico
+
+    // Mover una cita en silencio es peor que cancelarla con aviso: la paciente
+    // llega el día que ya no es. El silencio existe, pero cuesta un motivo.
+    const notificar = opts?.notificar !== false
+    if (hayQueAvisar && !notificar && !opts?.motivoInterno?.trim()) {
+      return { ok: false, error: 'Mover una cita sin avisarle a la paciente exige un motivo.' }
+    }
+
+    // ── Mismas reglas que agendar ──────────────────────────────────────
+    // Se resuelve con la MISMA fuente que pinta la grilla y que usa el agente.
+    // Una cita movida a una hora que el médico no atiende manda a la paciente a
+    // un consultorio vacío, igual que una creada ahí.
+    if (cambioHorario || cambioMedico) {
+      const fechaCot = formatInTimeZone(startsAt, 'America/Bogota', 'yyyy-MM-dd')
+      const horaCot = formatInTimeZone(startsAt, 'America/Bogota', 'HH:mm')
+      const { data: clinicHoras } = await supabaseAdmin
+        .from('clinics').select('working_hours, whatsapp_config, operational_status, operational_status_message').eq('id', clinicId).single()
+      if (clinicHoras) {
+        const disp = await traerDisponibilidadDia(clinicId, input.doctor_id, fechaCot, clinicHoras)
+        const estadoFranja = estadoDeFranja(disp, horaCot)
+        if (estadoFranja !== 'disponible' && !input.fuera_de_horario_confirmado) {
+          const { data: doc } = await supabaseAdmin
+            .from('doctors').select('name').eq('id', input.doctor_id).maybeSingle()
+          return { ok: false, error: `FUERA_DE_HORARIO: ${motivoParaConfirmar(disp, doc?.name ?? 'El médico')}` }
+        }
+      }
+    }
+
+    // Cupo ocupado (excluyendo esta cita).
     const { data: conflict } = await supabaseAdmin
       .from('appointments')
       .select('id')
@@ -416,42 +470,99 @@ export async function updateAppointmentFromDashboard(
       .lt('starts_at', endsAt.toISOString())
       .gt('ends_at', startsAt.toISOString())
       .limit(1)
-
     if (conflict && conflict.length > 0) {
       return { ok: false, error: 'Ya hay una cita en ese horario con ese doctor' }
     }
 
-    const { error } = await supabaseAdmin
-      .from('appointments')
-      .update({
-        patient_id: input.patient_id,
-        doctor_id: input.doctor_id,
-        starts_at: startsAt.toISOString(),
-        ends_at: endsAt.toISOString(),
-        reason: input.reason.trim() || null,
-        payment_type: input.payment_type || null,
-        eps_name: input.payment_type === 'EPS' ? (input.eps_name || null) : null,
-        modality: input.modality ?? 'presencial',
-        virtual_link: input.virtual_link ?? null,
-        desired_at: input.desired_at || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', appointmentId)
-      .eq('clinic_id', clinicId)
+    // La paciente había confirmado la cita VIEJA. Al mover la hora esa
+    // confirmación deja de valer, y hay que decírselo (ver `debeReconfirmar`):
+    // si no, se queda pensando que ya está.
+    const habiaConfirmado = antes.reminder_confirmed === true
+    const debeReconfirmar = cambioHorario && habiaConfirmado
 
+    const cambios: Record<string, unknown> = {
+      patient_id: input.patient_id,
+      doctor_id: input.doctor_id,
+      starts_at: startsAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+      reason: input.reason.trim() || null,
+      payment_type: input.payment_type || null,
+      eps_name: input.payment_type === 'EPS' ? (input.eps_name || null) : null,
+      modality: input.modality ?? 'presencial',
+      virtual_link: input.virtual_link ?? null,
+      desired_at: input.desired_at || null,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (cambioHorario) {
+      // Los recordatorios se buscan por ventana de tiempo sobre starts_at Y por
+      // flag: si el flag queda en true, la cita movida NUNCA recibe el
+      // recordatorio de su hora nueva. Y `reminder_confirmed` no null la deja
+      // fuera de handleReminderResponse, así que su botón tampoco funcionaría.
+      cambios.reminder_72h_sent = false
+      cambios.reminder_24h_sent = false
+      cambios.reminder_2h_sent = false
+      cambios.reminder_confirmed = null
+      cambios.confirmation_received = false
+    }
+    if (hayQueAvisar) {
+      // Mismo UID (es un UPDATE, el id no cambia) + SEQUENCE más alto = el
+      // evento que la paciente ya tiene se MUEVE, en vez de duplicarse.
+      cambios.calendar_sequence = ((antes.calendar_sequence as number) ?? 0) + 1
+    }
+
+    const { error } = await supabaseAdmin
+      .from('appointments').update(cambios).eq('id', appointmentId).eq('clinic_id', clinicId)
     if (error) return { ok: false, error: 'Error actualizando cita' }
+
+    // Auditoría con ANTES y DESPUÉS. Esta pantalla puede cambiar hora, médico y
+    // precio: sin el diff, "¿quién movió esta cita y desde dónde?" no tiene
+    // respuesta. Sólo se listan los campos que efectivamente cambiaron.
+    const diff: Record<string, { antes: unknown; despues: unknown }> = {}
+    const comparables: [string, unknown, unknown][] = [
+      ['starts_at', antes.starts_at, cambios.starts_at],
+      ['doctor_id', antes.doctor_id, input.doctor_id],
+      ['patient_id', antes.patient_id, input.patient_id],
+      ['reason', antes.reason, cambios.reason],
+      ['payment_type', antes.payment_type, cambios.payment_type],
+      ['eps_name', antes.eps_name, cambios.eps_name],
+      ['modality', antes.modality, cambios.modality],
+    ]
+    for (const [campo, viejo, nuevo] of comparables) {
+      if ((viejo ?? null) !== (nuevo ?? null)) diff[campo] = { antes: viejo ?? null, despues: nuevo ?? null }
+    }
+
+    let whatsappSent = false
+    let warning: string | undefined
+
+    if (hayQueAvisar && notificar) {
+      const r = await notifyAppointmentMoved(appointmentId, clinicId, {
+        motivoParaPaciente: opts?.motivoParaPaciente ?? null,
+        debeReconfirmar,
+      })
+      whatsappSent = r.whatsappSent
+      warning = r.warning
+    } else if (hayQueAvisar && debeReconfirmar) {
+      warning = 'La cita se movió sin avisar y la paciente ya la había confirmado: su confirmación se borró y no lo sabe.'
+    }
 
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,
-      action: 'appointment_updated_dashboard',
+      action: hayQueAvisar && !notificar ? 'appointment_moved_silently' : 'appointment_updated_dashboard',
       actor_type: 'staff',
       target_type: 'appointment',
       target_id: appointmentId,
-      details: { starts_at: startsAt.toISOString() },
+      details: {
+        cambios: diff,
+        aviso_a_paciente: hayQueAvisar ? (notificar ? (whatsappSent ? 'entregado' : 'falló') : 'en silencio') : 'no hacía falta',
+        motivo_interno: opts?.motivoInterno?.trim() || null,
+        recordatorios_reseteados: cambioHorario,
+        debia_reconfirmar: debeReconfirmar,
+      },
     })
 
     revalidatePath('/dashboard')
-    return { ok: true }
+    return { ok: true, warning, whatsappSent }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }
   }

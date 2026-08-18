@@ -6,6 +6,8 @@ import {
   REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_BODY, REMINDER_BUTTONS,
   REMINDER_TEMPLATE_NAME_V2, REMINDER_TEMPLATE_BODY_V2,
   CANCEL_TEMPLATE_NAME, CANCEL_TEMPLATE_BODY, CANCEL_BUTTON,
+  ORDEN_TEMPLATE_NAME, ORDEN_TEMPLATE_BODY,
+  CONTACTO_TEMPLATE_NAME, CONTACTO_TEMPLATE_BODY,
   RESUMEN_TEMPLATE_NAME, RESUMEN_TEMPLATE_BODY,
   TEMPLATE_LANGUAGE,
 } from '../src/lib/whatsapp/appointment-templates'
@@ -84,6 +86,22 @@ assert('botones ≤ 25 chars', [...REMINDER_BUTTONS, CANCEL_BUTTON].every((b) =>
 assert('botones recordatorio = Confirmar/Reagendar/Cancelar',
   REMINDER_BUTTONS.join(',') === 'Confirmar,Reagendar,Cancelar')
 assert('botón cancelación = Reagendar', CANCEL_BUTTON === 'Reagendar')
+
+// --- Orden médica y contacto general ---
+assert('nombre orden médica', ORDEN_TEMPLATE_NAME === 'solicitud_orden_medica')
+assert('orden: 5 variables', countVars(ORDEN_TEMPLATE_BODY) === 5, `${countVars(ORDEN_TEMPLATE_BODY)}`)
+assert('orden NO empieza con variable', !startsWithVariable(ORDEN_TEMPLATE_BODY))
+assert('orden NO termina con variable', !endsWithVariable(ORDEN_TEMPLATE_BODY))
+assert('orden body ≤ 1024', ORDEN_TEMPLATE_BODY.length <= 1024)
+assert('orden habla EN PASADO de la cita', /Sobre tu cita del/.test(ORDEN_TEMPLATE_BODY))
+assert('orden nombra a la clínica', ORDEN_TEMPLATE_BODY.includes('Te escribimos de {{2}}'))
+
+assert('nombre contacto general', CONTACTO_TEMPLATE_NAME === 'contacto_general')
+assert('contacto: 3 variables', countVars(CONTACTO_TEMPLATE_BODY) === 3, `${countVars(CONTACTO_TEMPLATE_BODY)}`)
+assert('contacto NO empieza con variable', !startsWithVariable(CONTACTO_TEMPLATE_BODY))
+assert('contacto NO termina con variable', !endsWithVariable(CONTACTO_TEMPLATE_BODY))
+assert('contacto body ≤ 1024', CONTACTO_TEMPLATE_BODY.length <= 1024)
+assert('contacto: el motivo va en su PROPIA línea', /:\n\{\{3\}\}/.test(CONTACTO_TEMPLATE_BODY))
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

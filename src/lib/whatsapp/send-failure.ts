@@ -21,6 +21,9 @@ export type WhatsAppSendType =
   // que un fallo de prueba no se cuente como un resumen que no le llegó a un médico.
   | 'morning_report_test'
   | 'contacto_general' | 'solicitud_orden'
+  // Aviso de que una cita se MOVIÓ (fecha/hora/médico) desde el panel. Va
+  // separado de 'reminder': si éste falla, la paciente va a ir el día viejo.
+  | 'appointment_moved'
   | 'other'
 
 // ÚNICO lugar que decide qué fallo ALERTA vs solo AUDITA. Mismo patrón que

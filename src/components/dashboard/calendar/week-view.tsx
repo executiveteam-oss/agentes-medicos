@@ -93,9 +93,11 @@ interface Props {
   /** Config de la encuesta para QuickActions. Sin esto el panel dice
       "Encuesta no configurada" aunque esté perfectamente configurada. */
   surveyConfig?: React.ComponentProps<typeof AppointmentDetail>['surveyConfig']
+  /** Abrir el formulario con la cita cargada. */
+  onEditarCita?: (apt: CalendarAppointment) => void
 }
 
-export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick, surveyConfig, disponibilidad, doctorName }: Props) {
+export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick, surveyConfig, disponibilidad, doctorName, onEditarCita }: Props) {
   const monday = getMonday(selectedDate)
   const weekDates = getWeekDates(monday)
 
@@ -359,7 +361,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                   overflowY: 'auto',
                 }}
               >
-                <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} surveyConfig={surveyConfig} />
+                <AppointmentDetail appointment={apt} onClose={() => setExpandedApt(null)} surveyConfig={surveyConfig} onEditar={onEditarCita} />
               </aside>
             </>
           )

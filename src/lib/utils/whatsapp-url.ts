@@ -40,3 +40,29 @@ export function buildWhatsAppUrl(phone: string, message: string): string | null 
   const encodedMessage = encodeURIComponent(message)
   return `https://wa.me/${digitsOnly}?text=${encodedMessage}`
 }
+
+
+/**
+ * ¿Este número es ENVIABLE por WhatsApp?
+ *
+ * Distinto de `isValidColombianMobile`, y la diferencia importa: en Algia hay
+ * 7 pacientes con celular de EE.UU., Panamá, México y Ecuador que hoy reciben
+ * mensajes sin problema. Exigirles formato colombiano las dejaría mudas.
+ *
+ * La regla, entonces, es por país:
+ *   - Si el número DICE ser colombiano (+57), tiene que serlo de verdad:
+ *     `+573XXXXXXXXX`. Acá cae `+5730000000` —el de la clínica demo—, que no es
+ *     un celular de ningún lado: le faltan dos dígitos.
+ *   - Cualquier otro país: E.164 laxo (8 a 15 dígitos). No sabemos las reglas
+ *     de numeración de cada país y no vamos a inventarlas; solo se descarta lo
+ *     que no puede ser un teléfono.
+ *
+ * Es un chequeo de FORMA, no de existencia: que el número esté bien escrito no
+ * quiere decir que alguien conteste.
+ */
+export function esNumeroEnviable(phone: string | null | undefined): boolean {
+  if (!phone || typeof phone !== 'string') return false
+  const digits = phone.replace(/\D/g, '')
+  if (digits.startsWith('57')) return isValidColombianMobile(phone)
+  return digits.length >= 8 && digits.length <= 15
+}

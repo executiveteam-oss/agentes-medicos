@@ -9,6 +9,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { whatsappSendErrorReason } from '@/lib/whatsapp/send-error-reason'
 import { createStaffNotification } from '@/lib/notifications/create-notification'
+import { esNumeroEnviable } from '@/lib/utils/whatsapp-url'
 
 /** Tipo de envío — va al audit (`send_type`) y decide la alerta. */
 export type WhatsAppSendType =
@@ -97,4 +98,79 @@ export async function recordWhatsAppSendFailure(
       console.error('[recordWhatsAppSendFailure] alerta crisis falló (no crítico):', e instanceof Error ? e.message : e)
     }
   }
+}
+
+
+// ============================================================
+// NÚMERO MAL FORMADO — se corta ANTES de llamar a Meta.
+//
+// "Centro Médico Bolívar" tenía `phone = '+5730000000'`, que no es un celular
+// colombiano: le faltan dígitos. Cada corrida de cada cron intentaba el envío,
+// Meta lo rechazaba, y eso escribía un `whatsapp_send_failed` por día. El log
+// de fallos es lo que se mira para detectar problemas REALES de entrega; un
+// número que nunca va a funcionar lo llena de ruido hasta volverlo inútil.
+//
+// Un número mal escrito no es un fallo de entrega: es un dato malo. Se registra
+// UNA vez —para que alguien lo arregle— y después se calla.
+//
+// Usa `esNumeroEnviable` (lib/utils/whatsapp-url), que vive al lado de
+// `isValidColombianMobile` y comparte su normalización. NO exige formato
+// colombiano: hay 7 pacientes con número de EE.UU., Panamá, México y Ecuador
+// que reciben mensajes hoy, y cortarlas sería peor que el ruido en el log.
+// ============================================================
+
+/** Máscara estable y sin el número completo (Ley 1581: no loguear teléfonos).
+ *  Determinista a propósito: es la clave con la que se deduplica el registro. */
+function enmascarar(phone: string): string {
+  const t = phone.trim()
+  if (t.length <= 6) return '***'
+  return `${t.slice(0, 5)}***${t.slice(-2)}`
+}
+
+/**
+ * ¿Hay que abortar el envío porque el destino no es un celular colombiano?
+ *
+ * Devuelve true si NO se debe enviar. Registra el problema una sola vez por
+ * (clínica, número): si el número se corrige y vuelve a fallar, se registra de
+ * nuevo, porque ya es otro dato.
+ *
+ * NUNCA lanza — un problema registrando no puede romper un cron.
+ */
+export async function esDestinoInvalido(
+  to: string | null | undefined,
+  ctx?: { clinicId?: string; sendType?: WhatsAppSendType },
+): Promise<boolean> {
+  if (esNumeroEnviable(to)) return false
+
+  const masked = enmascarar(to ?? '')
+  console.warn(`[WhatsApp] Destino inválido (${masked}) — no se intenta el envío`)
+
+  if (!ctx?.clinicId) return true
+
+  try {
+    // ¿Ya quedó registrado este número para esta clínica? Entonces no se repite.
+    const { data: yaEsta } = await supabaseAdmin
+      .from('audit_log')
+      .select('id')
+      .eq('clinic_id', ctx.clinicId)
+      .eq('action', 'whatsapp_invalid_number')
+      .eq('details->>to_masked', masked)
+      .limit(1)
+
+    if (!yaEsta || yaEsta.length === 0) {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: ctx.clinicId,
+        action: 'whatsapp_invalid_number',
+        actor_type: 'system',
+        details: {
+          to_masked: masked,
+          send_type: ctx.sendType ?? 'other',
+          motivo: 'El número no tiene forma de teléfono enviable. Si dice +57 debe ser +573XXXXXXXXX. Corregir el dato.',
+        },
+      })
+      console.error(`[WhatsApp] 🚨 Número inválido registrado para clinic ${ctx.clinicId}: ${masked}`)
+    }
+  } catch { /* registrar no puede romper el envío */ }
+
+  return true
 }

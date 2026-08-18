@@ -7,7 +7,7 @@
 
 import type { WhatsAppSendTextPayload } from '@/types/whatsapp'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { recordWhatsAppSendFailure, type SendFailureContext } from '@/lib/whatsapp/send-failure'
+import { esDestinoInvalido, recordWhatsAppSendFailure, type SendFailureContext } from '@/lib/whatsapp/send-failure'
 
 const WHATSAPP_API_URL = 'https://graph.facebook.com/v21.0'
 
@@ -49,6 +49,14 @@ export async function sendWhatsAppMessageWithResult(
   clinicCreds?: ClinicWhatsAppCredentials | null,
   ctx?: SendFailureContext,
 ): Promise<WhatsAppSendResult> {
+  // Formato ANTES de la red: un número mal escrito no es un fallo de entrega,
+  // es un dato malo. Se corta acá y se registra una sola vez — si no, cada
+  // corrida de cada cron escribe un `whatsapp_send_failed` por el mismo número
+  // roto y tapa los fallos reales que ese log existe para mostrar.
+  if (await esDestinoInvalido(to, { clinicId: ctx?.clinicId, sendType: ctx?.sendType })) {
+    return { ok: false, errorMessage: 'destino con formato inválido — no se intentó el envío' }
+  }
+
   const { phoneNumberId, accessToken } = getConfig(clinicCreds)
 
   const truncatedMessage = message.length > 4096 ? message.slice(0, 4090) + '...' : message
@@ -129,6 +137,12 @@ export async function sendWhatsAppDocument(
   clinicCreds?: ClinicWhatsAppCredentials | null,
   ctx?: SendFailureContext,
 ): Promise<string | null> {
+  // Formato ANTES de la red: un número mal escrito no es un fallo de entrega,
+  // es un dato malo. Se corta acá y se registra una sola vez — si no, cada
+  // corrida de cada cron escribe un `whatsapp_send_failed` por el mismo número
+  // roto y tapa los fallos reales que ese log existe para mostrar.
+  if (await esDestinoInvalido(to, { clinicId: ctx?.clinicId, sendType: ctx?.sendType })) return null
+
   let config: { phoneNumberId: string; accessToken: string }
   try {
     config = getConfig(clinicCreds)
@@ -274,6 +288,14 @@ export async function sendWhatsAppTemplate(
   clinicCreds?: ClinicWhatsAppCredentials | null,
   ctx?: SendFailureContext,
 ): Promise<SendTemplateResult> {
+  // Formato ANTES de la red: un número mal escrito no es un fallo de entrega,
+  // es un dato malo. Se corta acá y se registra una sola vez — si no, cada
+  // corrida de cada cron escribe un `whatsapp_send_failed` por el mismo número
+  // roto y tapa los fallos reales que ese log existe para mostrar.
+  if (await esDestinoInvalido(to, { clinicId: ctx?.clinicId, sendType: ctx?.sendType })) {
+    return { ok: false, error: 'destino con formato inválido — no se intentó el envío' }
+  }
+
   const { phoneNumberId, accessToken } = getConfig(clinicCreds)
 
   const components: unknown[] = []

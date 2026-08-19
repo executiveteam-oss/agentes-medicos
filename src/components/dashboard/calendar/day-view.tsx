@@ -2,10 +2,11 @@
 // DayView v2 — Stat cards + appointment list with inline expand
 // ============================================================
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { descargarAgendaDiaria } from '@/app/actions/agenda-diaria'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { formatTimeForPatient } from '@/lib/utils/dates'
-import { Calendar, XCircle, Lock } from 'lucide-react'
+import { Calendar, XCircle, Lock, Printer } from 'lucide-react'
 import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
@@ -51,6 +52,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
   const dateStr = toDateStr(date)
   const isToday = dateStr === todayStr
   const [showBulkCancel, setShowBulkCancel] = useState(false)
+  const [bajando, startBajar] = useTransition()
   const [toast, setToast] = useState<string | null>(null)
 
   const total = appointments.length
@@ -155,6 +157,38 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
             </span>
         </button>
       </div>
+
+      {/* Imprimir la agenda del día — sólo con un médico filtrado: se imprime
+          UNA hoja por médico, que es como la usan en el mostrador. */}
+      {isFilteredDoctor && (
+        <button
+          onClick={() => startBajar(async () => {
+            const r = await descargarAgendaDiaria(doctorFilter!, dateStr)
+            if (!r.ok || !r.pdfBase64) { setToast(r.error ?? 'No se pudo generar el PDF'); setTimeout(() => setToast(null), 4000); return }
+            // base64 → Blob → descarga. El navegador lo abre o lo guarda.
+            const bytes = Uint8Array.from(atob(r.pdfBase64), (ch) => ch.charCodeAt(0))
+            const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+            const a = document.createElement('a')
+            a.href = url; a.download = r.filename ?? 'agenda.pdf'; a.click()
+            URL.revokeObjectURL(url)
+            setToast(`Agenda de ${toTitleCase(doctorName ?? '')} — ${r.citas} cita${r.citas === 1 ? '' : 's'}`)
+            setTimeout(() => setToast(null), 3000)
+          })}
+          disabled={bajando}
+          className="max-lg:w-full"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+            fontSize: '12px', fontWeight: 600, padding: '10px 14px', marginTop: '8px',
+            borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)',
+            background: 'transparent', color: 'var(--v2-text)',
+            cursor: bajando ? 'wait' : 'pointer', fontFamily: 'var(--font-manrope), sans-serif',
+            opacity: bajando ? 0.6 : 1,
+          }}
+        >
+          <Printer size={14} />
+          {bajando ? 'Generando...' : 'Imprimir agenda del día'}
+        </button>
+      )}
 
       {/* Bulk cancel modal */}
       {showBulkCancel && (

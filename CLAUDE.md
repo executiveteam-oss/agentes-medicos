@@ -104,7 +104,35 @@ Dos casos que costaron caro:
 Y al esperar algo externo (un deploy, un build): **timeout duro**. Nunca un bucle de espera sin
 corte — si no responde en el intervalo previsto, se reporta, no se cuelga.
 
-### 7. Si un dato vive en la DB, no se copia al doc.
+### 7. El prompt no afirma comportamiento del sistema.
+
+Si algo depende de que el código funcione, **lo reporta el código, no el prompt**. Una frase del
+prompt que describe lo que "el sistema hace" es una afirmación sin verificación: sigue diciendo
+lo mismo cuando el código cambia, cuando falla, y cuando nunca existió. Y el modelo la repite con
+total seguridad, porque se la dimos como verdad.
+
+Nos mordió cuatro veces, y las cuatro son la misma forma:
+
+| Lo que el prompt afirmaba | Lo que pasaba de verdad |
+|---|---|
+| Los días que atiende un médico | Los inventaba: ningún tool los devolvía |
+| *"si el tool devuelve vacío, la paciente NO tiene citas… aunque ella insista"* | Un no-encuentro convertido en certeza. Le dijo "no tengo registrada una cita tuya" a una paciente con tres citas al día siguiente |
+| *"el sistema enviará el link de videollamada automáticamente"* | **Ese mecanismo no existe en ninguna versión del código** |
+| *"Cierra SIEMPRE avisando del archivo de calendario"* | El .ics se genera después y puede fallar; la promesa salía igual |
+
+La forma correcta es al revés: **el dato entra al prompt desde una tool, o el mensaje lo emite el
+código después de que el hecho ocurrió.** El aviso del `.ics` no lo dice el agente en la
+confirmación — lo dice el mensaje que sale cuando el archivo ya existe. Los días de un médico no
+los recita el modelo — se los devuelve `check_availability`.
+
+Y si una capacidad depende de configuración (videollamada, plataforma, convenio), la pregunta
+"¿esta clínica puede?" va como **función única** que consultan el prompt y el executor. Si cada
+uno decide por su cuenta, el agente promete lo que el executor después rechaza.
+
+Corolario para revisar: buscá en el prompt las frases con "el sistema", "automáticamente",
+"siempre" y "recibirás". Casi todas son candidatas.
+
+### 8. Si un dato vive en la DB, no se copia al doc.
 
 Ver la regla de arriba. Está acá también porque es la misma clase de error que las otras seis:
 una fuente de verdad duplicada que diverge sin avisar.
@@ -540,6 +568,16 @@ marcar todas las citas del grupo cuando se manda el mensaje único — y que un
 fallo de envío no deje la mitad marcada.
 
 Prioridad baja: molesta, no engaña.
+
+### Menor — el prompt narra automatismos del sistema
+
+`system-prompt.ts` le cuenta al modelo cosas como *"si al cancelar hay alguien en lista de
+espera, el sistema lo notifica automáticamente"*. Hoy es verdad y es contexto interno, no algo
+que deba decirle a la paciente — pero es la misma forma del patrón 7: una afirmación sobre el
+código que va a seguir escrita igual el día que el código cambie, y nadie va a acordarse de
+venir a corregirla.
+
+Prioridad baja: no miente hoy. Cuando se toque esa lógica, revisar también el prompt.
 
 ### Menor — la regla de condición pregunta sin mirar a quién
 

@@ -45,6 +45,11 @@ export const ESCALATION_REASONS = {
   TOOL_ERROR: 'error_tecnico_tool',
   BOOKING_FAILURE: 'falla_agendamiento',
 
+  // — El agente le PROMETIÓ a la paciente que una persona la iba a contactar y
+  //   no llamó escalate_to_human. Motivo propio y no BOOKING_FAILURE: si se
+  //   mezclan, en una semana no se pueden contar, y contarlas es el punto. —
+  PROMISE_WITHOUT_ESCALATION: 'promesa_sin_escalar',
+
   // — No sabemos, y no es lo mismo que "no hay" —
   UNKNOWN_CONVENIO: 'convenio_no_reconocido',
 
@@ -97,6 +102,7 @@ export const ESCALATION_MECHANISM: Record<EscalationReason, EscalationMechanism>
   [ESCALATION_REASONS.AGENT_REESCALATED]: 'tool_agente',
   [ESCALATION_REASONS.TOOL_ERROR]: 'falla_tecnica',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'falla_tecnica',
+  [ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION]: 'falla_tecnica',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'falta_de_dato',
   [ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR]: 'falta_de_dato',
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'operacion',
@@ -119,6 +125,7 @@ export const ESCALATION_LABEL: Record<EscalationReason, string> = {
   [ESCALATION_REASONS.AGENT_REESCALATED]: 'El agente volvió a escalar tras devolución',
   [ESCALATION_REASONS.TOOL_ERROR]: 'Error técnico de una tool',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'Falla al agendar',
+  [ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION]: 'Prometió una persona y no escaló',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'Convenio que no tenemos registrado',
   [ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR]: 'El servicio no existe con el médico que pidió',
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'La clínica no está operando',

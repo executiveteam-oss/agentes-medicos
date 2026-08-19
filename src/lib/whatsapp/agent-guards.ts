@@ -157,6 +157,71 @@ export function detectHallucinatedReschedule(args: {
 }
 
 // ============================================================
+// GUARD 7: prometió que una persona la iba a contactar, y no escaló
+//
+// A diferencia de los guards 2, 3 y 4, este NO reemplaza el texto. La promesa
+// que el agente le hizo a la paciente es CORRECTA —alguien tiene que
+// contactarla—; lo único que faltó fue cumplirla. Reemplazarla por "disculpa,
+// tuve un problema" le traslada a ella un error nuestro y encima le saca la
+// única respuesta útil que recibió. El guard escala de verdad y deja el texto.
+//
+// Casos reales del 2026-08-18 que lo originaron (2 de 8 en el período):
+//   · "Déjame escalar esto con la secretaria para que te los hagan llegar"
+//   · "Ya les avisé y te contactan en los próximos minutos"
+// Las dos pacientes quedaron esperando algo que nadie sabía que debía hacer.
+//
+// EL RIESGO ACÁ ES EL INVERSO AL DEL GUARD 6: un patrón amplio escala
+// conversaciones que el agente podía cerrar solo, y eso ensucia la bandeja que
+// justamente estamos tratando de limpiar. Por eso la familia A exige DOS cosas
+// juntas —un sujeto humano Y una acción de contacto—: "voy a revisar" no
+// dispara porque el sujeto es el agente, no una persona del consultorio.
+//
+// Medido sobre 888 mensajes del agente (08→18/08): 15 disparos reales en 11
+// días, y 0 de los 85 señuelos ("déjame revisar", "dame un momento", "te
+// confirmo en un momento", "voy a revisar").
+
+/** Quién promete: tiene que ser una PERSONA del consultorio, no el agente. */
+const SUJETO_HUMANO = /\b(asesor|asesora|secretaria|el equipo|equipo del consultorio|una persona del consultorio|alguien del consultorio)\b/i
+
+/** Qué promete: que esa persona se va a comunicar. */
+const ACCION_DE_CONTACTO = /(te contact|te escrib|te llam|te respond|se comunic|te confirm|te los hagan llegar|te van a|va a contactar|est[áa]n en eso)/i
+
+/** O directamente el verbo de escalar, que no necesita sujeto: ya lo implica. */
+const VERBO_ESCALAR = /(voy a escalar|d[ée]jame escalar|escalar esto|te paso con (un|una)|ya les avis[ée]|ya le avis[ée]|les aviso|voy a coordinar con el equipo)/i
+
+export function detectPromesaDeHumanoSinEscalar(args: {
+  agentText: string
+  toolsUsed: string[]
+  /** ¿La conversación YA va a escalar por cualquier vía?
+   *
+   *  No alcanza con mirar `toolsUsed`: existe un SEGUNDO camino de escalación
+   *  —`agentResponse.escalate`, que usan los cortes deterministas (error
+   *  técnico, convenio no reconocido, clínica no operativa, servicio que no
+   *  existe con ese médico)—. Esos textos prometen humano y escalan bien, pero
+   *  no pasan por la tool. Sin este flag el guard dispararía sobre
+   *  conversaciones que ya están escalando: ruido en la bandeja, no un guard. */
+  yaVaAEscalar: boolean
+}): GuardResult {
+  if (args.yaVaAEscalar) return { blocked: false }
+  if (args.toolsUsed.includes('escalate_to_human')) return { blocked: false }
+
+  const prometeConSujeto = SUJETO_HUMANO.test(args.agentText) && ACCION_DE_CONTACTO.test(args.agentText)
+  const prometeEscalar = VERBO_ESCALAR.test(args.agentText)
+  if (!prometeConSujeto && !prometeEscalar) return { blocked: false }
+
+  return {
+    // `blocked` acá significa "hay que actuar", NO "reemplazar el texto".
+    // El caller escala y deja el mensaje tal cual — ver el comentario de arriba.
+    blocked: true,
+    reason: 'promesa_sin_escalar',
+    details: {
+      tools_used: args.toolsUsed,
+      familia: prometeEscalar ? 'verbo_escalar' : 'sujeto_humano_mas_contacto',
+    },
+  }
+}
+
+// ============================================================
 // GUARD 4: Cita confirmada fabricada (sin appointmentData)
 // ============================================================
 export function detectHallucinatedAppointmentConfirmation(args: {

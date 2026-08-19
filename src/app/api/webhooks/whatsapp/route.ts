@@ -48,7 +48,7 @@ import {
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
-import { detectDoctorNameMismatch, detectDatosSinRespaldo } from '@/lib/whatsapp/agent-guards'
+import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
@@ -1257,6 +1257,52 @@ async function processWebhook(body: unknown): Promise<void> {
           patientName: patient.name,
           reason: sanitizedText,
         })
+      }
+
+      // 20.05 GUARD 7 — prometió una persona y no escaló.
+      //
+      // Corre DESPUÉS del envío a propósito: no reemplaza el texto. La promesa
+      // que la paciente ya leyó es correcta —alguien tiene que contactarla—;
+      // lo único que faltaba era cumplirla. Lo que se arregla es el estado de
+      // la conversación, no el mensaje.
+      const g7 = detectPromesaDeHumanoSinEscalar({
+        agentText: sendText,
+        toolsUsed: agentResponse.toolsUsed,
+        // Los DOS caminos de escalación: la tool y el corte determinista.
+        yaVaAEscalar: agentResponse.toolsUsed.includes('escalate_to_human') || Boolean(agentResponse.escalate),
+      })
+      if (g7.blocked) {
+        console.warn('[Webhook] 🚨 Guard 7: prometió una persona sin escalar → escalando')
+        await supabaseAdmin
+          .from('conversations')
+          .update({
+            status: 'escalated',
+            escalated_at: new Date().toISOString(),
+            context: escalationContext(conversation.context, ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION),
+          })
+          .eq('id', conversation.id)
+        await notifyStaffOfEscalation({
+          clinicId: clinic.id,
+          conversationId: conversation.id,
+          patientName: patient.name,
+          reason: 'El agente le prometió que alguien la contactaría — hay que cumplirlo',
+        })
+        // Con el texto que lo activó, para poder medir falsos positivos en una
+        // semana. Sin esto el guard es una caja negra que nadie puede evaluar.
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'promesa_sin_escalar_detectada',
+            actor_type: 'system',
+            target_type: 'conversation',
+            target_id: conversation.id,
+            details: {
+              texto_que_lo_activo: sendText.slice(0, 500),
+              familia: (g7.details as { familia?: string } | undefined)?.familia ?? null,
+              tools_used: agentResponse.toolsUsed,
+            },
+          })
+        } catch { /* no crítico */ }
       }
 
       // 20.1 Staff notifications for appointment changes via WhatsApp

@@ -34,7 +34,8 @@ console.log('Snapshot templates de cita\n')
 
 // --- Snapshot exacto (si cambia, hay que re-aprobar en Meta) ---
 assert('language es es_CO', TEMPLATE_LANGUAGE === 'es_CO')
-assert('nombre recordatorio', REMINDER_TEMPLATE_NAME === 'recordatorio_cita')
+// V1: MUERTA (ver appointment-templates.ts). Se congela el wording, no se envía.
+assert('nombre recordatorio V1 (muerta)', REMINDER_TEMPLATE_NAME === 'recordatorio_cita')
 assert('nombre cancelación', CANCEL_TEMPLATE_NAME === 'cancelacion_cita')
 
 assert(

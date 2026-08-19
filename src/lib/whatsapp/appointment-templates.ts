@@ -14,20 +14,30 @@
 
 export const TEMPLATE_LANGUAGE = 'es_CO'
 
-// --- Recordatorio (72h / 24h / 2h — un solo template, cambia el "cuándo") ---
+// --- ⚰️ Recordatorio V1 — MUERTO. No lo usa nadie y NO existe en Meta. ---
+//
+// El switch a la V2 ya ocurrió: el cron importa REMINDER_TEMPLATE_NAME_V2 en
+// las tres ventanas (72h/24h/2h) y `recordatorio_cita` NO figura en la cuenta
+// de WhatsApp de Algia — se verificó el 2026-08-19 listando las 8 plantillas
+// aprobadas del WABA. Mandarlo sería un envío rechazado.
+//
+// El comentario de abajo decía que la V1 "queda como fallback y se switchea
+// cuando Meta apruebe la V2", que es exactamente al revés de la realidad. Se
+// deja la constante sólo para que el snapshot siga congelando el wording de la
+// plantilla que alguna vez estuvo aprobada; NO usarla para enviar.
 export const REMINDER_TEMPLATE_NAME = 'recordatorio_cita'
 export const REMINDER_TEMPLATE_BODY =
   'Hola {{1}} 👋 Te recordamos tu cita con {{2}} el {{3}} a las {{4}}.\n📍 {{5}}\nTe esperamos.'
-// Quick Reply buttons (texto estático, sin variables runtime)
+
+// Quick Reply de los recordatorios. Vive acá arriba por historia, pero son los
+// botones de la V2 —la que se manda— y los procesa handleReminderResponse.
 export const REMINDER_BUTTONS = ['Confirmar', 'Reagendar', 'Cancelar'] as const
 
-// --- Recordatorio V2: identifica a la clínica en la 1ª línea ---
-// Número nuevo sin reputación: la paciente que NO guardó el número ve solo el
-// TELÉFONO, no el display name (salvo Official Business Account). Por eso la 1ª
-// línea nombra a la clínica ({{2}}). Es un template NUEVO (otro nombre) a
-// propósito: editar `recordatorio_cita` lo manda a revisión de Meta y nos deja
-// sin ninguno usable — el viejo queda como fallback y se switchea cuando Meta
-// apruebe éste. Params: {{1}} paciente, {{2}} clínica, {{3}} médico, {{4}} fecha,
+// --- ✅ Recordatorio V2 — la que se usa (APPROVED) ---
+// Identifica a la clínica en la 1ª línea: con un número nuevo sin reputación, la
+// paciente que NO lo guardó ve sólo el TELÉFONO, no el display name (salvo
+// Official Business Account). Por eso {{2}} es la clínica.
+// Params: {{1}} paciente, {{2}} clínica, {{3}} médico, {{4}} fecha,
 // {{5}} hora, {{6}} dirección.
 export const REMINDER_TEMPLATE_NAME_V2 = 'recordatorio_cita_v2'
 export const REMINDER_TEMPLATE_BODY_V2 =

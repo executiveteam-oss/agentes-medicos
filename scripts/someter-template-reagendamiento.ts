@@ -63,6 +63,24 @@ async function main() {
   console.log(`clínica     : ${clinic.name}`)
   console.log(`WABA ID     : ${wabaId}`)
 
+  // Validar el WABA con una LECTURA antes de mostrar nada. El dry-run no
+  // llamaba a Meta, así que un ID equivocado se descubría recién al someter.
+  const rCheck = await fetch(`${API}/${wabaId}/message_templates?limit=200&fields=name,status,language`,
+    { headers: { Authorization: `Bearer ${token}` } })
+  const jCheck = await rCheck.json()
+  if (!rCheck.ok) {
+    console.error(`\n❌ El WABA ID no responde (HTTP ${rCheck.status}):`, JSON.stringify(jCheck))
+    process.exit(1)
+  }
+  const existentes = (jCheck.data ?? []) as { name: string; status: string; language: string }[]
+  console.log(`✅ WABA válido — ${existentes.length} plantillas en la cuenta`)
+  for (const t of existentes) console.log(`   · ${t.name} [${t.language}] ${t.status}`)
+  const yaEsta = existentes.find((t) => t.name === REAGENDA_TEMPLATE_NAME && t.language === TEMPLATE_LANGUAGE)
+  if (yaEsta) {
+    console.log(`\n⚠️  Ya existe con estado ${yaEsta.status}. Someterla de nuevo la RECHAZA por duplicada.`)
+    if (submit) process.exit(1)
+  }
+
   const payload = {
     name: REAGENDA_TEMPLATE_NAME,
     language: TEMPLATE_LANGUAGE,
@@ -76,7 +94,9 @@ async function main() {
             'María', 'ALGIA', 'la Dra. Daniela Osorio',
             'viernes 21 de agosto', '3:00 PM',
             'Motivo: el doctor tuvo una urgencia. Como cambió la fecha, necesitamos que la vuelvas a confirmar.',
-            'https://omuwan.com/cita/abc123',
+            // omuwan.co — el dominio del proyecto. El .com NO es nuestro (responde 403),
+            // y el ejemplo de una plantilla es lo que un revisor de Meta abre.
+            'https://omuwan.co/cita/abc123',
           ]],
         },
       },

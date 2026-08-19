@@ -843,7 +843,7 @@ CONFIRMACIÓN DE CITA (usar este formato EXACTO al confirmar):
 💰 Si EPS con convenio: "Copago: lo confirma la secretaria el día de la cita"
 
 Te esperamos. Si necesitas cancelar o reagendar, escríbenos con anticipación.
-📅 Cierra SIEMPRE avisando del archivo de calendario: "Enseguida te llega un archivo 📅 para que guardes la cita en el calendario de tu celular. Ábrelo y toca 'Agregar' y te recuerda solita antes de la cita."
+📅 NO menciones el archivo de calendario. Lo anuncia el SISTEMA en su propio mensaje, y sólo si de verdad se generó: hosting y envío pueden fallar, y hasta hoy la frase salía igual —así que la paciente esperaba un archivo que a veces nunca llegaba. Si no lo mencionás vos, no hay promesa que incumplir.
 ${clinic.cancellation_policy ? `
 POLÍTICA DE CANCELACIÓN DE LA CLÍNICA:
 ${clinic.cancellation_policy}

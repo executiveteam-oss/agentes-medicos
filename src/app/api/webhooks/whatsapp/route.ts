@@ -1229,7 +1229,10 @@ async function processWebhook(body: unknown): Promise<void> {
               // Condicional y secundario: el METHOD:CANCEL solo hace algo si
               // ella había agregado el evento (la mayoría no lo hizo).
               ? `Si la habías guardado en tu calendario, aquí la quitas:\n${icsLink}`
-              : `📅 Guarda tu cita en el calendario de tu celular:\n${icsLink}\nSi no se abre solo, búscalo en tus descargas. El enlace funciona hasta el día de tu cita.`
+              // Se explica solo: el agente ya NO lo anuncia antes. Este mensaje
+              // sale DESPUÉS de que el archivo existe de verdad, así que si el
+              // hosting falla la paciente no queda esperando nada.
+              : `📅 Guarda tu cita en el calendario de tu celular:\n${icsLink}\nÁbrelo y toca "Agregar" y te recuerda solita antes de la cita. Si no se abre, búscalo en tus descargas — el enlace funciona hasta el día de tu cita.`
             await sendWhatsAppMessageWithResult(message.from, icsText, clinicCreds, {
               clinicId: clinic.id, sendType: 'ics', conversationId: conversation.id,
             })

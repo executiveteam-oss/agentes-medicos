@@ -63,6 +63,26 @@ export const ORDEN_TEMPLATE_NAME = 'solicitud_orden_medica'
 export const ORDEN_TEMPLATE_BODY =
   'Hola {{1}} 👋 Te escribimos de {{2}}. Sobre tu cita del {{3}} a las {{4}} necesitamos la orden médica de tu {{5}}.\n\nPuedes enviárnosla por aquí como foto o PDF. Sin ella no podemos radicar la cuenta con tu entidad.'
 
+// --- Reagendamiento (la cita se MOVIÓ) ---
+// Proactivo y casi siempre FUERA de la ventana de 24h, así que va por
+// plantilla. Hasta que Meta apruebe ésta se usa `contacto_general`, donde todo
+// el aviso entra en UN parámetro y le llega a la paciente en una sola línea
+// corrida — fecha, hora, médico y link pegados. Es el mensaje que le avisa que
+// su cita cambió de día: tiene que leerse bien.
+//
+// {{6}} lleva el motivo Y, si hace falta, el pedido de reconfirmar. Va junto
+// porque una plantilla no tiene condicionales, y un parámetro vacío se rechaza.
+// {{7}} es el link del .ics; cierra con "Te esperamos." para que la variable no
+// quede última (Meta lo rechaza).
+//
+// SIN botón de Quick Reply a propósito: "Confirmar" acá no funcionaría —
+// handleReminderResponse sólo encuentra citas con un recordatorio ya enviado, y
+// mover la cita resetea justamente esos flags. Ella reconfirma con el
+// recordatorio normal de la fecha nueva, que sí tiene el botón.
+export const REAGENDA_TEMPLATE_NAME = 'reagendamiento_cita'
+export const REAGENDA_TEMPLATE_BODY =
+  'Hola {{1}} 👋 Te escribimos de {{2}}.\n\nTu cita con {{3}} quedó reprogramada para el {{4}} a las {{5}}.\n\n{{6}}\n\nSi la tenías guardada en tu calendario, acá la actualizas: {{7}}\n\nTe esperamos.'
+
 // --- Contacto general (cualquier motivo, con o sin cita) ---
 // El motivo va en su PROPIA línea después de dos puntos — misma lección que la
 // cancelación: así funciona con cualquier redacción que escriba la secretaria.

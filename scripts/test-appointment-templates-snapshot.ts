@@ -8,6 +8,7 @@ import {
   CANCEL_TEMPLATE_NAME, CANCEL_TEMPLATE_BODY, CANCEL_BUTTON,
   ORDEN_TEMPLATE_NAME, ORDEN_TEMPLATE_BODY,
   CONTACTO_TEMPLATE_NAME, CONTACTO_TEMPLATE_BODY,
+  REAGENDA_TEMPLATE_NAME, REAGENDA_TEMPLATE_BODY,
   RESUMEN_TEMPLATE_NAME, RESUMEN_TEMPLATE_BODY,
   TEMPLATE_LANGUAGE,
 } from '../src/lib/whatsapp/appointment-templates'
@@ -102,6 +103,15 @@ assert('contacto NO empieza con variable', !startsWithVariable(CONTACTO_TEMPLATE
 assert('contacto NO termina con variable', !endsWithVariable(CONTACTO_TEMPLATE_BODY))
 assert('contacto body ≤ 1024', CONTACTO_TEMPLATE_BODY.length <= 1024)
 assert('contacto: el motivo va en su PROPIA línea', /:\n\{\{3\}\}/.test(CONTACTO_TEMPLATE_BODY))
+
+assert('nombre reagendamiento', REAGENDA_TEMPLATE_NAME === 'reagendamiento_cita')
+assert('reagenda: 7 variables', countVars(REAGENDA_TEMPLATE_BODY) === 7, `${countVars(REAGENDA_TEMPLATE_BODY)}`)
+assert('reagenda NO empieza con variable', !startsWithVariable(REAGENDA_TEMPLATE_BODY))
+// El link ({{7}}) quedaba último y Meta lo rechaza: cierra con "Te esperamos."
+assert('reagenda NO termina con variable', !endsWithVariable(REAGENDA_TEMPLATE_BODY))
+assert('reagenda body ≤ 1024', REAGENDA_TEMPLATE_BODY.length <= 1024)
+assert('reagenda dice que la cita se MOVIÓ', /reprogramada/.test(REAGENDA_TEMPLATE_BODY))
+assert('reagenda nombra a la clínica', REAGENDA_TEMPLATE_BODY.includes('Te escribimos de {{2}}'))
 
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

@@ -13,7 +13,9 @@ export interface PendingContact {
   clinic_id: string
   patient_id: string | null
   appointment_id: string | null
-  reason_type: 'reminder_failed' | 'cancellation_no_delivery' | 'waitlist_notification_failed'
+  // Espeja el CHECK de la tabla (migración 00109). Si divergen, el insert
+  // pasa el typecheck y revienta en runtime contra la base.
+  reason_type: 'reminder_failed' | 'cancellation_no_delivery' | 'waitlist_notification_failed' | 'reschedule_no_delivery'
   reason_text: string
   patient_name: string
   patient_phone: string

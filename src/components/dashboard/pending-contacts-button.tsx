@@ -36,6 +36,7 @@ const REASON_LABELS: Record<string, string> = {
   reminder_failed: 'Recordatorios no entregados',
   cancellation_no_delivery: 'Cancelaciones sin avisar',
   waitlist_notification_failed: 'Avisos de lista de espera fallidos',
+  reschedule_no_delivery: 'Cambios de cita sin avisar',
 }
 
 function formatPhone(phone: string): string {
@@ -57,6 +58,13 @@ function getPrefilledMessage(contact: PendingContact, clinicName: string): strin
 
   if (contact.reason_type === 'cancellation_no_delivery') {
     return `Hola ${name}, te escribimos de ${clinicName} para avisarte que tu cita del ${date} a las ${time} con ${doctor} fue cancelada. Disculpa las molestias. Podemos reagendarte?`
+  }
+
+  // Sin este caso caía en el texto de abajo —el de recordatorio— y le decía
+  // "te recordamos tu cita" con la fecha NUEVA a alguien que no sabe que
+  // cambió. Es la paciente que iba a ir el día viejo: hay que decírselo.
+  if (contact.reason_type === 'reschedule_no_delivery') {
+    return `Hola ${name}, te escribimos de ${clinicName}. Tu cita con ${doctor} cambió de fecha: quedó para el ${date} a las ${time}. No pudimos avisarte por WhatsApp. Nos confirmas que puedes ese dia?`
   }
 
   return `Hola ${name}, te recordamos tu cita del ${date} a las ${time} con ${doctor}. Confirmas?`

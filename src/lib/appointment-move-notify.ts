@@ -19,6 +19,7 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppTemplate, sendWhatsAppMessageWithResult, getClinicCreds } from '@/lib/whatsapp/client'
 import { ventanaAbierta } from '@/lib/whatsapp/ventana-24h'
+import { insertPendingContact } from '@/app/actions/pending-contacts'
 import { CONTACTO_TEMPLATE_NAME, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
 import { formatTimeForPatient } from '@/lib/utils/dates'
 import { format, parseISO } from 'date-fns'
@@ -125,7 +126,10 @@ export async function notifyAppointmentMoved(
         { clinicId, conversationId: convId, sendType: 'appointment_moved' },
       )
       if (!r.ok) {
-        await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'Meta rechazó el texto libre')
+        await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'Meta rechazó el texto libre', {
+          patientId: apt.patient_id as string, patientPhone: patient.phone,
+          doctorName: medico, startsAt: apt.starts_at as string, consultationType: ctName,
+        })
         return { whatsappSent: false, warning: 'Cita actualizada, pero el aviso no se entregó. Hay que contactarla a mano.' }
       }
       return { whatsappSent: true }
@@ -140,12 +144,18 @@ export async function notifyAppointmentMoved(
       creds,
     )
     if (!r.ok) {
-      await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'Meta rechazó el envío')
+      await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'Meta rechazó el envío', {
+          patientId: apt.patient_id as string, patientPhone: patient.phone,
+          doctorName: medico, startsAt: apt.starts_at as string, consultationType: ctName,
+        })
       return { whatsappSent: false, warning: 'Cita actualizada, pero el aviso no se entregó. Hay que contactarla a mano.' }
     }
   } catch (err) {
     console.error('[notifyAppointmentMoved] envío falló:', err instanceof Error ? err.message : err)
-    await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'error de red')
+    await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'error de red', {
+          patientId: apt.patient_id as string, patientPhone: patient.phone,
+          doctorName: medico, startsAt: apt.starts_at as string, consultationType: ctName,
+        })
     return { whatsappSent: false, warning: 'Cita actualizada, pero el aviso no se entregó. Hay que contactarla a mano.' }
   }
 
@@ -164,7 +174,24 @@ export async function notifyAppointmentMoved(
  */
 async function registrarAvisoNoEntregado(
   clinicId: string, appointmentId: string, patientName: string, causa: string,
+  datos?: { patientId?: string; patientPhone?: string; doctorName?: string; startsAt?: string; consultationType?: string | null },
 ): Promise<void> {
+  // La fila de Pendientes es la que ve la secretaria. El audit_log queda igual
+  // porque responde otra pregunta: "¿cuántos avisos no llegaron este mes?".
+  try {
+    await insertPendingContact({
+      clinic_id: clinicId,
+      patient_id: datos?.patientId,
+      appointment_id: appointmentId,
+      reason_type: 'reschedule_no_delivery',
+      reason_text: `No se le pudo avisar que su cita cambió de fecha (${causa}). Sigue creyendo que es el día viejo.`,
+      patient_name: patientName,
+      patient_phone: datos?.patientPhone ?? '',
+      doctor_name: datos?.doctorName ?? '',
+      appointment_date: datos?.startsAt ?? null,
+      consultation_type: datos?.consultationType ?? null,
+    })
+  } catch { /* no bloquear la edición por el registro */ }
   try {
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,

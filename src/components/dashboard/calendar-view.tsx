@@ -271,6 +271,21 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
     return () => { vigente = false }
   }, [doctorFilter, semanaVisible])
 
+  /** Agendar desde la vista de día: la fecha ya la sabe la pantalla, y el médico
+   *  también si hay uno filtrado. La HORA queda vacía a propósito — es lo único
+   *  que la secretaria tiene que decidir, y si esa hora choca, ahí aparece la
+   *  advertencia con el nombre de quien ya está en el cupo. No hay que declarar
+   *  "voy a agendar un extra" antes: se decide cuando choca. */
+  const abrirAgendar = useCallback((fecha: string) => {
+    setEditApt(null)
+    setNewAptPrefill({
+      date: fecha,
+      time: '',
+      doctor_id: doctorFilter !== 'all' ? doctorFilter : '',
+    })
+    setShowNewAptModal(true)
+  }, [doctorFilter])
+
   const abrirEdicion = useCallback((apt: CalendarAppointment) => {
     setEditApt(apt)
     setShowNewAptModal(true)
@@ -487,6 +502,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           })}
           doctoresTotales={doctors.length}
           onEditarCita={abrirEdicion}
+          onAgendarCita={abrirAgendar}
         />
       )}
       {view === 'week' && (

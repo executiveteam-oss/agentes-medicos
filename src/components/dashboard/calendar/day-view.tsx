@@ -6,7 +6,7 @@ import { useState, useTransition } from 'react'
 import { descargarAgendaDiaria, type FormatoAgenda } from '@/app/actions/agenda-diaria'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { formatTimeForPatient } from '@/lib/utils/dates'
-import { Calendar, XCircle, Lock, FileText, Sheet } from 'lucide-react'
+import { Calendar, XCircle, Lock, FileText, Sheet, Plus } from 'lucide-react'
 import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
@@ -43,12 +43,14 @@ interface Props {
   doctoresTotales?: number
   /** Abrir el formulario con la cita cargada. */
   onEditarCita?: (apt: CalendarAppointment) => void
+  /** Abrir el formulario para una cita NUEVA en el día que se está viendo. */
+  onAgendarCita?: (fecha: string) => void
 }
 
 
 
 
-export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig, disponibilidadDelDia, onAgendaCambiada, bloqueosDelDia, doctoresTotales, onEditarCita }: Props) {
+export function DayView({ date, todayStr, appointments, expandedApt, setExpandedApt, doctorFilter, doctorName, surveyConfig, disponibilidadDelDia, onAgendaCambiada, bloqueosDelDia, doctoresTotales, onEditarCita, onAgendarCita }: Props) {
   const dateStr = toDateStr(date)
   const isToday = dateStr === todayStr
   const [showBulkCancel, setShowBulkCancel] = useState(false)
@@ -192,6 +194,27 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
           vez de desaparecer: un botón que no está no se puede descubrir, y no
           hay forma de saber si falta porque no aplica o porque algo se rompió. */}
       <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+        {/* Agendar. Sin este botón todo el flujo de EXTRAS era inalcanzable
+            desde acá — y la vista de día es justo donde está parada la
+            secretaria cuando el médico le autoriza uno. La hora la elige ella
+            en el formulario; si choca, ahí aparece la advertencia con el nombre
+            de quien ya ocupa el cupo. */}
+        {onAgendarCita && (
+          <button
+            onClick={() => onAgendarCita(dateStr)}
+            className="max-lg:w-full"
+            style={{
+              flex: '1 1 auto',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              fontSize: '12px', fontWeight: 700, padding: '10px 14px',
+              borderRadius: 'var(--v2-radius)', border: 'none',
+              background: 'var(--v2-primary)', color: '#fff',
+              cursor: 'pointer', fontFamily: 'var(--font-manrope), sans-serif',
+            }}
+          >
+            <Plus size={14} /> Agendar cita
+          </button>
+        )}
         {([
           { formato: 'pdf' as const, label: 'Descargar PDF', icono: <FileText size={14} /> },
           { formato: 'xlsx' as const, label: 'Descargar Excel', icono: <Sheet size={14} /> },

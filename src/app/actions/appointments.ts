@@ -276,6 +276,23 @@ export async function createAppointment(
     // Mismo patrón que "fuera de horario": se advierte QUIÉN está en ese cupo y
     // una persona decide. No se bloquea —la clínica lo hace igual, con o sin
     // nosotros— pero tampoco se deja pasar en silencio.
+    //
+    // ⚖️ POR RANGO Y NO POR HORA EXACTA — decidido con datos, 2026-08-19.
+    // El riesgo de un chequeo por rango es que salte tan seguido que se
+    // clickee sin leer, y ahí se pierde la protección. Medido sobre las 106
+    // citas de la semana del 17/08:
+    //     por rango       → 22 cupos (20,8%)
+    //     por hora exacta → 18 cupos (17,0%)
+    //     diferencia      →  4 cupos (3,8%)
+    // No dispara "siempre": 4 de cada 5 veces no aparece nada. Y los 4 casos
+    // que sólo el rango atrapa son solapes REALES (citas de 30 min que arrancan
+    // 20 después de otra, pisando al médico 10 minutos) — justo lo que la
+    // secretaria querría ver. Con hora exacta pasarían en silencio.
+    //
+    // CUÁNDO REVISARLO: si la clínica empieza a agendar en cupos MÁS CORTOS que
+    // la duración de la consulta, ese 20,8% se dispara y el aviso se vuelve
+    // papel tapiz. Hoy ningún médico está así (duración ≤ separación en los 7).
+    // Vale la pena re-correr la medición en un mes.
     const { data: conflict } = await supabaseAdmin
       .from('appointments')
       .select('id, starts_at, patients(name), consultation_types(name)')

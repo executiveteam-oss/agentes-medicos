@@ -84,7 +84,7 @@ interface Props {
   onDayClick: (d: Date) => void
   expandedApt: string | null
   setExpandedApt: (id: string | null) => void
-  onEmptySlotClick?: (date: string, hour: number, estado: EstadoFranja, motivo: string) => void
+  onSlotClick?: (date: string, hour: number, estado: EstadoFranja, motivo: string) => void
   /** Disponibilidad por fecha del médico seleccionado. Sin esto (vista "todos
    *  los médicos") la grilla se pinta neutra, como antes. */
   disponibilidad?: Record<string, DisponibilidadDelDia>
@@ -97,7 +97,7 @@ interface Props {
   onEditarCita?: (apt: CalendarAppointment) => void
 }
 
-export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onEmptySlotClick, surveyConfig, disponibilidad, doctorName, onEditarCita }: Props) {
+export function WeekView({ selectedDate, todayStr, appointments, onDayClick, expandedApt, setExpandedApt, onSlotClick, surveyConfig, disponibilidad, doctorName, onEditarCita }: Props) {
   const monday = getMonday(selectedDate)
   const weekDates = getWeekDates(monday)
 
@@ -190,17 +190,25 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                         backgroundImage: estado === 'bloqueado'
                           ? 'repeating-linear-gradient(135deg, rgba(163,48,107,0.14) 0 5px, transparent 5px 10px)'
                           : undefined,
-                        cursor: hourAppts.length === 0 && onEmptySlotClick ? 'pointer' : 'default',
+                        cursor: onSlotClick ? 'pointer' : 'default',
                       }}
                       title={motivoCelda || undefined}
                       onClick={() => {
-                        if (hourAppts.length === 0 && onEmptySlotClick) {
-                          onEmptySlotClick(dateStr, hour, estado ?? 'disponible', motivoCelda)
+                        // Un cupo OCUPADO también agenda: ahí sale un EXTRA.
+                        // Antes esto exigía `hourAppts.length === 0`, y eso dejaba
+                        // el flujo del extra fuera de alcance justo en la vista
+                        // donde la secretaria tiene la grilla entera delante y ve
+                        // el choque mejor que en ningún lado.
+                        //
+                        // El clic en una TARJETA no llega hasta acá: las tarjetas
+                        // hacen stopPropagation para abrir su detalle.
+                        if (onSlotClick) {
+                          onSlotClick(dateStr, hour, estado ?? 'disponible', motivoCelda)
                         }
                       }}
                     >
                       {/* Empty slot hover */}
-                      {hourAppts.length === 0 && onEmptySlotClick && (
+                      {hourAppts.length === 0 && onSlotClick && (
                         <span
                           className="hidden group-hover:flex"
                           style={{
@@ -214,6 +222,27 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                           }}
                         >
                           {estado === 'bloqueado' ? '⚠ Cerrado' : estado === 'fuera_de_horario' ? '⚠ Fuera de horario' : '+ Agendar'}
+                        </span>
+                      )}
+
+                      {/* Celda OCUPADA: el affordance va en una esquina, no como
+                          overlay — un overlay taparía las citas, que es lo que
+                          ella necesita ver para decidir. Dice "Extra" porque eso
+                          es lo que va a salir de ahí. */}
+                      {hourAppts.length > 0 && onSlotClick && (
+                        <span
+                          className="hidden group-hover:flex"
+                          style={{
+                            position: 'absolute', top: '1px', right: '1px', zIndex: 2,
+                            alignItems: 'center', gap: '2px',
+                            fontSize: '9px', fontWeight: 700,
+                            color: '#b07d00', background: 'var(--v2-amber-soft)',
+                            border: '1px solid rgba(255,184,69,0.5)',
+                            borderRadius: '3px', padding: '1px 4px', lineHeight: 1.2,
+                            pointerEvents: 'none',
+                          }}
+                        >
+                          + Extra
                         </span>
                       )}
 

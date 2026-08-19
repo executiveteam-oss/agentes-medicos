@@ -333,7 +333,10 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
     setShowNewAptModal(true)
   }
 
-  function handleEmptySlotClick(date: string, hour: number, estado: EstadoFranja, motivo: string) {
+  /** Clic en una celda de la grilla semanal — esté vacía u ocupada. Si está
+   *  ocupada, el formulario va a chocar y ofrecer agendar un EXTRA; eso lo
+   *  decide el server viendo la hora exacta que ella elija, no esta función. */
+  function handleSlotClick(date: string, hour: number, estado: EstadoFranja, motivo: string) {
     // Fuera de franja o cerrado → primero la advertencia con el motivo concreto.
     if (estado !== 'disponible') {
       setConfirmarFuera({ date, hour, estado, motivo })
@@ -513,7 +516,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
           onDayClick={(d) => { setSelectedDate(d); changeView('day') }}
           expandedApt={expandedApt}
           setExpandedApt={setExpandedApt}
-          onEmptySlotClick={handleEmptySlotClick}
+          onSlotClick={handleSlotClick}
           disponibilidad={doctorFilter !== 'all' ? disponibilidad : undefined}
           doctorName={doctorFilter !== 'all' ? (doctors.find((d) => d.id === doctorFilter)?.name ?? null) : null}
           surveyConfig={surveyConfig}

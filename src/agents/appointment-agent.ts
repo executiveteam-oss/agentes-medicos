@@ -63,6 +63,9 @@ interface AgentParams {
   consultationTypes?: ConsultationType[]  // Tipos de consulta por doctor
   patientPhone: string        // Para pasarle a las tools
   patientName: string         // Nombre del paciente
+  /** La paciente que YA resolvió el webhook. Las tools que preguntan por SUS
+   *  datos usan esto, no el teléfono que escriba el modelo. */
+  patientId?: string | null
   existingPatient?: ExistingPatientData | null  // Datos si es paciente recurrente
   tratanteMode?: 'off' | 'blando' | 'duro'      // modo feature médico tratante
   tratantes?: ResolvedTratante[]                // tratantes activos resueltos (por especialidad)
@@ -117,7 +120,7 @@ interface AgentResponse {
  * 4. Máximo 5 vueltas de tools para evitar que se quede en un ciclo infinito
  */
 export async function runAppointmentAgent(params: AgentParams): Promise<AgentResponse> {
-  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, tratanteMode, tratantes } = params
+  const { patientMessage, messageHistory, clinic, doctor, doctors, waConfig, consultationTypes, patientPhone, patientName, patientId, existingPatient, tratanteMode, tratantes } = params
 
   // 1. Generar el system prompt con datos reales de la clínica y del paciente actual
   const allDoctors = doctors && doctors.length > 0 ? doctors : [doctor]
@@ -299,7 +302,8 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
           clinic.id,
           clinic,
           doctor,
-          params.pinMedico ?? null
+          params.pinMedico ?? null,
+          patientId ?? null,
         )
 
         // Capture appointment data for .ics calendar invite

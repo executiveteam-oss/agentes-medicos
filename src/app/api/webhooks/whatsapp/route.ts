@@ -766,6 +766,9 @@ async function processWebhook(body: unknown): Promise<void> {
         consultationTypes,
         patientPhone,
         patientName: patient.name,
+        // La paciente YA está resuelta acá. Las tools que preguntan por SUS
+        // datos usan este id, no el teléfono que escriba el modelo.
+        patientId: patient.id,
         existingPatient,
         tratanteMode,
         tratantes: resolvedTratantes,

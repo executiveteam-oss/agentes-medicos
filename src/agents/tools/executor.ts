@@ -96,7 +96,12 @@ export async function executeTool(
   doctor: Doctor,
   /** El médico que la paciente nombró en la conversación, si nombró alguno.
    *  Restringe TODA tool que apunte a un médico. */
-  pinMedico?: DoctorPin | null
+  pinMedico?: DoctorPin | null,
+  /** La paciente que YA resolvió el webhook. Manda sobre cualquier teléfono que
+   *  escriba el modelo: es el mismo error que el médico y la modalidad —un dato
+   *  que el sistema conoce con certeza y hacíamos pasar por un intermediario
+   *  que puede equivocarse. */
+  patientId?: string | null,
 ): Promise<ToolResult> {
   try {
     switch (toolName) {
@@ -113,7 +118,7 @@ export async function executeTool(
         )
 
       case 'get_patient_appointments':
-        return await getPatientAppointments(input, clinicId)
+        return await getPatientAppointments(input, clinicId, patientId)
 
       case 'cancel_appointment':
         return await cancelAppointment(input, clinicId)
@@ -1624,19 +1629,38 @@ async function createAppointment(
 // ============================================================
 async function getPatientAppointments(
   input: Record<string, unknown>,
-  clinicId: string
+  clinicId: string,
+  /** La paciente que ya resolvió el webhook. MANDA sobre `input.patient_phone`. */
+  patientIdResuelto?: string | null,
 ): Promise<ToolResult> {
-  const phone = normalizePhone(input.patient_phone as string)
+  // 🔴 POR QUÉ EL patient_id MANDA (2026-08-18)
+  //
+  // Esto buscaba a la paciente por el teléfono que ESCRIBE EL MODELO. El
+  // 18/08 una paciente con TRES citas confirmadas para el día siguiente
+  // (14:00, 14:20 y 14:40) preguntó "¿es a las 2 o a las 2:20?" y el agente le
+  // contestó "no tengo registrada una cita tuya" — una hora después de que el
+  // sistema le confirmara una de ellas por el botón del recordatorio.
+  //
+  // El webhook ya resolvió quién es antes de invocar al agente. Hacer pasar ese
+  // dato por el modelo es el mismo error que el médico y la modalidad: si tiene
+  // que ser correcto, no puede depender de que el modelo lo escriba bien.
+  //
+  // El teléfono queda de FALLBACK, no de fuente: los tests y cualquier camino
+  // que todavía no pase el id siguen funcionando.
+  let patientId = patientIdResuelto ?? null
 
-  // Buscar paciente
-  const { data: patient } = await supabaseAdmin
-    .from('patients')
-    .select('id')
-    .eq('clinic_id', clinicId)
-    .eq('phone', phone)
-    .single()
+  if (!patientId) {
+    const phone = normalizePhone(input.patient_phone as string)
+    const { data: porTelefono } = await supabaseAdmin
+      .from('patients')
+      .select('id')
+      .eq('clinic_id', clinicId)
+      .eq('phone', phone)
+      .maybeSingle()
+    patientId = (porTelefono as { id: string } | null)?.id ?? null
+  }
 
-  if (!patient) {
+  if (!patientId) {
     return {
       success: true,
       data: { appointments: [], message: 'No se encontró el paciente. Puede que sea nuevo.' },
@@ -1648,7 +1672,7 @@ async function getPatientAppointments(
     .from('appointments')
     .select('id, starts_at, ends_at, status, reason, doctor_id, modality')
     .eq('clinic_id', clinicId)
-    .eq('patient_id', patient.id)
+    .eq('patient_id', patientId)
     .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
     .gte('starts_at', new Date().toISOString())
     .order('starts_at', { ascending: true })

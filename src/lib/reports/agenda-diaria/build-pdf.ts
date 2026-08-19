@@ -19,8 +19,13 @@
 
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib'
 
-/** Una fila ya resuelta. El armado de los datos vive en el caller. */
+/** Una fila ya resuelta. El armado de los datos vive en armar-filas.ts, y lo
+ *  comparten el PDF y el Excel: los fallbacks por columna se escriben UNA vez. */
 export interface FilaAgenda {
+  /** El instante crudo. El PDF no lo usa —ya tiene hora y fecha formateadas—,
+   *  pero Excel necesita un Date real para que la hora se ordene y se filtre
+   *  como hora y no como el texto "10:00 AM", que ordena antes que "9:00 AM". */
+  startsAtIso: string
   horaInicia: string
   fecha: string
   profesional: string

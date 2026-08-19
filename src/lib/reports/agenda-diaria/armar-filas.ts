@@ -60,6 +60,7 @@ export function armarFilasAgenda(citas: CitaParaAgenda[]): FilaAgenda[] {
     const aseguradora = aseguradoraCruda ? parseAseguradora(aseguradoraCruda) : null
 
     return {
+      startsAtIso: c.starts_at,
       horaInicia: formatInTimeZone(new Date(c.starts_at), 'America/Bogota', 'h:mm a'),
       fecha: formatInTimeZone(new Date(c.starts_at), 'America/Bogota', 'dd/MM/yyyy'),
       profesional: primero(c.doctor?.name, ext['profesional_nombre']),

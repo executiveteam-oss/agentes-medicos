@@ -11,18 +11,27 @@
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkReadPermission, extractActionError } from '@/lib/actions-helpers'
 import { buildAgendaDiariaPdf } from '@/lib/reports/agenda-diaria/build-pdf'
+import { buildAgendaDiariaXlsx } from '@/lib/reports/agenda-diaria/build-xlsx'
 import { armarFilasAgenda, type CitaParaAgenda } from '@/lib/reports/agenda-diaria/armar-filas'
 import { formatInTimeZone } from 'date-fns-tz'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 
+export type FormatoAgenda = 'pdf' | 'xlsx'
+
 export interface AgendaDiariaResult {
   ok: boolean
   error?: string
-  /** PDF en base64, listo para Blob en el cliente. */
-  pdfBase64?: string
+  /** El archivo en base64, listo para Blob en el cliente. */
+  archivoBase64?: string
+  mimeType?: string
   filename?: string
   citas?: number
+}
+
+const MIME: Record<FormatoAgenda, string> = {
+  pdf: 'application/pdf',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 }
 
 /**
@@ -31,6 +40,7 @@ export interface AgendaDiariaResult {
 export async function descargarAgendaDiaria(
   doctorId: string,
   fecha: string,
+  formato: FormatoAgenda = 'pdf',
 ): Promise<AgendaDiariaResult> {
   let clinicId: string
   try { clinicId = await checkReadPermission('agenda') }
@@ -76,23 +86,29 @@ export async function descargarAgendaDiaria(
   })
 
   try {
-    const bytes = await buildAgendaDiariaPdf({
+    // Los dos formatos comparten el MISMO armado de filas: los fallbacks por
+    // columna se deciden una vez, así el Excel y el PDF no pueden divergir.
+    const comun = {
       doctorName: doctor.name as string,
       fechaLarga: format(parseISO(`${fecha}T12:00:00-05:00`), "EEEE d 'de' MMMM 'de' yyyy", { locale: es }),
       clinicName: (clinic?.name as string) ?? '',
       filas: armarFilasAgenda(normalizadas),
-    })
+    }
+    const bytes = formato === 'xlsx'
+      ? await buildAgendaDiariaXlsx(comun)
+      : await buildAgendaDiariaPdf(comun)
 
     const slug = (doctor.name as string).toLowerCase().normalize('NFD')
       .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
     return {
       ok: true,
-      pdfBase64: Buffer.from(bytes).toString('base64'),
-      filename: `agenda-${slug}-${formatInTimeZone(parseISO(`${fecha}T12:00:00-05:00`), 'America/Bogota', 'yyyy-MM-dd')}.pdf`,
+      archivoBase64: Buffer.from(bytes).toString('base64'),
+      mimeType: MIME[formato],
+      filename: `agenda-${slug}-${formatInTimeZone(parseISO(`${fecha}T12:00:00-05:00`), 'America/Bogota', 'yyyy-MM-dd')}.${formato}`,
       citas: normalizadas.length,
     }
   } catch (err) {
-    console.error('[descargarAgendaDiaria] error generando el PDF:', err)
-    return { ok: false, error: 'No se pudo generar el PDF. Intentá de nuevo.' }
+    console.error(`[descargarAgendaDiaria] error generando el ${formato}:`, err)
+    return { ok: false, error: `No se pudo generar el ${formato === 'xlsx' ? 'Excel' : 'PDF'}. Intentá de nuevo.` }
   }
 }

@@ -3,10 +3,10 @@
 // ============================================================
 
 import { useState, useTransition } from 'react'
-import { descargarAgendaDiaria } from '@/app/actions/agenda-diaria'
+import { descargarAgendaDiaria, type FormatoAgenda } from '@/app/actions/agenda-diaria'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { formatTimeForPatient } from '@/lib/utils/dates'
-import { Calendar, XCircle, Lock, Download } from 'lucide-react'
+import { Calendar, XCircle, Lock, FileText, Sheet } from 'lucide-react'
 import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
@@ -53,12 +53,38 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
   const isToday = dateStr === todayStr
   const [showBulkCancel, setShowBulkCancel] = useState(false)
   const [bajando, startBajar] = useTransition()
+  const [formatoBajando, setFormatoBajando] = useState<FormatoAgenda | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const total = appointments.length
   const completed = appointments.filter((a) => a.attendance_outcome === 'facturado').length
   const noShows = appointments.filter((a) => a.attendance_outcome === 'inasistente').length
   const pending = appointments.filter((a) => a.status === 'confirmed' || a.status === 'rescheduled').length
+
+  function bajarAgenda(formato: FormatoAgenda) {
+    if (!isFilteredDoctor) return
+    setFormatoBajando(formato)
+    startBajar(async () => {
+      try {
+        const r = await descargarAgendaDiaria(doctorFilter!, dateStr, formato)
+        if (!r.ok || !r.archivoBase64) {
+          setToast(r.error ?? 'No se pudo generar el archivo')
+          setTimeout(() => setToast(null), 4000)
+          return
+        }
+        // base64 → Blob → descarga. El navegador lo abre o lo guarda.
+        const bytes = Uint8Array.from(atob(r.archivoBase64), (ch) => ch.charCodeAt(0))
+        const url = URL.createObjectURL(new Blob([bytes], { type: r.mimeType }))
+        const a = document.createElement('a')
+        a.href = url; a.download = r.filename ?? `agenda.${formato}`; a.click()
+        URL.revokeObjectURL(url)
+        setToast(`Agenda de ${toTitleCase(doctorName ?? '')} — ${r.citas} cita${r.citas === 1 ? '' : 's'}`)
+        setTimeout(() => setToast(null), 3000)
+      } finally {
+        setFormatoBajando(null)
+      }
+    })
+  }
 
   const dateFormatted = format(date, "EEEE d 'de' MMMM", { locale: es })
   const isFilteredDoctor = doctorFilter && doctorFilter !== 'all'
@@ -158,47 +184,44 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
         </button>
       </div>
 
-      {/* Descargar la agenda del día. Se llama DESCARGAR y no "imprimir": lo
-          que el botón hace es bajar un PDF; imprimirlo es lo que hace después
-          la secretaria, y el nombre tiene que decir lo que el botón hace.
+      {/* Los dos formatos, juntos. Se llaman DESCARGAR y no "imprimir": lo que
+          los botones hacen es bajar un archivo; imprimirlo es lo que hace
+          después la secretaria.
 
-          Va SIEMPRE visible, deshabilitado cuando no hay médico filtrado, en
+          Van SIEMPRE visibles, deshabilitados cuando no hay médico filtrado, en
           vez de desaparecer: un botón que no está no se puede descubrir, y no
           hay forma de saber si falta porque no aplica o porque algo se rompió. */}
-      <button
-          onClick={() => startBajar(async () => {
-            if (!isFilteredDoctor) return
-            const r = await descargarAgendaDiaria(doctorFilter!, dateStr)
-            if (!r.ok || !r.pdfBase64) { setToast(r.error ?? 'No se pudo generar el PDF'); setTimeout(() => setToast(null), 4000); return }
-            // base64 → Blob → descarga. El navegador lo abre o lo guarda.
-            const bytes = Uint8Array.from(atob(r.pdfBase64), (ch) => ch.charCodeAt(0))
-            const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
-            const a = document.createElement('a')
-            a.href = url; a.download = r.filename ?? 'agenda.pdf'; a.click()
-            URL.revokeObjectURL(url)
-            setToast(`Agenda de ${toTitleCase(doctorName ?? '')} — ${r.citas} cita${r.citas === 1 ? '' : 's'}`)
-            setTimeout(() => setToast(null), 3000)
-          })}
-          disabled={bajando || !isFilteredDoctor}
-          title={isFilteredDoctor ? 'Descarga un PDF con las citas del día de este médico' : 'Filtrá la agenda por un médico: se descarga una hoja por médico'}
-          className="max-lg:w-full"
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-            fontSize: '12px', fontWeight: 600, padding: '10px 14px', marginTop: '8px',
-            borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)',
-            background: 'transparent', color: 'var(--v2-text)',
-            cursor: bajando ? 'wait' : isFilteredDoctor ? 'pointer' : 'not-allowed',
-            fontFamily: 'var(--font-manrope), sans-serif',
-            opacity: bajando || !isFilteredDoctor ? 0.5 : 1,
-          }}
-        >
-          <Download size={14} />
-          {bajando
-            ? 'Generando PDF...'
-            : isFilteredDoctor
-              ? 'Descargar agenda del día'
-              : 'Descargar agenda — elegí un médico'}
-      </button>
+      <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+        {([
+          { formato: 'pdf' as const, label: 'Descargar PDF', icono: <FileText size={14} /> },
+          { formato: 'xlsx' as const, label: 'Descargar Excel', icono: <Sheet size={14} /> },
+        ]).map(({ formato, label, icono }) => (
+          <button
+            key={formato}
+            onClick={() => bajarAgenda(formato)}
+            disabled={bajando || !isFilteredDoctor}
+            title={isFilteredDoctor
+              ? `Descarga las citas del día de este médico en ${formato.toUpperCase()}`
+              : 'Filtrá la agenda por un médico: se descarga una hoja por médico'}
+            className="max-lg:w-full"
+            style={{
+              flex: '1 1 auto',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+              fontSize: '12px', fontWeight: 600, padding: '10px 14px',
+              borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)',
+              background: 'transparent', color: 'var(--v2-text)',
+              cursor: bajando ? 'wait' : isFilteredDoctor ? 'pointer' : 'not-allowed',
+              fontFamily: 'var(--font-manrope), sans-serif',
+              opacity: bajando || !isFilteredDoctor ? 0.5 : 1,
+            }}
+          >
+            {icono}
+            {formatoBajando === formato
+              ? 'Generando...'
+              : isFilteredDoctor ? label : `${label} — elegí un médico`}
+          </button>
+        ))}
+      </div>
 
       {/* Bulk cancel modal */}
       {showBulkCancel && (

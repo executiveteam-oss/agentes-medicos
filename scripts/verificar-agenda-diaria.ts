@@ -1,10 +1,15 @@
 /**
- * Genera la agenda diaria REAL de cada médico y verifica el contenido antes de
- * que la impriman. SOLO LECTURA: no escribe en la DB y no envía nada.
+ * Genera la agenda diaria REAL de cada médico —PDF y Excel— y verifica el
+ * contenido antes de que la usen. SOLO LECTURA: no escribe en la DB.
  *
- * Deja los PDF en el scratchpad para abrirlos y mirarlos.
+ * El .xlsx se RELEE después de generarlo: no alcanza con que se vea bien, hay
+ * que comprobar que los tipos quedaron como se pretendía (la hora como hora, el
+ * documento como texto) y que la hora no se corrió — Excel guarda fechas sin
+ * zona horaria y ese es el error clásico.
  *
- * Run: TZ=America/Bogota npx tsx scripts/verificar-agenda-diaria-pdf.ts [YYYY-MM-DD]
+ * Deja los archivos en el scratchpad para abrirlos.
+ *
+ * Run: TZ=America/Bogota npx tsx scripts/verificar-agenda-diaria.ts [YYYY-MM-DD]
  */
 if (process.env.NODE_ENV !== 'development') {
   ;(process.env as Record<string, string>).NODE_ENV = 'development'
@@ -29,6 +34,8 @@ const SALIDA = '/private/tmp/claude-501/-Users-juanlondono-Documents-agentes-med
 async function main() {
   const { createClient } = await import('@supabase/supabase-js')
   const { buildAgendaDiariaPdf, SIN_DATO } = await import('@/lib/reports/agenda-diaria/build-pdf')
+  const { buildAgendaDiariaXlsx } = await import('@/lib/reports/agenda-diaria/build-xlsx')
+  const ExcelJS = (await import('exceljs')).default
   const { armarFilasAgenda } = await import('@/lib/reports/agenda-diaria/armar-filas')
   const { format, parseISO } = await import('date-fns')
   const { es } = await import('date-fns/locale')
@@ -80,7 +87,31 @@ async function main() {
     })
     const slug = nombre.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-')
     writeFileSync(`${SALIDA}/agenda-${slug}.pdf`, pdf)
-    console.log(`  ${nombre.padEnd(34)} ${String(filas.length).padStart(2)} citas → ${(pdf.length / 1024).toFixed(1)} KB`)
+    const xlsx = await buildAgendaDiariaXlsx({
+      doctorName: nombre,
+      fechaLarga: format(parseISO(`${FECHA}T12:00:00-05:00`), "EEEE d 'de' MMMM 'de' yyyy", { locale: es }),
+      clinicName: 'ALGIA', filas,
+    })
+    writeFileSync(`${SALIDA}/agenda-${slug}.xlsx`, xlsx)
+    console.log(`  ${nombre.padEnd(34)} ${String(filas.length).padStart(2)} citas → PDF ${(pdf.length / 1024).toFixed(1)} KB · XLSX ${(xlsx.length / 1024).toFixed(1)} KB`)
+
+    // Releer el .xlsx y verificar que los TIPOS quedaron como se pretendía:
+    // que la hora sea hora y el documento texto, no que "se vea" bien.
+    const wb = new ExcelJS.Workbook()
+    await wb.xlsx.load(xlsx as never)
+    const ws = wb.getWorksheet('Agenda')!
+    const enc = ws.getRow(1)
+    const primera = ws.getRow(2)
+    const tipoDe = (c: number) => { const v = primera.getCell(c).value; return v instanceof Date ? 'Date' : typeof v }
+    console.log(`     encabezado negrita: ${enc.font?.bold ? 'sí' : 'NO'} · panel congelado: ${(ws.views?.[0] as { state?: string })?.state ?? '-'} · autofiltro: ${ws.autoFilter ? 'sí' : 'no'}`)
+    console.log(`     H INICIA: ${tipoDe(1)} (${primera.getCell(1).numFmt}) · FECHA: ${tipoDe(2)} (${primera.getCell(2).numFmt}) · NRO ID: ${tipoDe(7)} (${primera.getCell(7).numFmt}) valor="${primera.getCell(7).value}"`)
+    // La trampa clásica: Excel guarda fechas SIN zona. Si el corrimiento a COT
+    // está mal, una cita de las 7:00 AM se ve a las 12:00.
+    const d = primera.getCell(1).value as Date
+    const horaExcel = `${((d.getUTCHours() % 12) || 12)}:${String(d.getUTCMinutes()).padStart(2, '0')} ${d.getUTCHours() < 12 ? 'AM' : 'PM'}`
+    const coincide = horaExcel === filas[0].horaInicia
+    console.log(`     hora en Excel: ${horaExcel} · en el PDF: ${filas[0].horaInicia} → ${coincide ? '✅ coinciden' : '❌ CORRIDA'}`)
+    if (!coincide) process.exitCode = 1
     // Primera fila, para ver que el contenido salió bien.
     if (filas[0]) {
       const f = filas[0]
@@ -90,6 +121,6 @@ async function main() {
 
   console.log(`\n═══ Celdas sin dato: ${vacios} de ${total} ═══`)
   for (const [col, n] of Object.entries(conteo).sort((a, b) => b[1] - a[1])) console.log(`  ${col}: ${n}`)
-  console.log(`\nPDFs en ${SALIDA}`)
+  console.log(`\nArchivos en ${SALIDA}`)
 }
 main().catch((e) => { console.error(e); process.exit(1) })

@@ -14,6 +14,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { sendWhatsAppMessage, sendWhatsAppTemplate, getClinicCreds } from '@/lib/whatsapp/client'
 import { toTitleCase, nombreMedicoParaPaciente } from '@/lib/utils/normalize-name'
 import { REMINDER_TEMPLATE_NAME_V2, TEMPLATE_LANGUAGE } from '@/lib/whatsapp/appointment-templates'
+import { ESTADOS_VIGENTES } from '@/lib/whatsapp/reminder-response'
 import { formatDateForPatient, formatTimeForPatient } from '@/lib/utils/dates'
 import { calculateNoShowProbability } from '@/lib/utils/noshow'
 import { syncClinicSheet } from '@/lib/google-sheets'
@@ -550,6 +551,9 @@ async function send2hReminders(
 // Marcar citas sin confirmación como "no confirmadas" después de 12h
 // ============================================================
 async function markUnconfirmedAppointments(): Promise<void> {
+  // Los mismos estados a los que se les MANDÓ el recordatorio (incluye
+  // blocked_external): marcar "no confirmada" sobre un subconjunto más chico
+  // deja fuera justo a las citas que sí recibieron el mensaje.
   const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000)
 
   const { data: unconfirmed } = await supabaseAdmin
@@ -557,7 +561,7 @@ async function markUnconfirmedAppointments(): Promise<void> {
     .select('id, patient_id, clinic_id')
     .eq('reminder_24h_sent', true)
     .is('reminder_confirmed', null)
-    .in('status', ['confirmed', 'rescheduled'])
+    .in('status', ESTADOS_VIGENTES as unknown as string[])
     .lte('updated_at', twelveHoursAgo.toISOString())
 
   for (const apt of unconfirmed ?? []) {
@@ -604,7 +608,7 @@ async function sendVirtualLinks(): Promise<{ sent: number; failed: number }> {
       clinics(virtual_config)
     `)
     .eq('modality', 'virtual')
-    .in('status', ['confirmed', 'rescheduled'])
+    .in('status', ESTADOS_VIGENTES as unknown as string[])
     .not('virtual_link', 'is', null)
     .is('virtual_link_sent_at', null)
     .gte('starts_at', in25m.toISOString())
@@ -683,7 +687,7 @@ async function sendDocumentReminders(): Promise<{ sent: number; failed: number }
     `)
     .eq('documents_requested', true)
     .eq('documents_received', false)
-    .in('status', ['confirmed', 'rescheduled'])
+    .in('status', ESTADOS_VIGENTES as unknown as string[])
     .gte('starts_at', in47h.toISOString())
     .lte('starts_at', in49h.toISOString())
 

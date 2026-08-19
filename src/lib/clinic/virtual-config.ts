@@ -8,10 +8,17 @@
 //
 // 🔴 POR QUÉ EXISTE (2026-08-19)
 // El prompt decía "el sistema enviará el link automáticamente antes de la
-// cita". Ese mecanismo NO EXISTE en ninguna versión del código: no hay cron, ni
-// job, ni nada que mande links de videollamada. Y el 18/08 el agente le
-// prometió a una paciente el link 30 minutos antes de una terapia de piso
-// pélvico, que además sólo se hace presencial.
+// cita". El cron `sendVirtualLinks` (send-reminders) SÍ existe y manda ese link
+// 30 minutos antes — me equivoqué al escribir antes que no existía.
+//
+// Lo que no existe es el DATO que consume: exige `virtual_link` no nulo, y
+// nadie lo llena nunca. Ni el agente al agendar, ni el executor, ni el panel
+// (el campo está en el form de cita, que no tiene punto de entrada). Así que el
+// mecanismo está armado y no puede dispararse: la promesa era igual de falsa,
+// por otro motivo.
+//
+// El 18/08 el agente le prometió a una paciente el link 30 minutos antes de una
+// terapia de piso pélvico, que además sólo se hace presencial.
 //
 // Al medirlo: 0 de 20 clínicas tienen virtual habilitado, 0 tienen base_url y
 // hay 0 tipos de consulta virtuales en todo el sistema. La funcionalidad nunca

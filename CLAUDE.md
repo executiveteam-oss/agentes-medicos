@@ -117,7 +117,7 @@ Nos mordió cuatro veces, y las cuatro son la misma forma:
 |---|---|
 | Los días que atiende un médico | Los inventaba: ningún tool los devolvía |
 | *"si el tool devuelve vacío, la paciente NO tiene citas… aunque ella insista"* | Un no-encuentro convertido en certeza. Le dijo "no tengo registrada una cita tuya" a una paciente con tres citas al día siguiente |
-| *"el sistema enviará el link de videollamada automáticamente"* | **Ese mecanismo no existe en ninguna versión del código** |
+| *"el sistema enviará el link de videollamada automáticamente"* | El cron `sendVirtualLinks` SÍ existe — pero exige `virtual_link` no nulo, y **nada lo llena nunca**: ni el agente ni el executor lo escriben. El mecanismo está y no puede dispararse |
 | *"Cierra SIEMPRE avisando del archivo de calendario"* | El .ics se genera después y puede fallar; la promesa salía igual |
 
 La forma correcta es al revés: **el dato entra al prompt desde una tool, o el mensaje lo emite el

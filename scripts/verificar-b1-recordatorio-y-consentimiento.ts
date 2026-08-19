@@ -34,7 +34,12 @@ const ALGIA = 'dac775fe-6ebd-47e3-89b4-eeb1a821facb'
 
 // Las 5 conversaciones que el 18/08 recibieron el aviso de privacidad en vez de
 // que se procesara su botón. Sin nombres: sólo ids, que es lo que hace falta.
+// El 19/08 apareció un SEXTO caso, con otra causa: la cita del recordatorio era
+// `blocked_external` y el filtro miraba sólo dos estados de tres.
+const YULI_BLOCKED_EXTERNAL = 'a71b1c94-f4e9-490f-aa88-5695a3f57b46'
+
 const FALLARON = [
+  YULI_BLOCKED_EXTERNAL,
   '1298d4af-290a-400a-a00f-fd41e0aa2b0d',
   'b9a4e632-d3c6-49ed-9912-cef350f9c9a9',
   '5da4f43d-962f-4e1b-ae95-4bd95ca6335a',
@@ -85,7 +90,7 @@ async function main() {
   const base = () => admin.from('appointments')
     .select('id', { count: 'exact', head: true })
     .eq('clinic_id', ALGIA).is('reminder_confirmed', null)
-    .in('status', ['confirmed', 'rescheduled']).gte('starts_at', new Date().toISOString())
+    .in('status', ['confirmed', 'rescheduled', 'blocked_external']).gte('starts_at', new Date().toISOString())
 
   const { count: viejo } = await base().eq('reminder_24h_sent', true)
   const { count: nuevo } = await base().or(VENTANAS_RECORDATORIO.map((c) => `${c}.eq.true`).join(','))

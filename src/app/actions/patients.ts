@@ -71,7 +71,18 @@ export async function getPatientsList(opts: {
   // Filtro de búsqueda por nombre, teléfono o documento
   if (opts.search && opts.search.trim()) {
     const term = opts.search.trim().replace(/[%,()]/g, ' ') // sanitizar wildcards/operadores PostgREST
-    query = query.or(`name.ilike.%${term}%,phone.ilike.%${term}%,document_number.ilike.%${term}%`)
+
+    // Los campos NUMÉRICOS se buscan sin separadores. Cualquiera escribe un
+    // documento como "1.088.329.772" y un teléfono como "304 665 0214", pero en
+    // la base están sin puntos ni espacios: buscar el texto tal cual no devolvía
+    // NADA, y desde afuera eso se ve como "la búsqueda por documento no existe".
+    // El nombre se busca con el término original — ahí los separadores importan.
+    const soloDigitos = term.replace(/[.\s-]/g, '')
+    const terminoNumerico = /\d/.test(soloDigitos) ? soloDigitos : term
+
+    query = query.or(
+      `name.ilike.%${term}%,phone.ilike.%${terminoNumerico}%,document_number.ilike.%${terminoNumerico}%`,
+    )
   }
 
   // Filtro por EPS

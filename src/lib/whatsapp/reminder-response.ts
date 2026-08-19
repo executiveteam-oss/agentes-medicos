@@ -25,8 +25,23 @@ export const VENTANAS_RECORDATORIO = [
   'reminder_2h_sent',
 ] as const
 
-/** Estados de cita que todavía admiten confirmar / cancelar / reagendar. */
-const ESTADOS_VIGENTES = ['confirmed', 'rescheduled'] as const
+/**
+ * Estados de cita que todavía admiten confirmar / cancelar / reagendar.
+ *
+ * 🔴 `blocked_external` VA EN LA LISTA, y su ausencia costó el segundo caso de
+ * este mismo bug (2026-08-19). El cron manda recordatorios a los TRES estados
+ * —lo arreglamos en 84b5845— y esta búsqueda miraba sólo dos: le mandábamos el
+ * botón a una cita que después no podíamos encontrar. Una paciente tocó
+ * "Cancelar" sobre su cita del día siguiente y el sistema no la halló.
+ *
+ * `blocked_external` NO es "un bloqueo de agenda": en Algia son 400 filas y las
+ * 400 tienen paciente real. Es una cita que iSalud puso en un cupo ya ocupado y
+ * el sync degradó para no perderla. Excluirla es excluir pacientes.
+ *
+ * Se exporta para que el cron use LA MISMA lista: la pregunta "¿a qué citas se
+ * les escribe?" se responde en un solo lugar.
+ */
+export const ESTADOS_VIGENTES = ['confirmed', 'rescheduled', 'blocked_external'] as const
 
 export type TipoDeRespuesta = 'confirmacion' | 'cancelacion' | 'reagendamiento' | null
 

@@ -276,7 +276,23 @@ async function processWebhook(body: unknown): Promise<void> {
       // (b) legal apruebe Ley 1581.
       if (isDocumentMediaType(message.type) && !hasDocsPending) {
         if (!clinicCreds) {
+          // Sin token no hay forma de responderle. Lo único que queda es que no
+          // se pierda: un console.error se evapora, y esto es una paciente que
+          // mandó un archivo y del que NADIE puede enterarse nunca.
           console.error('[Webhook] media recibido sin clinicCreds — clínica sin token WhatsApp configurado')
+          try {
+            await supabaseAdmin.from('audit_log').insert({
+              clinic_id: clinic.id,
+              action: 'media_sin_credenciales',
+              actor_type: 'patient',
+              target_type: 'patient',
+              target_id: patient.id,
+              details: {
+                tipo: message.type,
+                nota: 'La paciente mandó un archivo y la clínica no tiene WhatsApp configurado: no se le pudo acusar recibo ni escalar.',
+              },
+            })
+          } catch { /* no crítico */ }
           return
         }
         const featureConfig = (clinic.feature_config as Record<string, unknown> | null) ?? {}
@@ -452,8 +468,44 @@ async function processWebhook(body: unknown): Promise<void> {
             return
           }
 
-          // Caso no-autorización: el agente reacciona normalmente al
-          // próximo turno (verá el placeholder en el historial).
+          // Caso no-autorización: acuse + escalar.
+          //
+          // Acá decía "el agente reacciona normalmente al próximo turno (verá el
+          // placeholder en el historial)" y hacía `return` sin responder nada.
+          // Pero si la paciente no vuelve a escribir NO HAY próximo turno: el
+          // archivo quedaba guardado y la conversación muerta. Pasó tres veces
+          // (11, 14 y 17/08) y las tres se quedaron sin una sola respuesta.
+          //
+          // No se le pasa al modelo a propósito: no sabemos qué mandó ni para
+          // qué, así que cualquier cosa que redacte sobre el contenido sería
+          // inventada. Lo único cierto es que llegó — eso se acusa, y lo mira
+          // una persona.
+          const acuse =
+            '📎 Recibí tu archivo, gracias. Ya lo tenemos.\n' +
+            'Una persona del consultorio lo revisa y te escribe por acá.'
+          await sendWhatsAppMessageWithResult(message.from, acuse, clinicCreds, {
+            clinicId: clinic.id, sendType: 'agent_reply', conversationId: conversation.id,
+          })
+          await saveMessage(conversation.id, 'agent', acuse)
+          await supabaseAdmin
+            .from('conversations')
+            .update({
+              status: 'escalated',
+              escalated_at: new Date().toISOString(),
+              context: escalationContext(
+                conversation.context,
+                ESCALATION_REASONS.MEDIA_RECEIVED,
+                filename ?? `Archivo ${message.type}`,
+              ),
+              last_message_at: new Date().toISOString(),
+            })
+            .eq('id', conversation.id)
+          await notifyStaffOfEscalation({
+            clinicId: clinic.id,
+            conversationId: conversation.id,
+            patientName: patient.name,
+            reason: 'Mandó un archivo — hay que ver qué necesita',
+          })
         } catch (err) {
           console.error('[Webhook] error procesando media:', err)
           await sendWhatsAppMessage(message.from, '📎 Hubo un problema procesando tu archivo. Te paso con un asesor.', clinicCreds)

@@ -59,6 +59,9 @@ export const ESCALATION_REASONS = {
   // — Documentos que manda la paciente —
   MEDIA_DISABLED: 'media_deshabilitada',
   AUTHORIZATION_REVIEW: 'autorizacion_recibida',
+  // Llegó un archivo que NADIE pidió y que no es una autorización. Distinto de
+  // MEDIA_DISABLED, que significa lo contrario: ahí el archivo ni se recibió.
+  MEDIA_RECEIVED: 'archivo_recibido',
 
   // — Una persona la sacó del agente desde el dashboard —
   STAFF_TAKEOVER: 'staff_takeover',
@@ -98,6 +101,7 @@ export const ESCALATION_MECHANISM: Record<EscalationReason, EscalationMechanism>
   [ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR]: 'falta_de_dato',
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'operacion',
   [ESCALATION_REASONS.MEDIA_DISABLED]: 'documento',
+  [ESCALATION_REASONS.MEDIA_RECEIVED]: 'documento',
   [ESCALATION_REASONS.AUTHORIZATION_REVIEW]: 'documento',
   [ESCALATION_REASONS.STAFF_TAKEOVER]: 'humano',
   [ESCALATION_REASONS.STAFF_ASSIGNED]: 'humano',
@@ -120,6 +124,7 @@ export const ESCALATION_LABEL: Record<EscalationReason, string> = {
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'La clínica no está operando',
   [ESCALATION_REASONS.MEDIA_DISABLED]: 'Archivo recibido con recepción deshabilitada',
   [ESCALATION_REASONS.AUTHORIZATION_REVIEW]: 'Autorización recibida, pendiente de revisión',
+  [ESCALATION_REASONS.MEDIA_RECEIVED]: 'Archivo recibido sin que nadie lo pidiera',
   [ESCALATION_REASONS.STAFF_TAKEOVER]: 'Alguien del staff la atendió',
   [ESCALATION_REASONS.STAFF_ASSIGNED]: 'Derivada a un médico',
   [ESCALATION_REASONS.STAFF_MANUAL]: 'Movida a Atención a mano',

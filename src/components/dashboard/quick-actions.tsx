@@ -48,9 +48,12 @@ interface QuickActionsProps {
   /** Estado del pedido de orden médica para esta cita. */
   documentsRequested?: boolean
   documentsReceived?: boolean
+  /** ¿La cita tiene una PACIENTE de verdad? De esto —y no del status— depende
+   *  que se pueda marcar la asistencia. Ver el comentario de abajo. */
+  tienePaciente?: boolean
 }
 
-export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, surveyState, surveyConfig, documentsRequested = false, documentsReceived = false }: QuickActionsProps) {
+export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, surveyState, surveyConfig, documentsRequested = false, documentsReceived = false, tienePaciente = true }: QuickActionsProps) {
   const [isPending, startTransition] = useTransition()
 
   // Pedido de ORDEN MÉDICA — post-consulta, para radicar la cuenta.
@@ -94,8 +97,16 @@ export function QuickActions({ appointmentId, currentStatus, attendanceOutcome, 
   }
 
 
-  // Si la cita está cancelada o bloqueo externo, no aplica marca de asistencia
-  if (currentStatus === 'cancelled' || currentStatus === 'blocked_external') {
+  // La marca de asistencia depende de si hay una PACIENTE a quien marcar, no
+  // del status.
+  //
+  // Antes se ocultaba para TODO `blocked_external`, y eso dejaba sin botones a
+  // dos casos que sí los necesitan: las citas de iSalud en cupo compartido que
+  // tienen ficha (la mayoría de las 404) y los EXTRAS que agenda la secretaria
+  // —esos se van a atender, y hay que poder marcarlos—. El único
+  // blocked_external sin paciente es el bloqueo de agenda de verdad, y ese se
+  // filtra solo por `tienePaciente`.
+  if (currentStatus === 'cancelled' || !tienePaciente) {
     return null
   }
 

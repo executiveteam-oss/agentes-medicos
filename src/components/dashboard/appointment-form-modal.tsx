@@ -83,6 +83,9 @@ export function AppointmentFormModal({
   const [avisarPaciente, setAvisarPaciente] = useState(true)
   const [motivoPaciente, setMotivoPaciente] = useState('')
   const [motivoInterno, setMotivoInterno] = useState('')
+  /** Mensaje del server cuando el cupo ya está ocupado: dice QUIÉN está ahí.
+   *  Mientras esté seteado, el submit agenda como EXTRA. */
+  const [confirmarExtra, setConfirmarExtra] = useState<string | null>(null)
   const [virtualLink, setVirtualLink] = useState('')
   const [desiredAt, setDesiredAt] = useState('')
 
@@ -126,7 +129,7 @@ export function AppointmentFormModal({
       // dice editar miente en las dos direcciones.
       setModality(initialData.modality ?? 'presencial')
       setVirtualLink(initialData.virtual_link ?? '')
-      setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno('')
+      setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno(''); setConfirmarExtra(null)
     } else {
       // Reset para creación nueva (con paciente pre-seleccionada si viene)
       setPatientId(prefillPatient?.id ?? '')
@@ -210,6 +213,8 @@ export function AppointmentFormModal({
       virtual_link: modality === 'virtual' ? virtualLink.trim() || null : null,
       desired_at: desiredAt || null,
       fuera_de_horario_confirmado: fueraDeHorarioConfirmado ?? false,
+      // Sólo va en true después de que la secretaria vio contra quién agenda.
+      extra_confirmado: confirmarExtra !== null,
     }
 
     startTransition(async () => {
@@ -222,6 +227,14 @@ export function AppointmentFormModal({
         : await createAppointment(input)
 
       if (!result.ok) {
+        // Cupo ocupado: no es un error, es una pregunta. El server manda el
+        // nombre de quien está en ese horario para que la secretaria decida
+        // viendo contra qué agenda.
+        if (result.error?.startsWith('CUPO_OCUPADO:')) {
+          setConfirmarExtra(result.error.replace(/^CUPO_OCUPADO:\s*/, ''))
+          setError('')
+          return
+        }
         // El server marca el rechazo por horario con un prefijo para poder
         // distinguirlo; a la secretaria le sirve el motivo, no el código.
         const msg = (result.error ?? 'Error guardando la cita').replace(/^FUERA_DE_HORARIO:\s*/, '')
@@ -266,7 +279,52 @@ export function AppointmentFormModal({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Cupo ocupado. NO es un error: es una decisión que sólo puede tomar
+            una persona —el extra existe porque el médico lo autorizó ese día, y
+            eso el sistema no lo puede saber—. Por eso se muestra CONTRA QUIÉN
+            se está agendando antes de confirmar. */}
+        {confirmarExtra && (
+          <div
+            style={{
+              marginBottom: '16px', padding: '14px', borderRadius: 'var(--v2-radius)',
+              background: 'var(--v2-amber-soft)', border: '1px solid rgba(255,184,69,0.45)',
+            }}
+          >
+            <p style={{ fontSize: '13px', fontWeight: 700, color: '#b07d00', marginBottom: '4px' }}>
+              Ese cupo ya está ocupado
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--v2-text)', lineHeight: 1.45 }}>{confirmarExtra}</p>
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '6px' }}>
+              Se va a guardar como <strong>Extra</strong>. Las dos citas quedan en la agenda y el
+              asistente virtual sigue viendo el horario como ocupado.
+            </p>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setConfirmarExtra(null)}
+                className="btn-v2-secondary"
+                style={{ fontSize: '12px', padding: '8px 14px' }}
+              >
+                Cambiar el horario
+              </button>
+              <button
+                type="submit"
+                form="form-cita"
+                disabled={isPending}
+                style={{
+                  fontSize: '12px', fontWeight: 700, padding: '8px 16px',
+                  borderRadius: 'var(--v2-radius)', border: 'none', cursor: 'pointer',
+                  background: '#b07d00', color: '#fff',
+                  fontFamily: 'var(--font-manrope), sans-serif',
+                }}
+              >
+                {isPending ? 'Agendando...' : 'Agendar como extra'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <form id="form-cita" onSubmit={handleSubmit} className="space-y-4">
           {/* Paciente */}
           <div>
             <label className="label">Paciente</label>

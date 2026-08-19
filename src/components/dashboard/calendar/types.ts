@@ -112,8 +112,20 @@ export function esCupoCompartido(status: string, reason?: string | null): boolea
   return status === 'blocked_external' && (reason ?? '').trim() !== BLOQUEO_SIN_PACIENTE
 }
 
-export function etiquetaEstado(status: string, reason?: string | null): string {
+/** Un EXTRA es un `blocked_external` que creó una PERSONA desde el panel.
+ *
+ *  Misma fila que un cupo compartido de iSalud, y sin embargo otra cosa: uno es
+ *  un artefacto del import —el sync degradó la cita para no perderla— y el otro
+ *  un acto deliberado del médico autorizando atender a alguien de más. La
+ *  etiqueta sale del ORIGEN, no del estado, para que la secretaria lea la
+ *  palabra que ella usa. */
+export function esExtraDelPanel(status: string, source?: string | null): boolean {
+  return status === 'blocked_external' && source === 'dashboard'
+}
+
+export function etiquetaEstado(status: string, reason?: string | null, source?: string | null): string {
   if (status === 'blocked_external') {
+    if (esExtraDelPanel(status, source)) return 'Extra'
     return esCupoCompartido(status, reason) ? 'Cupo compartido' : 'Bloqueo de agenda'
   }
   return STATUS_LABELS[status] ?? status

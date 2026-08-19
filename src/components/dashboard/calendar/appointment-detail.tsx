@@ -57,7 +57,7 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig, onE
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: st.bg, color: st.fg }}>
-            {etiquetaEstado(apt.status, apt.reason)}
+            {etiquetaEstado(apt.status, apt.reason, apt.source)}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '4px' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
@@ -213,6 +213,9 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig, onE
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
         <QuickActions
           appointmentId={apt.id}
+          // Un bloqueo de agenda de iSalud no tiene paciente ni nombre; todo lo
+          // demás —cupo compartido con ficha, extra del panel— sí.
+          tienePaciente={Boolean(apt.patient) || esCupoCompartido(apt.status, apt.reason)}
           currentStatus={apt.status as AppointmentStatus}
           attendanceOutcome={apt.attendance_outcome}
           surveyState={{

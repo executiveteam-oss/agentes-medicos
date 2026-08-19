@@ -218,6 +218,10 @@ export interface AppointmentInput {
   modality?: 'presencial' | 'virtual'
   virtual_link?: string | null
   desired_at?: string | null  // YYYY-MM-DD, fecha que quería el paciente
+  /** La secretaria vio QUIÉN ocupa el cupo y confirmó agendar un EXTRA igual.
+   *  Un extra existe porque el médico lo autorizó ese día — eso no lo puede
+   *  saber el sistema, y por eso hace falta el acto explícito de una persona. */
+  extra_confirmado?: boolean
   /** La secretaria vio la advertencia de "fuera de horario" y confirmó igual.
    *  Sin esto, el server RECHAZA una cita fuera de franja: la advertencia del
    *  cliente sola no es una garantía —un submit directo la saltea— y acá el
@@ -264,10 +268,17 @@ export async function createAppointment(
       return { ok: false, error: `FUERA_DE_HORARIO: ${motivoFuera}` }
     }
 
-    // Verificar que no haya conflicto de horario con el mismo doctor
+    // ── ¿El cupo ya está ocupado? ─────────────────────────────────────
+    // Antes esto era un `return` seco. Pero las secretarias necesitan agendar
+    // EXTRAS: pacientes que el médico autoriza atender ese mismo día. En iSalud
+    // lo hacen poniendo dos en el mismo bloque, y el sync ya trae 404 filas así.
+    //
+    // Mismo patrón que "fuera de horario": se advierte QUIÉN está en ese cupo y
+    // una persona decide. No se bloquea —la clínica lo hace igual, con o sin
+    // nosotros— pero tampoco se deja pasar en silencio.
     const { data: conflict } = await supabaseAdmin
       .from('appointments')
-      .select('id')
+      .select('id, starts_at, patients(name), consultation_types(name)')
       .eq('clinic_id', clinicId)
       .eq('doctor_id', input.doctor_id)
       .in('status', ['confirmed', 'rescheduled'])
@@ -275,9 +286,24 @@ export async function createAppointment(
       .gt('ends_at', startsAt.toISOString())
       .limit(1)
 
-    if (conflict && conflict.length > 0) {
-      return { ok: false, error: 'Ya hay una cita en ese horario con ese doctor' }
+    const chocaCon = conflict?.[0] ?? null
+    if (chocaCon && !input.extra_confirmado) {
+      const ocupante = (Array.isArray(chocaCon.patients) ? chocaCon.patients[0] : chocaCon.patients) as { name: string } | null
+      const hora = formatInTimeZone(new Date(chocaCon.starts_at as string), 'America/Bogota', 'h:mm a')
+      // El nombre va en el mensaje a propósito: la secretaria tiene que poder
+      // ver contra QUIÉN está agendando antes de confirmar.
+      return {
+        ok: false,
+        error: `CUPO_OCUPADO: Ya hay una cita a las ${hora} con ${ocupante?.name ?? 'otra paciente'}. ¿Agendar de todos modos como extra?`,
+      }
     }
+
+    // Un extra convive con la cita original gracias a que el índice único
+    // `idx_appointments_no_double_booking` es PARCIAL: sólo cubre confirmed y
+    // rescheduled. Es el mismo mecanismo que usa el sync de iSalud al degradar.
+    // Y como blocked_external está en BUSY_STATUSES, el AGENTE lo sigue viendo
+    // ocupado: nunca va a ofrecer ese cupo por su cuenta.
+    const esExtra = Boolean(chocaCon && input.extra_confirmado)
 
     const { data, error } = await supabaseAdmin
       .from('appointments')
@@ -287,7 +313,7 @@ export async function createAppointment(
         doctor_id: input.doctor_id,
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
-        status: 'confirmed',
+        status: esExtra ? 'blocked_external' : 'confirmed',
         reason: input.reason.trim() || null,
         payment_type: input.payment_type || null,
         eps_name: input.payment_type === 'EPS' ? (input.eps_name || null) : null,
@@ -300,6 +326,29 @@ export async function createAppointment(
       .single()
 
     if (error) return { ok: false, error: 'Error creando cita' }
+
+    // Un extra es una decisión de una persona sobre un cupo que ya estaba
+    // ocupado: tiene que quedar QUIÉN lo hizo y contra qué cita.
+    if (esExtra) {
+      try {
+        const sesion = await getUserSession()
+        await supabaseAdmin.from('audit_log').insert({
+          clinic_id: clinicId,
+          action: 'appointment_extra_created',
+          actor_type: 'staff',
+          actor_id: sesion?.clinicUserId ?? null,
+          target_type: 'appointment',
+          target_id: data.id,
+          details: {
+            choca_con_appointment_id: chocaCon?.id ?? null,
+            doctor_id: input.doctor_id,
+            starts_at: startsAt.toISOString(),
+            creado_por: sesion?.fullName ?? null,
+            nota: 'Cupo ya ocupado; la secretaria confirmó agendar un extra',
+          },
+        })
+      } catch { /* no bloquear la creación por el registro */ }
+    }
 
     // Incrementar total_appointments del paciente
     const { data: patient } = await supabaseAdmin

@@ -50,6 +50,11 @@ export const ESCALATION_REASONS = {
   //   mezclan, en una semana no se pueden contar, y contarlas es el punto. —
   PROMISE_WITHOUT_ESCALATION: 'promesa_sin_escalar',
 
+  // — El agente no encontró la cita y la paciente sostiene que la tiene. NO es
+  //   "no tiene cita": es que no la encontramos, y las dos cosas se resuelven
+  //   distinto. —
+  APPOINTMENT_NOT_FOUND: 'cita_no_encontrada',
+
   // — No sabemos, y no es lo mismo que "no hay" —
   UNKNOWN_CONVENIO: 'convenio_no_reconocido',
 
@@ -103,6 +108,7 @@ export const ESCALATION_MECHANISM: Record<EscalationReason, EscalationMechanism>
   [ESCALATION_REASONS.TOOL_ERROR]: 'falla_tecnica',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'falla_tecnica',
   [ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION]: 'falla_tecnica',
+  [ESCALATION_REASONS.APPOINTMENT_NOT_FOUND]: 'falla_tecnica',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'falta_de_dato',
   [ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR]: 'falta_de_dato',
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'operacion',
@@ -126,6 +132,7 @@ export const ESCALATION_LABEL: Record<EscalationReason, string> = {
   [ESCALATION_REASONS.TOOL_ERROR]: 'Error técnico de una tool',
   [ESCALATION_REASONS.BOOKING_FAILURE]: 'Falla al agendar',
   [ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION]: 'Prometió una persona y no escaló',
+  [ESCALATION_REASONS.APPOINTMENT_NOT_FOUND]: 'No encontró la cita que ella dice tener',
   [ESCALATION_REASONS.UNKNOWN_CONVENIO]: 'Convenio que no tenemos registrado',
   [ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR]: 'El servicio no existe con el médico que pidió',
   [ESCALATION_REASONS.CLINIC_NOT_OPERATING]: 'La clínica no está operando',

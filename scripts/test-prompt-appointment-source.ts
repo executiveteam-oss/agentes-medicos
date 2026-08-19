@@ -64,7 +64,14 @@ console.log('Commit B — prompt: fuente única de citas + año + anti-eco\n')
 assert('regla usa get_patient_appointments', prompt.includes('get_patient_appointments(patient_phone)'))
 assert('atada al HECHO: "la pregunte ella o la menciones vos"', /la pregunte ella o la menciones vos/i.test(prompt))
 assert('tool GANA contra el historial', prompt.includes('El tool GANA contra el historial'))
-assert('vacío → NO tiene citas programadas (aunque insista)', /si devuelve vacío[\s\S]*NO tiene citas programadas[\s\S]*insista/i.test(prompt))
+// La regla decía "si devuelve vacío, la paciente NO tiene citas programadas y así
+// se lo decís —aunque ella insista". Eso convertía un no-encuentro en certeza y
+// hacía que el agente le discutiera a la paciente: el 18/08 le dijo "no tengo
+// registrada una cita tuya" a una con TRES citas al día siguiente. El tool sigue
+// ganando para AFIRMAR; lo que cambia es qué hacer con el vacío.
+assert('el tool gana sólo para AFIRMAR', /GANA contra el historial PARA AFIRMAR/i.test(prompt))
+assert('un vacío NO es certeza', /VAC[ÍI]O no es una certeza/i.test(prompt))
+assert('si ella insiste → escalar, no contradecir', /NO la contradigas[\s\S]*escalate_to_human/i.test(prompt))
 assert('prohíbe afirmar desde historial/memoria', /NUNCA afirmes nada sobre una cita leyéndolo del historial ni de memoria/i.test(prompt))
 
 // (2) Año en confirmaciones

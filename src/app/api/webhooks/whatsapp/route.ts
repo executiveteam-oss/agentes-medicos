@@ -48,7 +48,7 @@ import {
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
-import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar } from '@/lib/whatsapp/agent-guards'
+import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
@@ -1302,6 +1302,51 @@ async function processWebhook(body: unknown): Promise<void> {
             details: {
               texto_que_lo_activo: sendText.slice(0, 500),
               familia: (g7.details as { familia?: string } | undefined)?.familia ?? null,
+              tools_used: agentResponse.toolsUsed,
+            },
+          })
+        } catch { /* no crítico */ }
+      }
+
+      // 20.06 GUARD 8 — negó una cita que ella sostiene que tiene.
+      //
+      // Igual que el 7: no reemplaza el texto, escala. Un vacío del tool no es
+      // una certeza — significa que no la encontramos, no que ella se equivoque.
+      const g8 = detectCitaNegadaQueEllaAfirma({
+        agentText: sendText,
+        patientText: sanitizedText,
+        toolsUsed: agentResponse.toolsUsed,
+        yaVaAEscalar: agentResponse.toolsUsed.includes('escalate_to_human') || Boolean(agentResponse.escalate) || g7.blocked,
+      })
+      if (g8.blocked) {
+        console.warn('[Webhook] 🚨 Guard 8: negó una cita que la paciente afirma tener → escalando')
+        await supabaseAdmin
+          .from('conversations')
+          .update({
+            status: 'escalated',
+            escalated_at: new Date().toISOString(),
+            context: escalationContext(conversation.context, ESCALATION_REASONS.APPOINTMENT_NOT_FOUND),
+          })
+          .eq('id', conversation.id)
+        await notifyStaffOfEscalation({
+          clinicId: clinic.id,
+          conversationId: conversation.id,
+          patientName: patient.name,
+          reason: 'Dice que tiene una cita y el sistema no la encuentra — verificar en el HIS',
+        })
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'cita_negada_que_ella_afirma',
+            actor_type: 'system',
+            target_type: 'conversation',
+            target_id: conversation.id,
+            details: {
+              texto_del_agente: sendText.slice(0, 400),
+              texto_de_la_paciente: sanitizedText.slice(0, 300),
+              // Si es false, el modelo negó SIN consultar la agenda: eso no es
+              // un no-encuentro, es una afirmación sin respaldo.
+              consulto_agenda: (g8.details as { consulto_agenda?: boolean } | undefined)?.consulto_agenda ?? null,
               tools_used: agentResponse.toolsUsed,
             },
           })

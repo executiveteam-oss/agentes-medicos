@@ -53,5 +53,63 @@ check('capa 2: servicio no existe con ese médico',
   'Ese servicio no lo atiende el Dr. Jorge. Ya le pasé tu caso a una persona del consultorio para que te oriente.',
   { yaEscala: true }, false)
 
+// ============================================================
+// GUARD 8 — negó una cita que ella sostiene que tiene
+// ============================================================
+import { detectCitaNegadaQueEllaAfirma } from '../src/lib/whatsapp/agent-guards'
+
+function check8(label: string, agente: string, paciente: string, opts: { tools?: string[]; yaEscala?: boolean }, esperado: boolean) {
+  const r = detectCitaNegadaQueEllaAfirma({
+    agentText: agente, patientText: paciente,
+    toolsUsed: opts.tools ?? [], yaVaAEscalar: opts.yaEscala ?? false,
+  })
+  const ok = r.blocked === esperado
+  if (ok) { console.log(`  ✅ ${label}`); passed++ }
+  else { console.log(`  ❌ ${label} — esperaba ${esperado}, dio ${r.blocked}`); failed++ }
+}
+
+console.log('\n═══ GUARD 8 · DEBE disparar ═══')
+check8('pide reagendar y no la encuentra',
+  'Déjame revisar tu cita actual: No veo citas programadas en tu perfil actualmente.',
+  'Me puedes colaborar con reagendarme esta cita si son tan amables', {}, true)
+check8('dice "mi cita" y el agente la niega',
+  'En este momento no tienes citas programadas en nuestro sistema.',
+  'Quiero confirmar mi cita de mañana', {}, true)
+check8('dice que ya tenía una',
+  'Revisé tu agenda y en este momento no tienes ninguna cita confirmada.',
+  'Yo tenía una cita el jueves pasado y me la cancelaron', {}, true)
+
+
+console.log('\n═══ GUARD 8 · NO debe disparar ═══')
+// ⚠️ LÍMITE CONOCIDO del guard 8, escrito acá para que no se descubra tarde:
+// el caso real que originó todo esto NO lo atrapa. La paciente escribió
+// "Es a las 2? O a las 2:20?" — presupone la cita pero no la afirma con
+// ninguna palabra del patrón. Ampliar la regex para cubrir preguntas de hora
+// haría disparar a cualquiera que pregunta un horario, que es la mitad de las
+// conversaciones.
+//
+// Ese caso ya está arreglado en la RAÍZ: la tool usa el patient_id resuelto y
+// devuelve sus tres citas. El guard es el backstop para lo que quede, no el
+// arreglo de ese caso.
+check8('LÍMITE: pregunta por la hora sin nombrar la cita → no dispara',
+  'Disculpa, no tengo registrada una cita tuya en este momento.',
+  'Es a las 2? O a las 2:20?', {}, false)
+
+check8('quiere agendar por primera vez (no afirma nada)',
+  'No tienes citas programadas. ¿Te gustaría agendar una?',
+  'Hola, quiero agendar una cita con ginecología', {}, false)
+check8('es sobre el convenio, no sobre una cita',
+  'No tengo registrado ese convenio, pero eso no quiere decir que no exista 🙂',
+  'Mi cita la cubre Colmédica?', {}, false)
+check8('ya escaló por la tool',
+  'No veo citas programadas en tu perfil.',
+  'Quiero reagendar mi cita', { tools: ['escalate_to_human'] }, false)
+check8('ya escala por corte determinista',
+  'No veo citas programadas en tu perfil.',
+  'Quiero reagendar mi cita', { yaEscala: true }, false)
+check8('el agente SÍ encontró la cita',
+  '✅ Tienes una cita confirmada para mañana a las 10:00 AM.',
+  'Quiero confirmar mi cita', {}, false)
+
 console.log(`\n${passed} passed, ${failed} failed`)
 process.exit(failed > 0 ? 1 : 0)

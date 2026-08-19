@@ -222,6 +222,55 @@ export function detectPromesaDeHumanoSinEscalar(args: {
 }
 
 // ============================================================
+// GUARD 8: negó una cita que la paciente sostiene que tiene
+//
+// Como el 7, NO reemplaza el texto: escala. Y como el 7, el riesgo es escalar
+// de más — por eso exige las DOS mitades, la negación del agente Y la
+// afirmación previa de ella. Una paciente que pide agendar por primera vez no
+// afirma nada, así que no dispara.
+//
+// EL CASO QUE LO ORIGINÓ (18/08): una paciente con TRES citas confirmadas para
+// el día siguiente preguntó "¿es a las 2 o a las 2:20?" y recibió "Disculpa, no
+// tengo registrada una cita tuya en este momento" — una hora después de que el
+// sistema le confirmara una por el botón del recordatorio.
+//
+// La causa de fondo se arregló aparte (la tool ahora usa el patient_id resuelto
+// y no el teléfono que escriba el modelo). Este guard es el backstop para lo
+// que quede: el tercer caso del audit NO tenía cita en ninguna parte, y aun así
+// hacía falta pasarlo a una persona. Un vacío no es una certeza.
+
+/** El agente afirma que no hay citas. Excluye el convenio, que usa las mismas
+ *  palabras ("no tengo registrado ese convenio") y es otra cosa. */
+const NIEGA_CITA = /no (veo|tienes|tiene|hay|encuentro|aparece|figura|tengo)[^.]{0,30}(cita|programad|agendad|registrad)/i
+const ES_SOBRE_CONVENIO = /convenio/i
+
+/** Ella sostiene que la tiene. "Quiero agendar" NO entra: no afirma nada. */
+const AFIRMA_TENER_CITA = /(reagend|reprogram|cambiar (la|mi) cita|mover (la|mi) cita|cancelar (la|mi) cita|mi cita|la cita que|tengo (una )?cita|ten[íi]a (una )?cita|me dieron (una )?cita|ya (tengo|ten[íi]a))/i
+
+export function detectCitaNegadaQueEllaAfirma(args: {
+  agentText: string
+  /** Lo que la paciente escribió en ESTE turno. */
+  patientText: string
+  toolsUsed: string[]
+  /** Los dos caminos de escalación, igual que en el guard 7. */
+  yaVaAEscalar: boolean
+}): GuardResult {
+  if (args.yaVaAEscalar) return { blocked: false }
+  if (args.toolsUsed.includes('escalate_to_human')) return { blocked: false }
+
+  const niega = NIEGA_CITA.test(args.agentText) && !ES_SOBRE_CONVENIO.test(args.agentText)
+  if (!niega) return { blocked: false }
+  if (!AFIRMA_TENER_CITA.test(args.patientText)) return { blocked: false }
+
+  return {
+    // "Hay que actuar", no "reemplazar el texto": el caller escala.
+    blocked: true,
+    reason: 'cita_no_encontrada',
+    details: { tools_used: args.toolsUsed, consulto_agenda: args.toolsUsed.includes('get_patient_appointments') },
+  }
+}
+
+// ============================================================
 // GUARD 4: Cita confirmada fabricada (sin appointmentData)
 // ============================================================
 export function detectHallucinatedAppointmentConfirmation(args: {

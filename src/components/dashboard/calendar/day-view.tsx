@@ -6,7 +6,7 @@ import { useState, useTransition } from 'react'
 import { descargarAgendaDiaria } from '@/app/actions/agenda-diaria'
 import { getInitials, getAvatarGradient, AVATAR_GRADIENTS } from '@/lib/utils/ui-helpers'
 import { formatTimeForPatient } from '@/lib/utils/dates'
-import { Calendar, XCircle, Lock, Printer } from 'lucide-react'
+import { Calendar, XCircle, Lock, Download } from 'lucide-react'
 import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointment-detail'
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
@@ -158,11 +158,16 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
         </button>
       </div>
 
-      {/* Imprimir la agenda del día — sólo con un médico filtrado: se imprime
-          UNA hoja por médico, que es como la usan en el mostrador. */}
-      {isFilteredDoctor && (
-        <button
+      {/* Descargar la agenda del día. Se llama DESCARGAR y no "imprimir": lo
+          que el botón hace es bajar un PDF; imprimirlo es lo que hace después
+          la secretaria, y el nombre tiene que decir lo que el botón hace.
+
+          Va SIEMPRE visible, deshabilitado cuando no hay médico filtrado, en
+          vez de desaparecer: un botón que no está no se puede descubrir, y no
+          hay forma de saber si falta porque no aplica o porque algo se rompió. */}
+      <button
           onClick={() => startBajar(async () => {
+            if (!isFilteredDoctor) return
             const r = await descargarAgendaDiaria(doctorFilter!, dateStr)
             if (!r.ok || !r.pdfBase64) { setToast(r.error ?? 'No se pudo generar el PDF'); setTimeout(() => setToast(null), 4000); return }
             // base64 → Blob → descarga. El navegador lo abre o lo guarda.
@@ -174,21 +179,26 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
             setToast(`Agenda de ${toTitleCase(doctorName ?? '')} — ${r.citas} cita${r.citas === 1 ? '' : 's'}`)
             setTimeout(() => setToast(null), 3000)
           })}
-          disabled={bajando}
+          disabled={bajando || !isFilteredDoctor}
+          title={isFilteredDoctor ? 'Descarga un PDF con las citas del día de este médico' : 'Filtrá la agenda por un médico: se descarga una hoja por médico'}
           className="max-lg:w-full"
           style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
             fontSize: '12px', fontWeight: 600, padding: '10px 14px', marginTop: '8px',
             borderRadius: 'var(--v2-radius)', border: '1px solid var(--v2-border-soft)',
             background: 'transparent', color: 'var(--v2-text)',
-            cursor: bajando ? 'wait' : 'pointer', fontFamily: 'var(--font-manrope), sans-serif',
-            opacity: bajando ? 0.6 : 1,
+            cursor: bajando ? 'wait' : isFilteredDoctor ? 'pointer' : 'not-allowed',
+            fontFamily: 'var(--font-manrope), sans-serif',
+            opacity: bajando || !isFilteredDoctor ? 0.5 : 1,
           }}
         >
-          <Printer size={14} />
-          {bajando ? 'Generando...' : 'Imprimir agenda del día'}
-        </button>
-      )}
+          <Download size={14} />
+          {bajando
+            ? 'Generando PDF...'
+            : isFilteredDoctor
+              ? 'Descargar agenda del día'
+              : 'Descargar agenda — elegí un médico'}
+      </button>
 
       {/* Bulk cancel modal */}
       {showBulkCancel && (

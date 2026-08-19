@@ -10,6 +10,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { puedeAtenderVirtual, motivoSinVirtual } from '@/lib/clinic/virtual-config'
 import { calculateEndTime, formatForPatient, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
 import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-notify'
@@ -618,6 +619,33 @@ async function createAppointment(
   const procedureEntity = (input.procedure_entity as string) ?? null
   let consultationTypeId: string | null = (input.consultation_type_id as string | undefined) ?? null
   const modality = (input.modality as string) ?? 'presencial'
+
+  // BACKSTOP — no se agenda virtual si la clínica no puede sostenerlo.
+  //
+  // El prompt ya no ofrece la modalidad cuando falta la config, pero eso es
+  // capa A: si el modelo la pide igual, acá se corta. Una cita virtual sin
+  // plataforma configurada es una paciente esperando frente a una pantalla a
+  // que llegue un link que nadie va a mandar.
+  if (modality === 'virtual' && !puedeAtenderVirtual(clinic.virtual_config)) {
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'create_appointment_blocked_virtual',
+      actor_type: 'agent',
+      target_type: 'clinic',
+      target_id: clinicId,
+      details: { motivo: motivoSinVirtual(clinic.virtual_config) },
+    }).then(() => {}, () => {})
+    return {
+      success: false,
+      error: 'BLOCKED_BY_VIRTUAL_NOT_AVAILABLE — La clínica no puede atender por videollamada.',
+      data: {
+        instruction_for_llm:
+          'Esta clínica NO atiende por videollamada: la atención es presencial. ' +
+          'No le prometas un enlace ni una consulta virtual. Ofrecele la cita presencial; ' +
+          'si no puede venir por vivir lejos o por otro motivo, usá escalate_to_human.',
+      },
+    }
+  }
   const freeTextReason = (input.free_text_reason as string) ?? null
   // Ahora son las PALABRAS LITERALES de la paciente (el LLM transcribe, el
   // código clasifica de forma determinista más abajo). Antes era la etiqueta

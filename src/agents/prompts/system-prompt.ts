@@ -4,6 +4,7 @@
 // Esto es lo que Claude "lee" antes de responder al paciente
 // ============================================================
 
+import { puedeAtenderVirtual } from '@/lib/clinic/virtual-config'
 import type { Clinic, ConsultationType, Doctor, FaqItem, WhatsAppConfig } from '@/types/database'
 import { nombreMedicoParaPaciente } from '@/lib/utils/normalize-name'
 import { nowColombia } from '@/lib/utils/dates'
@@ -324,9 +325,15 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
 - Si create_appointment devuelve documents_requested=true, el tipo requería documentos pero la cita se creó igual (validación manual pendiente). Recuerda al paciente: "Recuerda enviar [documentos] por este chat si aún no lo has hecho."\n`
     : ''
 
-  // Reglas de consultas virtuales
+  // Reglas de consultas virtuales.
+  //
+  // Hacen falta las DOS cosas: que existan servicios virtuales en el catálogo Y
+  // que la clínica pueda sostenerlos (flag + base_url). Antes alcanzaba con lo
+  // primero, y el bloque prometía "el sistema enviará el link automáticamente"
+  // — un mecanismo que NO EXISTE en ninguna versión del código. Prometer un
+  // link que nadie va a mandar es peor que no ofrecer la modalidad.
   const hasVirtualTypes = (consultationTypes ?? []).some((ct) => ct.is_active && (ct.modality === 'virtual' || ct.modality === 'ambas'))
-  const virtualRules = hasVirtualTypes
+  const virtualRules = hasVirtualTypes && puedeAtenderVirtual(clinic.virtual_config)
     ? `\nREGLAS DE CONSULTAS VIRTUALES:
 - Si el tipo de consulta es [Virtual], la cita es siempre virtual. Usa modality "virtual" en create_appointment.
 - Si el tipo es [Presencial/Virtual], pregunta al paciente: "¿Prefieres cita presencial o virtual (por videollamada)?"
@@ -335,7 +342,7 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
   📅 [fecha] a las [hora]
   📲 Recibirás el enlace de videollamada por este chat 30 minutos antes de tu cita.
 - Para citas PRESENCIALES, usa la confirmación normal con 📍 dirección.
-- NUNCA des un link de videollamada directamente — el sistema lo enviará automáticamente antes de la cita.\n`
+- NUNCA inventes ni escribas un link de videollamada: el enlace lo arma el sistema con la plataforma que la clínica tiene configurada.\n`
     // Sin tipos virtuales el bloque entero se omitía, y el prompt quedaba MUDO
     // sobre la modalidad. El silencio no es neutral: lo llena la paciente. El
     // 2026-08-18 una preguntó si su terapia se podía hacer virtual y el agente

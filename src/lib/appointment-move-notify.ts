@@ -103,7 +103,7 @@ export async function notifyAppointmentMoved(
     // Ella ya había confirmado la cita vieja y esa confirmación se borró. Si no
     // se lo decimos, se queda pensando que está todo listo.
     opts.debeReconfirmar ? 'Como cambió la fecha, necesitamos que la vuelvas a confirmar.' : null,
-    linkIcs ? `Acá podés actualizarla en el calendario de tu celular: ${linkIcs}` : null,
+    linkIcs ? `Aquí puedes actualizarla en el calendario de tu celular: ${linkIcs}` : null,
   ].filter(Boolean) as string[]
 
   // Dentro de la ventana de 24h se puede mandar texto libre, que respeta los

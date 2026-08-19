@@ -350,6 +350,14 @@ de `feature_config.res256_enabled`. Lógica pura y testeable en
 `3XX XXX XXXX` mostrado, documentos CC/TI/CE/PP/RC/PA/MS/AS, EPS y prepagadas,
 `America/Bogota` (UTC-5) siempre, fechas DD/MM/YYYY, horas 12h AM/PM.
 
+**El registro es TUTEO colombiano.** Ni voseo ni "usted". Esto estuvo mal escrito
+en este documento hasta el 2026-08-19 —decía "voseo consistente"— y el error se
+filtró a mensajes reales: un aviso de cita reprogramada le decía a la paciente
+"acá podés actualizarla". El voseo es rioplatense; una paciente de Pereira lo lee
+como que le escribe un extranjero. La regla ya estaba bien escrita en
+`src/lib/chatbot/system-prompt.ts` ("Tuteo al usuario. NO uso voseo.") y en el
+system prompt del agente — este documento era el que discrepaba.
+
 ---
 
 ## 🚨 DEUDAS ESTRUCTURALES DEL PRODUCTO
@@ -601,7 +609,9 @@ try/catch siempre. NUNCA exponer el error al paciente: mensaje genérico + salid
 WhatsApp: máx 4096 chars. Templates para proactivos; reactivos sin template.
 Zona horaria: America/Bogota SIEMPRE. UTC en DB, COT para mostrar. Cuidado con parseISO de
 fechas sin hora — fijar la hora y el offset explícitos.
-Comentarios y UI en español (voseo consistente). Nombres técnicos en inglés.
+Comentarios en español. Nombres técnicos en inglés.
+Todo lo que LEE una persona —paciente en WhatsApp o staff en el dashboard— va en
+TUTEO colombiano ("puedes", "tienes", "escríbenos"). NUNCA voseo, NUNCA "usted".
 Commits en español: feat(agente): agregar reagendamiento
 ```
 

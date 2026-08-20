@@ -123,6 +123,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
       external_service_name: (raw.external_service_name as string | null) ?? null,
       external_aseguradora: ((raw.external_data as Record<string, unknown> | null)?.aseguradora as string | null) ?? null,
       external_identificacion: ((raw.external_data as Record<string, unknown> | null)?.identificacion as string | null) ?? null,
+      external_nombre_paciente: ((raw.external_data as Record<string, unknown> | null)?.nombre_paciente as string | null) ?? null,
       source: (raw.source as string) ?? null,
       doctor_id: (raw.doctor_id as string) ?? null,
       patient: raw.patients as CalendarAppointment['patient'],

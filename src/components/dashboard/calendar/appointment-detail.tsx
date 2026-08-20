@@ -7,7 +7,7 @@ import { formatTimeForPatient, formatDateForPatient, formatPhone } from '@/lib/u
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { CancelAppointmentButton } from '@/components/dashboard/dashboard-actions'
 import type { CalendarAppointment, CalendarDoctor } from './types'
-import { estiloEstado, etiquetaEstado, esCupoCompartido } from './types'
+import { estiloEstado, etiquetaEstado, esCupoCompartido, tieneAQuienMarcar } from './types'
 import type { AppointmentStatus } from '@/types/database'
 import { motivoEsElNombre, parsearEntidadISalud } from '@/lib/isalud/servicio-cita'
 
@@ -227,7 +227,7 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig, onE
           appointmentId={apt.id}
           // Un bloqueo de agenda de iSalud no tiene paciente ni nombre; todo lo
           // demás —cupo compartido con ficha, extra del panel— sí.
-          tienePaciente={Boolean(apt.patient) || esCupoCompartido(apt.status, apt.reason)}
+          tienePaciente={tieneAQuienMarcar(apt)}
           currentStatus={apt.status as AppointmentStatus}
           attendanceOutcome={apt.attendance_outcome}
           surveyState={{

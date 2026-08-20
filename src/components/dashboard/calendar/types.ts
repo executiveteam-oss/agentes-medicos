@@ -36,6 +36,9 @@ export interface CalendarAppointment {
   /** Documento tal como lo manda iSalud ("CC 1053813866"). Es lo único que hay
    *  cuando la cita no está enlazada a una ficha — la mitad de las importadas. */
   external_identificacion?: string | null
+  /** Nombre tal como lo manda iSalud. Existe aunque la cita NO tenga ficha, y
+   *  es lo que decide si hay a quién marcarle la asistencia. */
+  external_nombre_paciente?: string | null
   /** Origen de la cita. 'whatsapp_agent' es la única donde payment_type es un dato real. */
   source?: string | null
   doctor_id: string | null
@@ -144,6 +147,28 @@ export const MOTIVO_REAGENDADA = 'Reagendada'
  *  esCupoCompartido y esExtraDelPanel. */
 export function esCancelacionPorReagendamiento(status: string, cancellationReason?: string | null): boolean {
   return status === 'cancelled' && (cancellationReason ?? '').trim().startsWith(MOTIVO_REAGENDADA)
+}
+
+/**
+ * ¿Hay ALGUIEN a quien marcarle la asistencia?
+ *
+ * 🔴 LA REGLA ERA "¿tiene ficha?" Y ESTABA MAL (2026-08-20)
+ * Marcar la asistencia es sobre la CITA, no sobre la ficha: la señora llega al
+ * consultorio y la atienden, exista o no su registro en Omuwan. El guard pedía
+ * `apt.patient`, que exige patient_id, y dejaba sin botones a toda cita
+ * importada de iSalud con nombre y documento pero sin ficha enlazada.
+ *
+ * Medido: 2.424 citas en esa situación, 2.375 de ellas ya pasadas y sin ningún
+ * registro de asistencia — se perdieron porque no había dónde marcarlas.
+ *
+ * Lo único sin botones es una fila SIN NOMBRE: si no hay nadie, no hay a quién
+ * marcar. (Ojo: el bloqueo "NO AGENDAR NO AGENDAR" de iSalud viene CON nombre,
+ * así que igual muestra botones. Es una fila y ya pasó; no vale un caso especial
+ * que después haya que mantener.)
+ */
+export function tieneAQuienMarcar(apt: Pick<CalendarAppointment, 'patient' | 'external_nombre_paciente'>): boolean {
+  if (apt.patient) return true
+  return (apt.external_nombre_paciente ?? '').trim() !== ''
 }
 
 export function etiquetaEstado(

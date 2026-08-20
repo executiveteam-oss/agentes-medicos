@@ -53,6 +53,29 @@ export function formatForPatient(utcDate: string): string {
 }
 
 /**
+ * Fecha para algo que queda ESCRITO en la base y se lee después.
+ * Formato: "28/08/2026, 7:30 AM" — DD/MM/YYYY como se usa en Colombia.
+ *
+ * Separada de formatForPatient a propósito, y la diferencia es el AÑO.
+ *
+ * A una paciente que agenda para el jueves el año le sobra: sabe perfectamente
+ * de qué jueves hablamos y ponerlo suena a formulario. Pero un texto que se
+ * guarda en la fila —el motivo de una cancelación, una nota de auditoría— lo
+ * va a leer alguien dentro de dos años buscando qué pasó con esa cita, y
+ * "movida del jueves 28 de agosto" no le dice nada sin el año.
+ *
+ * Regla para elegir cuál usar: si el texto se ENVÍA, formatForPatient; si el
+ * texto se GUARDA, éste.
+ */
+export function formatParaRegistro(utcDate: string): string {
+  const date = parseISO(utcDate)
+  if (!isValid(date)) return 'Fecha no válida'
+
+  const colombiaDate = toZonedTime(date, TIMEZONE)
+  return format(colombiaDate, "dd/MM/yyyy, h:mm a", { locale: es })
+}
+
+/**
  * Convierte una fecha ISO a solo la hora para el paciente
  * Formato: "2:00 PM"
  */

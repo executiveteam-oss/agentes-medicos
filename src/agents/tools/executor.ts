@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { puedeAtenderVirtual, motivoSinVirtual } from '@/lib/clinic/virtual-config'
-import { formatForPatient, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
+import { formatForPatient, formatParaRegistro, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
 import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-notify'
 import { syncClinicSheet } from '@/lib/google-sheets'
@@ -1992,8 +1992,11 @@ async function rescheduleAppointment(
   //
   // Efecto en la Resolución 256: deja de contar DOS atenciones por cada cita
   // movida (la vieja y la nueva). El reporte empieza a decir la verdad.
-  const fechaVieja = formatForPatient(appointment.starts_at)
-  const fechaNueva = formatForPatient(newStartsAt)
+  // formatParaRegistro, NO formatForPatient: esto queda escrito en la fila y se
+  // lee dentro de dos años. Sin año, "movida del jueves 28 de agosto" no le
+  // dice nada a quien revise el historial de la paciente.
+  const fechaVieja = formatParaRegistro(appointment.starts_at)
+  const fechaNueva = formatParaRegistro(newStartsAt)
   await supabaseAdmin
     .from('appointments')
     .update({

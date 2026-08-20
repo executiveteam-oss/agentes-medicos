@@ -61,7 +61,7 @@ export default async function ConversationsPage() {
   // Ahora son DOS consultas: las que requieren acción entran SIEMPRE, sin
   // límite; las demás completan hasta 300 por actividad reciente.
   const SELECT_CONVERSACION = `
-      id, status, triage_state, context, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
+      id, status, triage_state, context, last_message_at, escalated_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
       patients(id, name, phone, eps, no_show_count, total_appointments, tratantes),
       messages(id, content, role, created_at)
     `
@@ -194,6 +194,16 @@ export default async function ConversationsPage() {
         ? lastMsg.content.length > 80 ? lastMsg.content.slice(0, 80) + '...' : lastMsg.content
         : '',
       last_message_role: lastMsg?.role ?? '',
+      // ¿Contestó una PERSONA después de que se prometió una persona?
+      //
+      // Es la mitad (b) de la definición de la bandeja: una conversación
+      // escalada espera hasta que un humano escribe, no hasta que alguien la
+      // marca. Se calcula del historial que ya vino en el join — no hay una
+      // consulta más ni un campo que mantener sincronizado.
+      respondida_por_humano: (msgs ?? []).some(
+        (m) => m.role === 'staff' &&
+          (!conv.escalated_at || new Date(m.created_at) > new Date(conv.escalated_at as string)),
+      ),
       message_count: msgCount,
       claimed_active_label,
       is_mine: claimed_active_label === 'tú',

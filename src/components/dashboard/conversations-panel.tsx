@@ -22,6 +22,9 @@ interface ConversationEntry {
   patient_phone: string
   patient_eps: string | null
   status: 'active' | 'escalated' | 'resolved'
+  /** ¿Escribió una PERSONA después de que la conversación se escaló? Mitad (b)
+   *  de la definición de la bandeja. Se deriva del historial, no se declara. */
+  respondida_por_humano: boolean
   triage_state: 'atencion' | 'pendiente' | 'resuelta' | null
   last_message_at: string
   last_message_preview: string
@@ -42,26 +45,57 @@ interface Props {
 }
 
 // Los 3 estados de triage + "agente" (observación del bot, no cola de trabajo).
-type FilterKey = 'atencion' | 'pendiente' | 'resuelta' | 'agente'
+type FilterKey = 'atencion' | 'servicios' | 'pendiente' | 'resuelta' | 'agente'
 
-// Bucket derivado: solo 'pendiente' se persiste; el resto sale del status.
+// ============================================================
+// EL ESTADO SE DERIVA, NO SE DECLARA.
+//
+// 🔴 POR QUÉ CAMBIÓ (2026-08-20)
+// La bandeja miraba `status` y `triage_state` — dos campos que alguien tiene
+// que poner a mano. Cualquier paso administrativo que dependa de que una
+// persona se acuerde se acumula, y acá se acumuló en las dos direcciones:
+//
+//   · De más: 27 conversaciones con un servicio marcado que nadie podía
+//     cerrar, porque el campo de cierre no existía.
+//   · De MENOS, que es lo grave: SEIS pacientes escribieron y alguien marcó
+//     la conversación "resuelta" DESPUÉS, con ellas esperando. Medido contra
+//     audit_log: en cuatro casos la marca llegó entre 18 y 29 horas después
+//     del mensaje sin responder. Quedaron invisibles hasta 9 días.
+//
+// Un estado declarado puede estar equivocado. Uno derivado no.
+//
+// LA DEFINICIÓN: alguien tiene que actuar AHORA si
+//   (a) la paciente escribió último y nadie le respondió, o
+//   (b) le prometimos una persona y ningún humano contestó todavía.
+//
+// Sale sola cuando una persona responde. Vuelve sola si la paciente escribe de
+// nuevo. Nadie marca nada.
+//
+// ⚠️ `status='escalated'` NO se toca y sigue haciendo su trabajo: es lo que
+// impide que el bot le vuelva a hablar a quien pidió una persona (patrón 4,
+// route.ts:612). Lo que deja de hacer es DECIDIR QUIÉN APARECE. Hasta hoy las
+// dos cosas eran la misma decisión; separarlas es lo correcto — una persona
+// responde, la conversación sale de la bandeja, y el bot sigue callado.
+// ============================================================
 function bucketOf(e: ConversationEntry): FilterKey {
+  // (a) escribió y nadie contestó · (b) escalada sin respuesta humana
+  const esperaRespuesta = e.last_message_role === 'patient'
+  const escaladaSinHumano = e.status === 'escalated' && !e.respondida_por_humano
+  if (esperaRespuesta || escaladaSinHumano) return 'atencion'
+
+  // Nadie espera respuesta, pero queda un servicio por gestionar. NO es una
+  // conversación en curso: es una TAREA, y va a su propia pestaña. Mezclarlas
+  // era lo que hacía que "Atención" significara dos cosas distintas.
+  if (e.pendientes.some((p) => p.tipo === 'servicio')) return 'servicios'
+
   if (e.status === 'resolved') return 'resuelta'
   if (e.triage_state === 'pendiente') return 'pendiente'
-  // Atención por DOS caminos, que son los dos ejes:
-  //   · status='escalated' con triage sin tocar → escalación clásica (crisis,
-  //     pedido de humano): un humano se hizo cargo y el agente está callado.
-  //   · triage_state='atencion' → servicio ruleado marcado sobre una
-  //     conversación VIVA: hay algo que resolver Y el agente sigue respondiendo.
-  // Antes solo existía el primero, así que marcar un servicio obligaba a callar
-  // al agente para que la conversación apareciera en la cola.
-  if ((e.status === 'escalated' && e.triage_state === null) || e.triage_state === 'atencion') return 'atencion'
-  if (e.pendientes.length > 0) return 'atencion'
-  return 'agente' // active — el bot lo maneja
+  return 'agente' // el bot lo maneja
 }
 
 const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
   { key: 'atencion', label: 'Atención', emoji: '⚠️' },
+  { key: 'servicios', label: 'Servicios', emoji: '🚨' }, // tareas, no conversaciones
   { key: 'pendiente', label: 'Pendiente', emoji: '⏳' },
   { key: 'resuelta', label: 'Resuelta', emoji: '✅' },
   { key: 'agente', label: 'Con el agente', emoji: '🤖' }, // última, observación (se lee distinto)
@@ -85,6 +119,7 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
 
   const counts: Record<FilterKey, number> = {
     atencion: entries.filter((e) => bucketOf(e) === 'atencion').length,
+    servicios: entries.filter((e) => bucketOf(e) === 'servicios').length,
     pendiente: entries.filter((e) => bucketOf(e) === 'pendiente').length,
     resuelta: entries.filter((e) => bucketOf(e) === 'resuelta').length,
     agente: entries.filter((e) => bucketOf(e) === 'agente').length,
@@ -254,8 +289,8 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                     ...(isActive
                       ? { background: 'rgba(255,255,255,0.25)', color: '#fff' }
                       : {
-                          background: f.key === 'atencion' && count > 0 ? 'var(--v2-pink-soft)' : 'var(--v2-bg-deeper)',
-                          color: f.key === 'atencion' && count > 0 ? 'var(--v2-pink)' : 'var(--v2-text-subtle)',
+                          background: f.key === 'atencion' && count > 0 ? 'var(--v2-pink-soft)' : f.key === 'servicios' && count > 0 ? 'var(--v2-amber-soft)' : 'var(--v2-bg-deeper)',
+                          color: f.key === 'atencion' && count > 0 ? 'var(--v2-pink)' : f.key === 'servicios' && count > 0 ? '#b07d00' : 'var(--v2-text-subtle)',
                         }),
                   }}
                 >
@@ -285,7 +320,7 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
           <div style={{ padding: '64px 24px', textAlign: 'center' }}>
             <MessageCircle size={40} style={{ color: 'var(--v2-primary)', opacity: 0.3, margin: '0 auto 12px' }} />
             <p style={{ fontSize: '14px', fontWeight: 600, color: 'var(--v2-text-muted)' }}>
-              {search ? 'Sin resultados' : filter === 'atencion' ? 'Nada que atender ahora 🎉' : filter === 'agente' ? 'El agente no tiene conversaciones activas' : `No hay conversaciones en ${FILTERS.find((f) => f.key === filter)?.label.toLowerCase()}`}
+              {search ? 'Sin resultados' : filter === 'atencion' ? 'Nadie esperando respuesta 🎉' : filter === 'servicios' ? 'Ningún servicio por gestionar 🎉' : filter === 'agente' ? 'El agente no tiene conversaciones activas' : `No hay conversaciones en ${FILTERS.find((f) => f.key === filter)?.label.toLowerCase()}`}
             </p>
             <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginTop: '4px' }}>
               {search ? 'Intenta con otro termino' : 'Las conversaciones de pacientes via WhatsApp apareceran aqui'}
@@ -338,7 +373,7 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                         height: '12px',
                         borderRadius: '50%',
                         border: '2px solid var(--v2-bg-card)',
-                        background: bucketOf(entry) === 'atencion' ? 'var(--v2-amber)' : bucketOf(entry) === 'pendiente' ? '#3E74E8' : bucketOf(entry) === 'resuelta' ? 'var(--v2-text-subtle)' : 'var(--v2-primary)',
+                        background: bucketOf(entry) === 'atencion' ? 'var(--v2-amber)' : bucketOf(entry) === 'servicios' ? '#b07d00' : bucketOf(entry) === 'pendiente' ? '#3E74E8' : bucketOf(entry) === 'resuelta' ? 'var(--v2-text-subtle)' : 'var(--v2-primary)',
                       }}
                     />
                   </div>

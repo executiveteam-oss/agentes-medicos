@@ -16,7 +16,7 @@ import { formatInTimeZone } from 'date-fns-tz'
 import { getUserSession } from '@/lib/session'
 import { traerDisponibilidadDia } from '@/lib/calendar/fetch-day-availability'
 import { estadoDeFranja, motivoParaConfirmar, type EstadoFranja } from '@/lib/calendar/day-availability'
-import { notifyAppointmentMoved } from '@/lib/appointment-move-notify'
+import { notifyAppointmentMoved, notifyAppointmentCreated } from '@/lib/appointment-move-notify'
 
 // ============================================================
 // Marcado de asistencia (campo attendance_outcome — migración 00073)
@@ -218,6 +218,18 @@ export interface AppointmentInput {
   modality?: 'presencial' | 'virtual'
   virtual_link?: string | null
   desired_at?: string | null  // YYYY-MM-DD, fecha que quería el paciente
+  /** ¿Se le avisa a la paciente que le agendamos? Default: SÍ.
+   *
+   *  El silencio existe porque el caso legítimo existe —la secretaria carga la
+   *  cita de alguien que acaba de llamar, y ahí el aviso ya ocurrió en la
+   *  llamada— pero es una casilla que se DESMARCA, no el default. Hasta el
+   *  2026-08-20 no había aviso por ningún camino: dos pacientes quedaron
+   *  agendadas para septiembre sin enterarse. */
+  notificar_paciente?: boolean
+  /** Obligatorio si se agenda en silencio: por qué no hace falta avisar. */
+  motivo_sin_aviso?: string
+  /** Frase extra para la paciente ("el doctor pidió control en un mes"). */
+  motivo_para_paciente?: string | null
   /** La secretaria vio QUIÉN ocupa el cupo y confirmó agendar un EXTRA igual.
    *  Un extra existe porque el médico lo autorizó ese día — eso no lo puede
    *  saber el sistema, y por eso hace falta el acto explícito de una persona. */
@@ -232,9 +244,17 @@ export interface AppointmentInput {
 /** Crear cita desde el dashboard */
 export async function createAppointment(
   input: AppointmentInput
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; warning?: string; whatsappSent?: boolean }> {
   try {
     const clinicId = await checkWritePermission('agenda')
+
+    // Mismo patrón que cancelar y editar: avisar es el default y el silencio
+    // cuesta un motivo. Una cita que la paciente no sabe que tiene es una
+    // paciente que no viene, o que aparece cuando nadie la espera.
+    const notificar = input.notificar_paciente !== false
+    if (!notificar && !input.motivo_sin_aviso?.trim()) {
+      return { ok: false, error: 'Agendar sin avisarle a la paciente exige un motivo.' }
+    }
 
     if (!input.patient_id) return { ok: false, error: 'Selecciona un paciente' }
     if (!input.doctor_id) return { ok: false, error: 'Selecciona un doctor' }
@@ -405,17 +425,34 @@ export async function createAppointment(
       })
     }
 
+    // El aviso va DESPUÉS de que la cita existe: si el envío falla, la cita
+    // igual quedó y el fallo queda registrado en Pendientes.
+    let whatsappSent = false
+    let warning: string | undefined
+    if (notificar) {
+      const r = await notifyAppointmentCreated(data.id, clinicId, {
+        motivoParaPaciente: input.motivo_para_paciente ?? null,
+      })
+      whatsappSent = r.whatsappSent
+      warning = r.warning
+    }
+
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,
-      action: 'appointment_created_dashboard',
+      action: notificar ? 'appointment_created_dashboard' : 'appointment_created_silently',
       actor_type: 'staff',
       target_type: 'appointment',
       target_id: data.id,
-      details: { starts_at: startsAt.toISOString(), doctor_id: input.doctor_id },
+      details: {
+        starts_at: startsAt.toISOString(),
+        doctor_id: input.doctor_id,
+        aviso_a_paciente: notificar ? (whatsappSent ? 'entregado' : 'falló') : 'en silencio',
+        motivo_sin_aviso: input.motivo_sin_aviso?.trim() || null,
+      },
     })
 
     revalidatePath('/dashboard')
-    return { ok: true }
+    return { ok: true, warning, whatsappSent }
   } catch {
     return { ok: false, error: 'Error de permisos o sesión' }
   }

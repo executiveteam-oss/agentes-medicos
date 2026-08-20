@@ -163,6 +163,120 @@ export async function notifyAppointmentMoved(
 }
 
 /**
+ * Avisarle a la paciente que le AGENDARON una cita desde el panel.
+ *
+ * 🔴 POR QUÉ (2026-08-20)
+ * `createAppointment` nunca envió nada. Se escribió para cargar citas de gente
+ * que llamó por teléfono —donde el aviso ya ocurrió en la llamada— y quedó así
+ * para todos los caminos. El 19/08 dos pacientes quedaron agendadas para
+ * septiembre sin recibir un solo mensaje; una de ellas ni siquiera había
+ * escrito nunca por WhatsApp. Lo único que las iba a alcanzar era el
+ * recordatorio automático, un mes después.
+ *
+ * El silencio sigue existiendo porque el caso legítimo existe (la llamada
+ * telefónica), pero pasa a ser una casilla que se DESMARCA, no el default.
+ */
+export async function notifyAppointmentCreated(
+  appointmentId: string,
+  clinicId: string,
+  opts?: { motivoParaPaciente?: string | null },
+): Promise<MoveNotifyResult> {
+  const { data: apt } = await supabaseAdmin
+    .from('appointments')
+    .select('id, starts_at, ends_at, modality, calendar_sequence, patient_id, patients(name, phone), doctors(name), consultation_types(name)')
+    .eq('id', appointmentId).eq('clinic_id', clinicId).single()
+  if (!apt) return { whatsappSent: false, warning: 'Cita no encontrada' }
+
+  const patient = (Array.isArray(apt.patients) ? apt.patients[0] : apt.patients) as { name: string; phone: string } | null
+  const doctor = (Array.isArray(apt.doctors) ? apt.doctors[0] : apt.doctors) as { name: string } | null
+  const ctName = (apt.consultation_types as unknown as { name: string } | null)?.name ?? null
+
+  if (!patient?.phone) {
+    return { whatsappSent: false, warning: 'Cita creada. La paciente no tiene WhatsApp — hay que avisarle a mano.' }
+  }
+  const creds = await getClinicCreds(clinicId)
+  if (!creds) {
+    return { whatsappSent: false, warning: 'Cita creada. WhatsApp no configurado — hay que avisarle a mano.' }
+  }
+
+  const { data: clinic } = await supabaseAdmin
+    .from('clinics').select('name, address, city').eq('id', clinicId).single()
+
+  const fecha = format(parseISO(apt.starts_at as string), "EEEE d 'de' MMMM", { locale: es })
+  const hora = formatTimeForPatient(apt.starts_at as string)
+  const medico = doctor?.name ?? 'tu médico'
+
+  let linkIcs: string | null = null
+  try {
+    const { generateConfirmICS } = await import('@/lib/calendar/generate-ics')
+    const { hostICSAndGetLink } = await import('@/lib/calendar/host-ics')
+    const ics = generateConfirmICS({
+      appointmentId: apt.id as string,
+      startsAt: apt.starts_at as string, endsAt: apt.ends_at as string,
+      doctorName: medico, consultationType: ctName ?? 'Consulta',
+      clinicName: clinic?.name ?? '', clinicAddress: clinic?.address ?? null, clinicCity: clinic?.city ?? null,
+      sequence: (apt.calendar_sequence as number) ?? 0,
+      isVirtual: apt.modality === 'virtual',
+    })
+    linkIcs = await hostICSAndGetLink({ appointmentId: apt.id as string, icsContent: ics })
+  } catch (err) {
+    console.error('[notifyAppointmentCreated] .ics falló:', err instanceof Error ? err.message : err)
+  }
+
+  const motivo = opts?.motivoParaPaciente?.trim()
+  const partes = [
+    `Te agendamos una cita con ${medico} para el ${fecha} a las ${hora}.`,
+    motivo ? `${motivo}.` : null,
+    linkIcs ? `Aquí puedes guardarla en el calendario de tu celular: ${linkIcs}` : null,
+    'Si no puedes ese día, respóndenos por acá y la cambiamos.',
+  ].filter(Boolean) as string[]
+
+  const { data: conv } = await supabaseAdmin
+    .from('conversations').select('id')
+    .eq('clinic_id', clinicId).eq('patient_id', apt.patient_id as string)
+    .order('last_message_at', { ascending: false }).limit(1).maybeSingle()
+  const convId = (conv as { id: string } | null)?.id ?? null
+  const abierta = convId ? await ventanaAbierta(convId) : false
+
+  const datosDelFallo = {
+    patientId: apt.patient_id as string, patientPhone: patient.phone,
+    doctorName: medico, startsAt: apt.starts_at as string, consultationType: ctName,
+  }
+
+  try {
+    if (abierta && convId) {
+      const r = await sendWhatsAppMessageWithResult(
+        patient.phone.replace('+', ''),
+        `Hola ${patient.name.split(' ')[0]} 👋\n\n${partes.join('\n\n')}`,
+        creds,
+        { clinicId, conversationId: convId, sendType: 'appointment_created' },
+      )
+      if (!r.ok) {
+        await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'Meta rechazó el texto libre', datosDelFallo, 'creada')
+        return { whatsappSent: false, warning: 'Cita creada, pero el aviso no se entregó. Hay que contactarla a mano.' }
+      }
+      return { whatsappSent: true }
+    }
+
+    // Fuera de la ventana de 24h va por plantilla, en UNA sola línea.
+    const r = await sendWhatsAppTemplate(
+      patient.phone.replace('+', ''), CONTACTO_TEMPLATE_NAME, TEMPLATE_LANGUAGE,
+      [patient.name, clinic?.name ?? 'tu consultorio', partes.join(' ')], null, creds,
+    )
+    if (!r.ok) {
+      await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'Meta rechazó el envío', datosDelFallo, 'creada')
+      return { whatsappSent: false, warning: 'Cita creada, pero el aviso no se entregó. Hay que contactarla a mano.' }
+    }
+  } catch (err) {
+    console.error('[notifyAppointmentCreated] envío falló:', err instanceof Error ? err.message : err)
+    await registrarAvisoNoEntregado(clinicId, appointmentId, patient.name, 'error de red', datosDelFallo, 'creada')
+    return { whatsappSent: false, warning: 'Cita creada, pero el aviso no se entregó. Hay que contactarla a mano.' }
+  }
+
+  return { whatsappSent: true }
+}
+
+/**
  * Un aviso de cita movida que NO llegó es exactamente el caso que hay que poder
  * encontrar después, así que queda en audit_log.
  *
@@ -175,6 +289,8 @@ export async function notifyAppointmentMoved(
 async function registrarAvisoNoEntregado(
   clinicId: string, appointmentId: string, patientName: string, causa: string,
   datos?: { patientId?: string; patientPhone?: string; doctorName?: string; startsAt?: string; consultationType?: string | null },
+  /** 'movida' o 'creada': cambia el texto que lee la secretaria en Pendientes. */
+  queSucedio: 'movida' | 'creada' = 'movida',
 ): Promise<void> {
   // La fila de Pendientes es la que ve la secretaria. El audit_log queda igual
   // porque responde otra pregunta: "¿cuántos avisos no llegaron este mes?".
@@ -184,7 +300,9 @@ async function registrarAvisoNoEntregado(
       patient_id: datos?.patientId,
       appointment_id: appointmentId,
       reason_type: 'reschedule_no_delivery',
-      reason_text: `No se le pudo avisar que su cita cambió de fecha (${causa}). Sigue creyendo que es el día viejo.`,
+      reason_text: queSucedio === 'creada'
+        ? `No se le pudo avisar que le agendamos una cita (${causa}). Tiene una cita a su nombre y NO lo sabe.`
+        : `No se le pudo avisar que su cita cambió de fecha (${causa}). Sigue creyendo que es el día viejo.`,
       patient_name: patientName,
       patient_phone: datos?.patientPhone ?? '',
       doctor_name: datos?.doctorName ?? '',
@@ -195,11 +313,12 @@ async function registrarAvisoNoEntregado(
   try {
     await supabaseAdmin.from('audit_log').insert({
       clinic_id: clinicId,
-      action: 'appointment_move_notify_failed',
+      action: queSucedio === 'creada' ? 'appointment_create_notify_failed' : 'appointment_move_notify_failed',
       actor_type: 'staff',
       target_type: 'appointment',
       target_id: appointmentId,
-      details: { patientName, causa, nota: 'La paciente NO sabe que su cita cambió' },
+      details: { patientName, causa, nota: queSucedio === 'creada'
+        ? 'La paciente NO sabe que tiene una cita' : 'La paciente NO sabe que su cita cambió' },
     })
   } catch { /* no bloquear la edición por el registro */ }
 }

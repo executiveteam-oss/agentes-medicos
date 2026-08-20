@@ -86,6 +86,9 @@ export function AppointmentFormModal({
   /** Mensaje del server cuando el cupo ya está ocupado: dice QUIÉN está ahí.
    *  Mientras esté seteado, el submit agenda como EXTRA. */
   const [confirmarExtra, setConfirmarExtra] = useState<string | null>(null)
+  /** Avisarle a la paciente que le agendamos. Default SÍ; el silencio pide motivo. */
+  const [avisarAlCrear, setAvisarAlCrear] = useState(true)
+  const [motivoSinAviso, setMotivoSinAviso] = useState('')
   const [virtualLink, setVirtualLink] = useState('')
   const [desiredAt, setDesiredAt] = useState('')
 
@@ -130,6 +133,7 @@ export function AppointmentFormModal({
       setModality(initialData.modality ?? 'presencial')
       setVirtualLink(initialData.virtual_link ?? '')
       setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno(''); setConfirmarExtra(null)
+      setAvisarAlCrear(true); setMotivoSinAviso('')
     } else {
       // Reset para creación nueva (con paciente pre-seleccionada si viene)
       setPatientId(prefillPatient?.id ?? '')
@@ -215,6 +219,10 @@ export function AppointmentFormModal({
       fuera_de_horario_confirmado: fueraDeHorarioConfirmado ?? false,
       // Sólo va en true después de que la secretaria vio contra quién agenda.
       extra_confirmado: confirmarExtra !== null,
+      // Sólo aplica al CREAR: al editar, el aviso lo decide `avisarPaciente`.
+      notificar_paciente: avisarAlCrear,
+      motivo_sin_aviso: motivoSinAviso,
+      motivo_para_paciente: motivoPaciente.trim() || null,
     }
 
     startTransition(async () => {
@@ -497,6 +505,62 @@ export function AppointmentFormModal({
                   />
                   <p style={{ fontSize: '10px', color: 'var(--v2-red)', marginTop: '4px' }}>
                     La paciente no se va a enterar del cambio por este medio.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Aviso a la paciente al AGENDAR. Sólo en cita nueva: al editar, el
+              aviso lo maneja el bloque de "se movió la cita" de arriba.
+
+              createAppointment no avisaba por NINGÚN camino: se escribió para
+              cargar citas de gente que llamó por teléfono —donde el aviso ya
+              ocurrió en la llamada— y quedó así para todos. El 19/08 dos
+              pacientes quedaron agendadas para septiembre sin enterarse; una ni
+              siquiera había escrito nunca por WhatsApp. */}
+          {!isEditing && (
+            <div style={{ padding: '14px', borderRadius: 'var(--v2-radius)', background: 'var(--v2-bg-soft)', border: '1px solid var(--v2-border-soft)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                <div>
+                  <p style={{ fontSize: '13px', fontWeight: 700, color: 'var(--v2-text)' }}>Avisarle a la paciente</p>
+                  <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)' }}>
+                    Recibe la cita por WhatsApp y el archivo para su calendario, en un solo mensaje.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAvisarAlCrear(!avisarAlCrear)}
+                  className="toggle-v2"
+                  data-active={avisarAlCrear ? 'true' : 'false'}
+                />
+              </div>
+
+              {avisarAlCrear ? (
+                <div style={{ marginTop: '10px' }}>
+                  <label className="label" style={{ fontSize: '11px' }}>Algo más que quieras decirle (opcional)</label>
+                  <input
+                    className="input-v2 w-full"
+                    value={motivoPaciente}
+                    onChange={(e) => setMotivoPaciente(e.target.value)}
+                    placeholder="el doctor pidió control en un mes"
+                    style={{ fontSize: '12px' }}
+                  />
+                </div>
+              ) : (
+                <div style={{ marginTop: '10px' }}>
+                  <label className="label" style={{ fontSize: '11px', color: 'var(--v2-red)' }}>
+                    Motivo * — obligatorio para agendar sin avisar
+                  </label>
+                  <input
+                    className="input-v2 w-full"
+                    value={motivoSinAviso}
+                    onChange={(e) => setMotivoSinAviso(e.target.value)}
+                    placeholder="la paciente acaba de llamar y ya lo sabe"
+                    style={{ fontSize: '12px' }}
+                  />
+                  <p style={{ fontSize: '10px', color: 'var(--v2-red)', marginTop: '4px' }}>
+                    No va a recibir ningún mensaje. Se va a enterar recién con el recordatorio.
                   </p>
                 </div>
               )}

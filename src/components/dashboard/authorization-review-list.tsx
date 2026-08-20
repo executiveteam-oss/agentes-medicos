@@ -28,6 +28,7 @@ import type { PendingAuthorization } from '@/lib/media/archivos-sin-revisar'
 import { REJECT_REASONS } from '@/lib/rules/reject-reasons'
 import { detectEscalateService } from '@/lib/safety/escalate-service-matcher'
 import { AppointmentFormModal } from '@/components/dashboard/appointment-form-modal'
+import { ContactarPacienteModal } from '@/components/dashboard/contactar-paciente-modal'
 
 interface DoctorOption {
   id: string
@@ -73,6 +74,7 @@ function AuthorizationCard({
   const [doneNote, setDoneNote] = useState<string | null>(null)
   const [isMarking, startMark] = useTransition()
   const [modalOpen, setModalOpen] = useState(false)
+  const [responderOpen, setResponderOpen] = useState(false)
   const [convMsgs, setConvMsgs] = useState<{ role: string; content: string; created_at: string }[] | null>(null)
 
   // URL firmada del documento
@@ -268,14 +270,27 @@ function AuthorizationCard({
         </div>
       )}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        {/* RESPONDER va primero, y es el primario.
+            Agendar es el ÚLTIMO paso: antes hay que contestarle y acordar el
+            día con ella. No se le puede elegir la fecha a una paciente sin
+            preguntarle, y hasta hoy esta pantalla —la única que tiene el
+            archivo, el chat y la paciente delante— era la única desde donde no
+            se podía contestar: había que irse a Conversaciones a buscarla. */}
+        <button
+          onClick={() => setResponderOpen(true)}
+          disabled={reviewState !== 'idle' || isMarking}
+          className="btn-v2-primary"
+          style={{ fontSize: '12px', padding: '6px 14px' }}
+        >
+          💬 Responder
+        </button>
         {ruledService ? (
           <>
             {/* Servicio con regla → "Agendar yo" primario; el agente deshabilitado */}
               <button
                 onClick={() => setModalOpen(true)}
                 disabled={reviewState !== 'idle' || isMarking}
-                className="btn-v2-primary"
-                style={{ fontSize: '12px', padding: '6px 14px' }}
+                style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-text)', cursor: 'pointer' }}
               >
                 🗓 Agendar yo
               </button>
@@ -293,8 +308,7 @@ function AuthorizationCard({
               <button
                 onClick={handleApproveAgent}
                 disabled={reviewState !== 'idle' || isMarking}
-                className="btn-v2-primary"
-                style={{ fontSize: '12px', padding: '6px 14px' }}
+                style={{ fontSize: '12px', padding: '6px 14px', background: 'none', border: '1px solid var(--v2-border-soft)', borderRadius: '6px', color: 'var(--v2-text)', cursor: 'pointer' }}
               >
                 {isMarking ? 'Aprobando…' : '🤖 Aprobar — el agente agenda'}
               </button>
@@ -328,6 +342,17 @@ function AuthorizationCard({
           mediaId={item.media_id}
           onDone={(note) => { setDoneNote(note); setReviewState('done') }}
           onCancel={() => setReviewState('idle')}
+        />
+      )}
+
+      {responderOpen && (
+        <ContactarPacienteModal
+          conversationId={item.conversation_id}
+          patientName={item.patient_name ?? 'la paciente'}
+          onClose={(enviado) => {
+            setResponderOpen(false)
+            if (enviado) setDoneNote('✓ Le respondimos. El archivo sigue pendiente hasta que acuerden el día.')
+          }}
         />
       )}
 

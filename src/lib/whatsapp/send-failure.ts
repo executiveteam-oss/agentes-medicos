@@ -24,6 +24,9 @@ export type WhatsAppSendType =
   // Aviso de que una cita se MOVIÓ (fecha/hora/médico) desde el panel. Va
   // separado de 'reminder': si éste falla, la paciente va a ir el día viejo.
   | 'appointment_moved'
+  // Aviso de una cita NUEVA cargada desde el panel. Si falla, la paciente tiene
+  // una cita a su nombre y no lo sabe.
+  | 'appointment_created'
   | 'other'
 
 // ÚNICO lugar que decide qué fallo ALERTA vs solo AUDITA. Mismo patrón que

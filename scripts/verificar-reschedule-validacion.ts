@@ -42,6 +42,7 @@ async function main(): Promise<void> {
   const { executeTool } = await import('../src/agents/tools/executor')
 
   const { data: doc } = await supa.from('doctors').select('name, working_hours').eq('id', JORGE).single()
+  const { data: clinicRowGlobal } = await supa.from('clinics').select('*').eq('id', ALGIA).single()
   const viernes = (doc!.working_hours as Record<string, { active: boolean; blocks: Array<{ start: string; end: string }> }>).friday
   console.log(`\nMédico: ${doc!.name}`)
   console.log(`Viernes: ${viernes.active ? viernes.blocks.map((b) => `${b.start}–${b.end}`).join(', ') : 'inactivo'}\n`)
@@ -65,8 +66,8 @@ async function main(): Promise<void> {
 
   for (const c of casos) {
     const r = await puedeEscribirseLaCita({
-      clinicId: ALGIA, doctorId: JORGE,
-      startsAt: c.start, endsAt: c.end, now: new Date(),
+      clinic: clinicRowGlobal as Parameters<typeof puedeEscribirseLaCita>[0]['clinic'], doctorId: JORGE,
+      startsAt: c.start, now: new Date(),
       excluirAppointmentId: cita!.id,
     })
     console.log(`${c.nombre}`)

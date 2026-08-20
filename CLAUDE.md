@@ -37,6 +37,25 @@ Corolario práctico: cuando aparezca un bug del tipo "el agente dijo/hizo algo q
 pregunta no es *"¿cómo reescribo el prompt?"* sino *"¿qué estructura faltaba?"*. El prompt se
 ajusta además, nunca en lugar de.
 
+**Y el error más fácil de cometer es aplicarlo A MEDIAS: blindar la acción y dejar la
+recuperación en una instrucción.** Es el mismo bug con otra ropa, y es peor porque el commit
+se siente terminado.
+
+Pasó el 2026-08-20, dentro del cambio que estaba invocando este patrón. Se cerró por estructura
+que el agente pudiera ESCRIBIR una cita fuera del horario del médico — hasta ahí bien. Pero el
+rechazo devolvía `message_for_patient: "Ese horario no está dentro de la agenda del médico.
+¿Buscamos otro?"` y un `instruction_for_llm` que le pedía al modelo buscar horarios y ofrecerlos.
+O sea: la mitad que impide está en código, y la mitad que resuelve depende de que el modelo
+obedezca. Y como ese bloqueo dejó de escalar, ese texto ni siquiera se enviaba: el modelo
+redactaba lo que quería.
+
+La pregunta que lo detecta: **después del bloqueo, ¿qué lee la paciente, y quién lo garantiza?**
+Si la respuesta es "el modelo debería", falta estructura. Un "no se puede" es sólo la mitad de
+una respuesta; la otra mitad son las opciones que sí existen, y tienen que venir del código —
+en este caso, los cupos reales del médico devueltos junto al bloqueo.
+
+Vale para todo `BLOCKED_BY_*`: el que bloquea es el que tiene que traer la salida.
+
 ### 2. Una sola función por pregunta.
 
 *"¿Este cupo está libre?"* no puede tener cuatro implementaciones. Cuando la misma pregunta se

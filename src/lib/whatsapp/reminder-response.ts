@@ -41,7 +41,13 @@ export const VENTANAS_RECORDATORIO = [
  * Se exporta para que el cron use LA MISMA lista: la pregunta "¿a qué citas se
  * les escribe?" se responde en un solo lugar.
  */
-export const ESTADOS_VIGENTES = ['confirmed', 'rescheduled', 'blocked_external'] as const
+// La misma lista que BUSY_STATUSES, y por eso se DERIVA de ella en vez de
+// repetirse: estaban escritas dos veces con el mismo contenido, que es la forma
+// exacta en que dos fuentes divergen. Al sacar 'rescheduled' de una, la otra
+// habría seguido mandándole recordatorios a una cita que ya se movió.
+import { BUSY_STATUSES } from '@/lib/calendar/slot-availability'
+
+export const ESTADOS_VIGENTES = BUSY_STATUSES
 
 export type TipoDeRespuesta = 'confirmacion' | 'cancelacion' | 'reagendamiento' | null
 

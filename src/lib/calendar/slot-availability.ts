@@ -8,8 +8,23 @@
 // ============================================================
 
 /** Estados que ocupan la agenda. Único lugar donde se definen — ambas queries
- *  deben filtrar por esto para no volver a divergir. */
-export const BUSY_STATUSES = ['confirmed', 'rescheduled', 'blocked_external'] as const
+ *  deben filtrar por esto para no volver a divergir.
+ *
+ *  🔴 'rescheduled' NO está, y es a propósito (2026-08-20).
+ *
+ *  Reagendar marca la cita vieja como 'rescheduled' e INSERTA una nueva
+ *  (executor.ts, rescheduleAppointment): esa fila es el original MUERTO, no una
+ *  cita viva. Mientras estuvo en esta lista, mover una cita del 28 al 30 dejaba
+ *  el cupo del 28 ocupado para siempre — nadie lo podía usar y nadie sabía por
+ *  qué. Es el único estado de la tabla que significa "esto ya no existe" y aun
+ *  así reservaba agenda.
+ *
+ *  Ojo: el índice único parcial idx_appointments_no_double_booking cubría
+ *  ('confirmed','rescheduled'), así que sacarlo de acá sin tocar el índice
+ *  habría sido peor — el agente ofrecía el cupo liberado y el INSERT fallaba
+ *  con violación de unicidad. La migración 00110 lo dejó sólo en 'confirmed'.
+ *  Si alguien vuelve a tocar esta lista, tiene que mirar ese índice. */
+export const BUSY_STATUSES = ['confirmed', 'blocked_external'] as const
 
 export function isBusyStatus(status: string | null | undefined): boolean {
   return status != null && (BUSY_STATUSES as readonly string[]).includes(status)

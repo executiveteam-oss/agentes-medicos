@@ -414,8 +414,8 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
           console.warn(`[Agent] 🚨 ${bookingFail ? 'Falla dura de agendamiento' : 'Error técnico de tool'} (${toolUse.name}/${code}) → escalar, NO improvisar`)
           return {
             text: bookingFail
-              ? 'Uy, tuve un inconveniente para agendar tu cita 🙁 Ya avisé a una persona del equipo para que lo revise y te confirme enseguida. Disculpá la demora 🙏'
-              : 'Uy, tuve un inconveniente técnico revisando eso 🙁 Ya avisé a una persona del equipo para que lo revise y te ayude enseguida. Disculpá 🙏',
+              ? 'Uy, tuve un inconveniente para agendar tu cita 🙁 Ya avisé a una persona del equipo para que lo revise y te confirme enseguida. Disculpa la demora 🙏'
+              : 'Uy, tuve un inconveniente técnico revisando eso 🙁 Ya avisé a una persona del equipo para que lo revise y te ayude enseguida. Disculpa 🙏',
             toolsUsed,
             toolCalls,
             tokenUsage: { input: totalInputTokens, output: totalOutputTokens },

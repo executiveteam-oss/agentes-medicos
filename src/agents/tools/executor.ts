@@ -1340,11 +1340,10 @@ async function createAppointment(
     }
   }
 
-  // Calcular hora de fin: tipo de consulta > per-doctor config > default
-  const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
-  const docConfig = waConfig?.doctors[doctorId]
-  let duration = docConfig?.duration ?? waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes
-
+  // El tipo de consulta se valida acá (¿es de este médico?). La DURACIÓN ya no
+  // se calcula en este archivo: la resuelve puedeEscribirseLaCita con la misma
+  // precedencia para agendar y para mover. Antes reschedule se saltaba el
+  // escalón per-doctor y la misma cita duraba distinto según el camino.
   if (consultationTypeId) {
     const { data: ctData } = await supabaseAdmin
       .from('consultation_types')
@@ -1399,10 +1398,7 @@ async function createAppointment(
       }
       return { success: false, error: 'Ese tipo de consulta no corresponde al doctor seleccionado. Pregunta al paciente qué tipo de consulta necesita con este doctor.' }
     }
-    duration = ctData.duration_minutes
   }
-
-  const endsAt = calculateEndTime(startsAt, duration)
 
   // ¿SE PUEDE ESCRIBIR ESTA CITA? Una sola pregunta, una sola función.
   //
@@ -1414,10 +1410,10 @@ async function createAppointment(
   //
   // Si mañana se agrega una regla, va allá y vale para los dos caminos.
   const chequeo = await puedeEscribirseLaCita({
-    clinicId,
+    clinic,
     doctorId,
     startsAt,
-    endsAt,
+    consultationTypeId,
     now: new Date(),
   })
 
@@ -1443,6 +1439,9 @@ async function createAppointment(
     }
   }
 
+  // La hora de fin sale del chequeo: una sola cuenta de duración para los dos
+  // caminos, y la misma que se acaba de validar contra la franja del médico.
+  const endsAt = chequeo.endsAt
 
   // Buscar o crear paciente
   let { data: patient } = await supabaseAdmin
@@ -1780,7 +1779,7 @@ async function cancelAppointment(
       error: 'BLOCKED_PAST_APPOINTMENT',
       data: {
         outcome: 'in_the_past',
-        message_for_patient: 'Esa cita ya pasó, no hay nada que cancelar. ¿Querés agendar una nueva?',
+        message_for_patient: 'Esa cita ya pasó, no hay nada que cancelar. ¿Quieres agendar una nueva?',
         instruction_for_llm: 'La cita ya ocurrió (fecha pasada). NO la canceles. Si el paciente quiere, ofrecé agendar una nueva con check_availability.',
       },
     }
@@ -1928,19 +1927,6 @@ async function rescheduleAppointment(
     // propio de reagendar: no existe al crear.
   }
 
-  // Calcular duración: tipo de consulta > config doctor > default clínica
-  let rescheduleDuration = clinic.consultation_duration_minutes
-  if (appointment.consultation_type_id) {
-    const { data: ctData } = await supabaseAdmin
-      .from('consultation_types')
-      .select('duration_minutes')
-      .eq('id', appointment.consultation_type_id)
-      .eq('clinic_id', clinicId)
-      .single()
-    if (ctData) rescheduleDuration = ctData.duration_minutes
-  }
-  const newEndsAt = calculateEndTime(newStartsAt, rescheduleDuration)
-
   // ¿SE PUEDE ESCRIBIR ESTA CITA? La MISMA función que create_appointment.
   //
   // Acá había una query de solapamiento escrita a mano y nada más: ni futuro
@@ -1953,10 +1939,11 @@ async function rescheduleAppointment(
   // El médico es SIEMPRE el de la cita original (appointment.doctor_id).
   // Reagendar no cambia de médico: eso es cancelar y agendar de nuevo.
   const chequeoMov = await puedeEscribirseLaCita({
-    clinicId,
+    clinic,
     doctorId: appointment.doctor_id!,
     startsAt: newStartsAt,
-    endsAt: newEndsAt,
+    // La duración sale del tipo de la cita ORIGINAL: mover no cambia el servicio.
+    consultationTypeId: appointment.consultation_type_id,
     now: new Date(),
     // Su propia fila no compite consigo misma.
     excluirAppointmentId: appointmentId,
@@ -1984,6 +1971,10 @@ async function rescheduleAppointment(
       },
     }
   }
+
+  // Misma cuenta de duración que al crear — antes acá faltaba el escalón
+  // per-doctor de whatsapp_config.
+  const newEndsAt = chequeoMov.endsAt
 
   // Marcar la cita actual como reagendada
   await supabaseAdmin

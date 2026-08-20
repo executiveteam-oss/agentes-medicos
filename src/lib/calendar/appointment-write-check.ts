@@ -2,33 +2,41 @@
 // UNA sola respuesta a "¿se puede ESCRIBIR esta cita?".
 //
 // Hermana de isSlotFree (slot-availability.ts), que responde "¿está libre?".
-// Ésta responde la pregunta completa que hay que hacerse antes de un INSERT:
-// libre + futura + agenda abierta + día no bloqueado + dentro de la franja
-// del médico.
+// Ésta responde la pregunta completa que hay que hacerse antes de un INSERT.
 //
 // POR QUÉ EXISTE
 // --------------
-// create_appointment hacía los cinco chequeos. reschedule_appointment hacía
-// dos. Nadie lo notó hasta que una paciente pidió mover su cita a un viernes
-// a las 13:00 con un médico que los viernes atiende 07:30–11:00: la fila entró
-// en la base, y el guard que lo detectó escaló SEIS SEGUNDOS DESPUÉS. Detectar
-// no es impedir.
+// create_appointment hacía los chequeos. reschedule_appointment hacía dos.
+// Nadie lo notó hasta que una paciente pidió mover su cita a un viernes a las
+// 13:00 con un médico que los viernes atiende 07:30–11:00: la fila entró en la
+// base, y el guard que lo detectó escaló SEIS SEGUNDOS DESPUÉS. Detectar no es
+// impedir.
 //
-// La divergencia no fue un descuido puntual: es lo que pasa siempre que la
-// misma pregunta se responde en dos lugares. Por eso esto no se copia al
-// segundo camino — se extrae, y los dos la importan. La regla que alguien
-// agregue el mes que viene vale para agendar Y para mover sin que nadie tenga
-// que acordarse.
+// 🔴 Y AL BUSCAR SI FALTABA ALGÚN OTRO CHEQUEO, FALTABA (2026-08-20)
+// El escritor resolvía el horario del día con getDoctorDaySchedule —sólo
+// working_hours del médico— mientras el LECTOR (check_availability y la agenda
+// del dashboard) lo resuelve con resolverDisponibilidadDia, que además mira
+// EXCEPCIONES DE FECHA, festivos, whatsapp_config per-doctor y el horario de la
+// clínica. Con una excepción cargada ("este jueves atiendo 07:00–11:00") el
+// agente ofrecía la hora y el executor la rechazaba: el día abierto para el
+// lector y cerrado para el escritor.
 //
-// El orden de los chequeos replica el de create_appointment (slot primero) a
-// propósito: era el camino en producción y no se le cambia el comportamiento
-// de arrastre.
+// Por eso acá NO se re-decide a qué hora atiende un médico: se le pregunta a
+// traerDisponibilidadDia, la misma función que usa la pantalla. Un solo lugar
+// contesta "¿atiende ese día y a qué horas?" — bloqueos, festivos, excepciones
+// y horario base incluidos.
+//
+// La duración también vive acá: reschedule la calculaba sin el escalón
+// per-doctor de whatsapp_config, así que la MISMA cita duraba distinto según si
+// la creabas o la movías.
 // ============================================================
 import { format, parseISO } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { BUSY_STATUSES, isSlotFree, type BusyAppointment } from './slot-availability'
-import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart } from './schedule-check'
+import { isRangeWithinSchedule, isFutureStart } from './schedule-check'
+import { traerDisponibilidadDia } from './fetch-day-availability'
+import type { Clinic, WhatsAppConfig } from '@/types/database'
 
 const TIMEZONE = 'America/Bogota'
 
@@ -42,13 +50,16 @@ export type MotivoNoEscribible =
 
 export interface CitaEscribible {
   ok: true
+  /** Calculado acá para que los dos caminos usen la MISMA duración. */
+  endsAt: string
+  duracionMinutos: number
 }
 
 export interface CitaNoEscribible {
   ok: false
   outcome: MotivoNoEscribible
-  /** Familia del error para el loop del modelo. `blocked_date` tiene la suya
-   *  porque NO debe escalar: que la clínica cierre un día es negocio corriente. */
+  /** Familia del error para el loop del modelo. `blocked_date` y
+   *  `out_of_schedule` tienen la suya porque NO deben escalar. */
   errorCode: 'SLOT_JUST_TAKEN' | 'BLOCKED_BY_SCHEDULE' | 'BLOCKED_BY_DATE' | 'BLOCKED_OUT_OF_SCHEDULE'
   messageForPatient: string
   instructionForLlm: string
@@ -59,30 +70,60 @@ export interface CitaNoEscribible {
 export type ResultadoEscritura = CitaEscribible | CitaNoEscribible
 
 export interface ArgsEscritura {
-  clinicId: string
+  clinic: Clinic
   doctorId: string
   /** ISO 8601, como va a la DB. */
   startsAt: string
-  endsAt: string
+  /** Manda sobre todo lo demás para la duración, si el tipo la define. */
+  consultationTypeId?: string | null
   now: Date
   /** Al MOVER una cita, su propia fila no cuenta como conflicto consigo misma. */
   excluirAppointmentId?: string | null
 }
 
 /**
- * ¿Se puede escribir esta cita? Un solo `await` para el caller, cinco chequeos
- * adentro. Devuelve `{ ok: true }` o el motivo con todo lo necesario para
+ * La duración de la cita, con la MISMA precedencia en los dos caminos:
+ * tipo de consulta > config per-doctor > default de whatsapp_config > clínica.
+ *
+ * reschedule se saltaba los dos escalones del medio, así que una cita sin tipo
+ * con un médico de duración propia se movía con el largo equivocado.
+ */
+async function duracionDeLaCita(
+  clinic: Clinic,
+  doctorId: string,
+  consultationTypeId?: string | null,
+): Promise<number> {
+  const waConfig = clinic.whatsapp_config as WhatsAppConfig | null
+  const docConfig = waConfig?.doctors?.[doctorId]
+  const base = docConfig?.duration ?? waConfig?.appointment?.default_duration ?? clinic.consultation_duration_minutes
+
+  if (!consultationTypeId) return base
+  const { data: ct } = await supabaseAdmin
+    .from('consultation_types')
+    .select('duration_minutes')
+    .eq('id', consultationTypeId)
+    .eq('clinic_id', clinic.id)
+    .maybeSingle()
+  return ct?.duration_minutes ?? base
+}
+
+/**
+ * ¿Se puede escribir esta cita? Un solo `await` para el caller.
+ * Devuelve `{ ok: true, endsAt }` o el motivo con todo lo necesario para
  * responderle al modelo y auditar.
  */
 export async function puedeEscribirseLaCita(args: ArgsEscritura): Promise<ResultadoEscritura> {
-  const { clinicId, doctorId, startsAt, endsAt, now, excluirAppointmentId } = args
+  const { clinic, doctorId, startsAt, consultationTypeId, now, excluirAppointmentId } = args
+  const clinicId = clinic.id
+
+  const duracionMinutos = await duracionDeLaCita(clinic, doctorId, consultationTypeId)
+  const endsAt = new Date(Date.parse(startsAt) + duracionMinutos * 60_000).toISOString()
 
   const startZoned = toZonedTime(parseISO(startsAt), TIMEZONE)
   const endZoned = toZonedTime(parseISO(endsAt), TIMEZONE)
   const dateStr = format(startZoned, 'yyyy-MM-dd')
   const startHHMM = format(startZoned, 'HH:mm')
   const endHHMM = format(endZoned, 'HH:mm')
-  const dayKey = dayKeyFromIndex(startZoned.getDay())
 
   // (1) ¿Está libre? Misma lógica de solapamiento que check_availability.
   let queryDia = supabaseAdmin
@@ -110,15 +151,6 @@ export async function puedeEscribirseLaCita(args: ArgsEscritura): Promise<Result
     }
   }
 
-  // El resto necesita al médico.
-  const { data: medico } = await supabaseAdmin
-    .from('doctors')
-    .select('name, working_hours, agenda_closed')
-    .eq('id', doctorId)
-    .eq('clinic_id', clinicId)
-    .single()
-  const nombreMedico = medico?.name ?? ''
-
   // (2) Futura.
   if (!isFutureStart(startsAt, now)) {
     return {
@@ -128,56 +160,47 @@ export async function puedeEscribirseLaCita(args: ArgsEscritura): Promise<Result
       messageForPatient: 'Esa fecha ya pasó. ¿Buscamos un horario disponible próximamente?',
       instructionForLlm:
         'La fecha/hora pedida ya pasó. NO escribas la cita. Usá check_availability para ofrecer horarios futuros.',
-      auditDetails: { outcome: 'in_the_past', doctor_name: nombreMedico, starts_at: startsAt, llm_attempted_anyway: true },
+      auditDetails: { outcome: 'in_the_past', starts_at: startsAt, llm_attempted_anyway: true },
     }
   }
 
-  // (3) Agenda del médico cerrada.
-  if (medico?.agenda_closed) {
+  // (3) ¿Atiende ese día, y a qué horas? NO se decide acá.
+  //
+  // Se le pregunta a la MISMA función que usan check_availability y la agenda
+  // del dashboard. Trae resueltos, en este orden: clínica no operativa →
+  // festivo → fecha bloqueada → agenda cerrada → horario manual → EXCEPCIÓN DE
+  // FECHA → horario base (médico > whatsapp_config > clínica).
+  const disp = await traerDisponibilidadDia(clinicId, doctorId, dateStr, clinic)
+
+  if (disp.bloqueo) {
+    // Los que el agente resuelve solo (ofrece otra fecha) vs. los que ameritan
+    // que una persona mire. El motivo ya viene redactado por el resolver.
+    const esDeNegocio = disp.bloqueo.tipo === 'festivo'
+      || disp.bloqueo.tipo === 'fecha_bloqueada_medico'
+      || disp.bloqueo.tipo === 'fecha_bloqueada_clinica'
     return {
       ok: false,
-      outcome: 'agenda_closed',
-      errorCode: 'BLOCKED_BY_SCHEDULE',
-      messageForPatient: 'La agenda de ese médico está cerrada en este momento. ¿Buscamos con otro médico?',
-      instructionForLlm:
-        'La agenda del médico está cerrada. NO agendes con él. Ofrecé otro médico de la misma especialidad o avisá que no hay agenda.',
-      auditDetails: { outcome: 'agenda_closed', doctor_name: nombreMedico, starts_at: startsAt, llm_attempted_anyway: true },
-    }
-  }
-
-  // (4) Fecha bloqueada (del médico o de toda la clínica).
-  const { data: blockedRows } = await supabaseAdmin
-    .from('blocked_dates')
-    .select('id, doctor_id, reason')
-    .eq('clinic_id', clinicId)
-    .lte('start_date', dateStr)
-    .gte('end_date', dateStr)
-    .or(`doctor_id.eq.${doctorId},doctor_id.is.null`)
-    .limit(1)
-
-  if (blockedRows && blockedRows.length > 0) {
-    return {
-      ok: false,
-      outcome: 'blocked_date',
-      // Código PROPIO a propósito: los otros motivos son señal de que el modelo
-      // intentó algo que no debía y escalan. Éste no — que la clínica cierre un
-      // día es información de negocio y el agente la resuelve solo.
-      errorCode: 'BLOCKED_BY_DATE',
-      messageForPatient: 'Ese día no hay atención. ¿Buscamos otra fecha?',
-      instructionForLlm:
-        'Ese día está bloqueado (no hay atención). NO agendes ahí. Decile a la paciente que ese día no hay ' +
-        'atención y usá check_availability para ofrecerle otra fecha. NO escales: esto lo resolvés vos.',
+      outcome: esDeNegocio ? 'blocked_date' : 'agenda_closed',
+      errorCode: esDeNegocio ? 'BLOCKED_BY_DATE' : 'BLOCKED_BY_SCHEDULE',
+      messageForPatient: esDeNegocio
+        ? 'Ese día no hay atención. ¿Buscamos otra fecha?'
+        : 'La agenda de ese médico está cerrada en este momento. ¿Buscamos con otro médico?',
+      instructionForLlm: esDeNegocio
+        ? 'Ese día está bloqueado (no hay atención). NO agendes ahí y NO escales: decile a la paciente ' +
+          'que ese día no hay atención y ofrecele otra fecha.'
+        : 'La agenda del médico está cerrada. NO agendes con él. Ofrecé otro médico de la misma ' +
+          'especialidad o avisá que no hay agenda.',
       auditDetails: {
-        outcome: 'blocked_date', doctor_name: nombreMedico, starts_at: startsAt, date: dateStr,
-        blocked_by: blockedRows[0].doctor_id ? 'doctor' : 'clinic',
-        reason: blockedRows[0].reason ?? null, llm_attempted_anyway: true,
+        outcome: esDeNegocio ? 'blocked_date' : 'agenda_closed',
+        tipo_bloqueo: disp.bloqueo.tipo, motivo: disp.bloqueo.motivo,
+        starts_at: startsAt, date: dateStr, llm_attempted_anyway: true,
       },
     }
   }
 
-  // (5) Entra COMPLETA en una franja del médico ese día.
-  const daySched = getDoctorDaySchedule(medico?.working_hours ?? null, dayKey)
-  if (!isRangeWithinSchedule(startHHMM, endHHMM, daySched)) {
+  // (4) Entra COMPLETA en una franja de ESE día — las que devolvió el resolver,
+  //     que ya contemplan la excepción de fecha si la hay.
+  if (!isRangeWithinSchedule(startHHMM, endHHMM, { active: disp.atiende, blocks: disp.franjas })) {
     return {
       ok: false,
       outcome: 'out_of_schedule',
@@ -187,25 +210,23 @@ export async function puedeEscribirseLaCita(args: ArgsEscritura): Promise<Result
       // escala a una persona y la paciente oye "Uy, tuve un inconveniente para
       // agendar tu cita". Para fecha pasada o agenda cerrada eso está bien.
       //
-      // Para un horario fuera de la franja NO: el agente puede resolverlo solo
-      // llamando check_availability con ESE médico y ofreciendo horas válidas.
-      // Escalarlo le deja a la paciente un "hubo un problema" en vez de un
-      // horario, y le manda a una secretaria algo que el agente arregla.
-      // El intento igual queda en audit_log con llm_attempted_anyway: true, que
-      // es por donde se detecta si el modelo empieza a pedir horas imposibles.
+      // Para un horario fuera de la franja NO: el agente lo resuelve ofreciendo
+      // los cupos reales de ese médico. El intento igual queda en audit_log con
+      // llm_attempted_anyway: true, que es por donde se detecta si el modelo
+      // empieza a pedir horas imposibles.
       errorCode: 'BLOCKED_OUT_OF_SCHEDULE',
       messageForPatient: 'Ese horario no está dentro de la agenda del médico. ¿Buscamos otro?',
       instructionForLlm:
         'El horario cae fuera de la franja del médico o la cita no entra completa. NO escribas la cita y NO ' +
-        'escales. Llamá check_availability con ESE MISMO médico (el de la cita, no otro) y ofrecele a la ' +
-        'paciente 2-3 horarios válidos. Si querés, decile en qué franja atiende ese día.',
+        'escales. Ofrecele a la paciente los cupos que vienen en cupos_disponibles, que son de ESE médico.',
       auditDetails: {
-        outcome: 'out_of_schedule', doctor_name: nombreMedico, starts_at: startsAt, ends_at: endsAt,
-        day: dayKey, start_hhmm: startHHMM, end_hhmm: endHHMM,
-        day_active: daySched.active, blocks: daySched.blocks, llm_attempted_anyway: true,
+        outcome: 'out_of_schedule', starts_at: startsAt, ends_at: endsAt,
+        start_hhmm: startHHMM, end_hhmm: endHHMM, date: dateStr,
+        day_active: disp.atiende, blocks: disp.franjas,
+        por_excepcion: !!disp.excepcion, llm_attempted_anyway: true,
       },
     }
   }
 
-  return { ok: true }
+  return { ok: true, endsAt, duracionMinutos }
 }

@@ -17,8 +17,9 @@ import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { syncAppointmentToHis, syncCancelToHis } from '@/lib/integrations'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
-import { getDoctorDaySchedule, dayKeyFromIndex, isRangeWithinSchedule, isFutureStart, fraseDiasQueAtiende, proximasFechasQueAtiende } from '@/lib/calendar/schedule-check'
+import { isFutureStart, fraseDiasQueAtiende, proximasFechasQueAtiende } from '@/lib/calendar/schedule-check'
 import { isSlotFree, BUSY_STATUSES, type BusyAppointment } from '@/lib/calendar/slot-availability'
+import { puedeEscribirseLaCita } from '@/lib/calendar/appointment-write-check'
 import { generateTimeSlots } from '@/lib/calendar/time-slots'
 import { normalizePaymentMode, decidePriceResponse, type PriceCtInput } from '@/lib/rules/price-tool-logic'
 import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, WorkingBlock } from '@/types/database'
@@ -1348,155 +1349,46 @@ async function createAppointment(
 
   const endsAt = calculateEndTime(startsAt, duration)
 
-  // Doble-booking con la MISMA lógica de solapamiento que check_availability
-  // (isSlotFree compartido) — no dos implementaciones distintas de "¿está libre?".
-  const bookDateStr = format(toZonedTime(parseISO(startsAt), TIMEZONE), 'yyyy-MM-dd')
-  const { data: dayAppts } = await supabaseAdmin
-    .from('appointments')
-    .select('starts_at, ends_at, status')
-    .eq('clinic_id', clinicId)
-    .eq('doctor_id', doctorId)
-    .in('status', [...BUSY_STATUSES])
-    .gte('starts_at', `${bookDateStr}T00:00:00-05:00`)
-    .lte('starts_at', `${bookDateStr}T23:59:59-05:00`)
+  // ¿SE PUEDE ESCRIBIR ESTA CITA? Una sola pregunta, una sola función.
+  //
+  // Los cinco chequeos (libre, futura, agenda abierta, día no bloqueado, dentro
+  // de la franja) viven en appointment-write-check.ts y los usa TAMBIÉN
+  // reschedule_appointment. Antes estaban acá, escritos a mano, y reschedule
+  // hacía sólo dos de los cinco — así una paciente terminó movida a un viernes
+  // 13:00 con un médico que atiende 07:30–11:00.
+  //
+  // Si mañana se agrega una regla, va allá y vale para los dos caminos.
+  const chequeo = await puedeEscribirseLaCita({
+    clinicId,
+    doctorId,
+    startsAt,
+    endsAt,
+    now: new Date(),
+  })
 
-  if (!isSlotFree(startsAt, endsAt, (dayAppts ?? []) as BusyAppointment[])) {
+  if (!chequeo.ok) {
+    // slot_taken no se audita (es carrera normal, no intento inválido del modelo).
+    if (chequeo.outcome !== 'slot_taken') {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'create_appointment_blocked_by_schedule',
+        actor_type: 'agent',
+        target_type: 'doctor',
+        target_id: doctorId,
+        details: { ...chequeo.auditDetails, patient_phone: (input.patient_phone as string) ?? null },
+      })
+    }
     return {
       success: false,
-      error: 'SLOT_JUST_TAKEN — Ese horario se acaba de ocupar por otra persona mientras el paciente esperaba. DEBES: (1) disculparte: "Disculpa, ese horario se acaba de ocupar mientras hablábamos" (2) usar check_availability para buscar alternativas cercanas (3) ofrecer 2-3 opciones nuevas. NUNCA actúes como si nunca hubieras propuesto el horario original.',
+      error: chequeo.errorCode,
+      data: {
+        outcome: chequeo.outcome,
+        message_for_patient: chequeo.messageForPatient,
+        instruction_for_llm: chequeo.instructionForLlm,
+      },
     }
   }
 
-  // Backstop de fecha/horario (SOLO camino agente): la cita debe ser FUTURA y
-  // caber completa en una franja del médico. Defense in depth — el LLM no
-  // debería llegar acá con una fecha mala, pero si lo hace, se bloquea y queda
-  // auditado (llm_attempted_anyway).
-  {
-    const { data: schedDoctor } = await supabaseAdmin
-      .from('doctors')
-      .select('name, working_hours, agenda_closed')
-      .eq('id', doctorId)
-      .eq('clinic_id', clinicId)
-      .single()
-    const patientPhone = (input.patient_phone as string) ?? null
-
-    // (1) Futuro
-    if (!isFutureStart(startsAt, new Date())) {
-      await supabaseAdmin.from('audit_log').insert({
-        clinic_id: clinicId,
-        action: 'create_appointment_blocked_by_schedule',
-        actor_type: 'agent',
-        target_type: 'doctor',
-        target_id: doctorId,
-        details: { outcome: 'in_the_past', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, llm_attempted_anyway: true, patient_phone: patientPhone },
-      })
-      return {
-        success: false,
-        error: 'BLOCKED_BY_SCHEDULE',
-        data: {
-          outcome: 'in_the_past',
-          message_for_patient: 'Esa fecha ya pasó. ¿Querés que busque un horario disponible próximamente?',
-          instruction_for_llm: 'La fecha/hora pedida ya pasó. NO agendes. Ofrecé buscar disponibilidad futura con check_availability.',
-        },
-      }
-    }
-
-    const startZoned = toZonedTime(parseISO(startsAt), TIMEZONE)
-    const endZoned = toZonedTime(parseISO(endsAt), TIMEZONE)
-    const dayKey = dayKeyFromIndex(startZoned.getDay())
-    const startHHMM = format(startZoned, 'HH:mm')
-    const endHHMM = format(endZoned, 'HH:mm')
-    const dateStr = format(startZoned, 'yyyy-MM-dd')
-
-    // (2) Agenda cerrada del médico (mismo criterio que check_availability)
-    if (schedDoctor?.agenda_closed) {
-      await supabaseAdmin.from('audit_log').insert({
-        clinic_id: clinicId,
-        action: 'create_appointment_blocked_by_schedule',
-        actor_type: 'agent',
-        target_type: 'doctor',
-        target_id: doctorId,
-        details: { outcome: 'agenda_closed', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, llm_attempted_anyway: true, patient_phone: patientPhone },
-      })
-      return {
-        success: false,
-        error: 'BLOCKED_BY_SCHEDULE',
-        data: {
-          outcome: 'agenda_closed',
-          message_for_patient: 'La agenda de ese médico está cerrada en este momento. ¿Buscamos con otro médico?',
-          instruction_for_llm: 'La agenda del médico está cerrada. NO agendes con él. Ofrecé otro médico de la misma especialidad o avisá que no hay agenda.',
-        },
-      }
-    }
-
-    // (3) Fecha bloqueada (doctor-específica o de toda la clínica)
-    const { data: blockedRows } = await supabaseAdmin
-      .from('blocked_dates')
-      .select('id, doctor_id, reason')
-      .eq('clinic_id', clinicId)
-      .lte('start_date', dateStr)
-      .gte('end_date', dateStr)
-      .or(`doctor_id.eq.${doctorId},doctor_id.is.null`)
-      .limit(1)
-    if (blockedRows && blockedRows.length > 0) {
-      await supabaseAdmin.from('audit_log').insert({
-        clinic_id: clinicId,
-        action: 'create_appointment_blocked_by_schedule',
-        actor_type: 'agent',
-        target_type: 'doctor',
-        target_id: doctorId,
-        details: { outcome: 'blocked_date', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, date: dateStr, blocked_by: blockedRows[0].doctor_id ? 'doctor' : 'clinic', reason: blockedRows[0].reason ?? null, llm_attempted_anyway: true, patient_phone: patientPhone },
-      })
-      return {
-        success: false,
-        // Código PROPIO, distinto de BLOCKED_BY_SCHEDULE a propósito.
-        //
-        // Ese código lo comparten cuatro casos (fecha pasada, agenda cerrada,
-        // fuera de franja y este), y los otros tres sí escalan: son señales de
-        // que el modelo intentó algo que no debía. Este no. Que la clínica
-        // bloquee un día es información de negocio corriente, y el agente puede
-        // resolverla solo ofreciendo otra fecha.
-        //
-        // Antes caía en isHardBookingFailure y la paciente escuchaba "Uy, tuve
-        // un inconveniente técnico" por un día que la clínica cerró a propósito
-        // — y encima escalaba a una persona para algo que no la necesita. El
-        // message_for_patient de acá abajo existía desde siempre y nunca se
-        // usaba, porque el corte determinista lo descartaba antes.
-        //
-        // Se llama BLOCKED_BY_DATE por la familia a la que pertenece:
-        // BLOCKED_BY_AGE, BLOCKED_BY_CONDITION, BLOCKED_BY_AUTH_PENDING — todas
-        // reglas de negocio que el LLM narra en vez de escalar.
-        error: 'BLOCKED_BY_DATE',
-        data: {
-          outcome: 'blocked_date',
-          message_for_patient: 'Ese día no hay atención. ¿Buscamos otra fecha?',
-          instruction_for_llm: 'Ese día está bloqueado (no hay atención). NO agendes ahí. Decile a la paciente que ese día no hay atención y usá check_availability para ofrecerle otra fecha. NO escales: esto lo resolvés vos.',
-        },
-      }
-    }
-
-    // (4) Cabe completa en la franja del médico
-    const daySched = getDoctorDaySchedule(schedDoctor?.working_hours ?? null, dayKey)
-    if (!isRangeWithinSchedule(startHHMM, endHHMM, daySched)) {
-      await supabaseAdmin.from('audit_log').insert({
-        clinic_id: clinicId,
-        action: 'create_appointment_blocked_by_schedule',
-        actor_type: 'agent',
-        target_type: 'doctor',
-        target_id: doctorId,
-        details: { outcome: 'out_of_schedule', doctor_name: schedDoctor?.name ?? '', starts_at: startsAt, ends_at: endsAt, day: dayKey, start_hhmm: startHHMM, end_hhmm: endHHMM, day_active: daySched.active, blocks: daySched.blocks, llm_attempted_anyway: true, patient_phone: patientPhone },
-      })
-      return {
-        success: false,
-        error: 'BLOCKED_BY_SCHEDULE',
-        data: {
-          outcome: 'out_of_schedule',
-          message_for_patient: 'Ese horario no está dentro de la agenda del médico. ¿Buscamos otro?',
-          instruction_for_llm: 'El horario cae fuera de la franja del médico o la cita no entra completa. NO agendes. Usá check_availability para ofrecer horarios válidos.',
-        },
-      }
-    }
-  }
 
   // Buscar o crear paciente
   let { data: patient } = await supabaseAdmin
@@ -1972,30 +1864,14 @@ async function rescheduleAppointment(
         error: 'BLOCKED_PAST_APPOINTMENT',
         data: {
           outcome: 'original_in_the_past',
-          message_for_patient: 'Esa cita ya pasó, así que no se puede reagendar. ¿Querés que agende una nueva?',
+          message_for_patient: 'Esa cita ya pasó, así que no se puede reagendar. ¿Quieres que agende una nueva?',
           instruction_for_llm: 'La cita original ya ocurrió (fecha pasada). NO la reagendes. Ofrecé agendar una nueva con check_availability + create_appointment.',
         },
       }
     }
-    if (!isFutureStart(newStartsAt, nowR)) {
-      await supabaseAdmin.from('audit_log').insert({
-        clinic_id: clinicId,
-        action: 'reschedule_appointment_blocked_past',
-        actor_type: 'agent',
-        target_type: 'appointment',
-        target_id: appointmentId,
-        details: { which: 'new', new_starts_at: newStartsAt, llm_attempted_anyway: true },
-      })
-      return {
-        success: false,
-        error: 'BLOCKED_PAST_APPOINTMENT',
-        data: {
-          outcome: 'new_in_the_past',
-          message_for_patient: 'Esa fecha ya pasó. ¿Buscamos un horario disponible próximamente?',
-          instruction_for_llm: 'El nuevo horario pedido ya pasó. NO reagendes ahí. Usá check_availability para ofrecer horarios futuros.',
-        },
-      }
-    }
+    // El horario NUEVO lo valida puedeEscribirseLaCita más abajo, junto con los
+    // otros cuatro chequeos. Acá sólo queda el de la cita ORIGINAL, que es
+    // propio de reagendar: no existe al crear.
   }
 
   // Calcular duración: tipo de consulta > config doctor > default clínica
@@ -2011,22 +1887,46 @@ async function rescheduleAppointment(
   }
   const newEndsAt = calculateEndTime(newStartsAt, rescheduleDuration)
 
-  // Verificar que el nuevo horario no tenga conflicto
-  const { data: conflict } = await supabaseAdmin
-    .from('appointments')
-    .select('id')
-    .eq('clinic_id', clinicId)
-    .eq('doctor_id', appointment.doctor_id)
-    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
-    .neq('id', appointmentId)
-    .lt('starts_at', newEndsAt)
-    .gt('ends_at', newStartsAt)
-    .limit(1)
+  // ¿SE PUEDE ESCRIBIR ESTA CITA? La MISMA función que create_appointment.
+  //
+  // Acá había una query de solapamiento escrita a mano y nada más: ni futuro
+  // del horario nuevo, ni agenda cerrada, ni fecha bloqueada, ni franja del
+  // médico. Por eso una paciente terminó movida a un viernes 13:00 con un
+  // médico que los viernes atiende 07:30–11:00 — y el guard que lo detectó
+  // escaló SEIS SEGUNDOS DESPUÉS, con la fila ya escrita. Detectar no es
+  // impedir: si algo tiene que ser imposible, se bloquea ANTES del INSERT.
+  //
+  // El médico es SIEMPRE el de la cita original (appointment.doctor_id).
+  // Reagendar no cambia de médico: eso es cancelar y agendar de nuevo.
+  const chequeoMov = await puedeEscribirseLaCita({
+    clinicId,
+    doctorId: appointment.doctor_id!,
+    startsAt: newStartsAt,
+    endsAt: newEndsAt,
+    now: new Date(),
+    // Su propia fila no compite consigo misma.
+    excluirAppointmentId: appointmentId,
+  })
 
-  if (conflict && conflict.length > 0) {
+  if (!chequeoMov.ok) {
+    if (chequeoMov.outcome !== 'slot_taken') {
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'reschedule_appointment_blocked_by_schedule',
+        actor_type: 'agent',
+        target_type: 'appointment',
+        target_id: appointmentId,
+        details: { ...chequeoMov.auditDetails, appointment_id: appointmentId, original_starts_at: appointment.starts_at },
+      })
+    }
     return {
       success: false,
-      error: 'El nuevo horario ya está ocupado. Ofrece otro horario.',
+      error: chequeoMov.errorCode,
+      data: {
+        outcome: chequeoMov.outcome,
+        message_for_patient: chequeoMov.messageForPatient,
+        instruction_for_llm: chequeoMov.instructionForLlm,
+      },
     }
   }
 

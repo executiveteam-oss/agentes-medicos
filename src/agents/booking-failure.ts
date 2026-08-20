@@ -20,7 +20,16 @@ const BOOKING_TOOLS = new Set(['create_appointment', 'reschedule_appointment'])
  *  cierre un viernes es información de negocio corriente: el agente dice "ese
  *  día no hay atención" y ofrece otra fecha. Escalarlo le trasladaba a una
  *  secretaria algo que el agente resuelve solo, y a la paciente le decía
- *  "tuve un inconveniente técnico" sobre una decisión deliberada de la clínica. */
+ *  "tuve un inconveniente técnico" sobre una decisión deliberada de la clínica.
+ *
+ *  ⚠️ BLOCKED_OUT_OF_SCHEDULE tampoco entra, por la misma razón. Salió de
+ *  BLOCKED_BY_SCHEDULE el 2026-08-20: pedir una hora fuera de la franja del
+ *  médico lo resuelve el agente llamando check_availability con ESE médico y
+ *  ofreciendo horas válidas. Que escale deja a la paciente con "hubo un
+ *  problema" en vez de un horario. El intento igual queda en audit_log con
+ *  llm_attempted_anyway: true — ahí se detecta si el modelo empieza a pedir
+ *  horas imposibles. Los que SIGUEN escalando bajo BLOCKED_BY_SCHEDULE son
+ *  fecha pasada y agenda cerrada. */
 export function isHardBookingFailure(toolName: string, errorCode: string | null | undefined): boolean {
   if (!BOOKING_TOOLS.has(toolName)) return false
   const code = String(errorCode ?? '')

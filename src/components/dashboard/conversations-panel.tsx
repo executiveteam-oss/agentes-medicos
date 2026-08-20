@@ -139,6 +139,8 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
   }
   /**
    * El reloj que se MUESTRA, derivado del mismo criterio que ordena.
+   * (Patrón 8 del CLAUDE.md: una pantalla no muestra un dato distinto del que
+   * usa para ordenar.)
    *
    * 🔴 POR QUÉ (2026-08-20)
    * La fila mostraba "Esperando hace X" calculado desde `last_message_at`,

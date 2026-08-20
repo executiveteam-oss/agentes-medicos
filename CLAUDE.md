@@ -132,7 +132,34 @@ uno decide por su cuenta, el agente promete lo que el executor después rechaza.
 Corolario para revisar: buscá en el prompt las frases con "el sistema", "automáticamente",
 "siempre" y "recibirás". Casi todas son candidatas.
 
-### 8. Si un dato vive en la DB, no se copia al doc.
+### 8. Una pantalla no muestra un dato distinto del que usa para ordenar.
+
+Cuando no coinciden, **la lista se ve rota aunque el orden sea perfecto** — y nadie desconfía del
+texto: todos desconfían del orden. Es una trampa cara porque manda a revisar el `sort`, que está
+bien, en vez del renglón que miente.
+
+Nos mordió dos veces el mismo día, en dos pantallas distintas:
+
+| Pantalla | Ordena por | Mostraba | Consecuencia |
+|---|---|---|---|
+| Conversaciones | la fecha del **pendiente** (servicio marcado, orden pedida) cuando hay uno | siempre `last_message_at` | "Esperando hace 1 día" arriba de "hace 2 días". Sobre 7 filas reales el sort era exacto y sin un solo empate |
+| Campana | `refreshed_at` (la alerta se refresca cuando la paciente vuelve a escribir) | `created_at` | **232 de 576** notificaciones desfasadas, hasta **150 horas** de diferencia. Una alerta subía al tope diciendo "hace 6 días" |
+
+La forma de que no vuelva: **el valor que se muestra se deriva de la misma función que ordena.**
+En `conversations-panel` eso es `relojDeEspera` sacando su fecha del mismo criterio que
+`waitingMs` — no dos expresiones que casualmente coinciden hoy, sino una sola fuente. Es el
+patrón 2 aplicado a la UI: la pregunta "¿hace cuánto espera esta fila?" se responde en un solo
+lugar.
+
+Y si de verdad hacen falta dos números distintos en la misma fila, que digan cosas distintas: el
+badge del pendiente perdió su reloj porque repetía el de al lado, y dos números diciendo lo mismo
+es de donde venía la confusión.
+
+**Corolario práctico:** cuando alguien reporte *"esta lista está desordenada"*, lo primero no es
+mirar el `sort` — es **verificar si el número que se muestra es el que ordena**. Las dos veces
+que pasó, el orden estaba bien.
+
+### 9. Si un dato vive en la DB, no se copia al doc.
 
 Ver la regla de arriba. Está acá también porque es la misma clase de error que las otras seis:
 una fuente de verdad duplicada que diverge sin avisar.

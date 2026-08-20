@@ -23,6 +23,7 @@ import { sendWhatsAppMessage, sendWhatsAppMessageWithResult, markAsRead } from '
 import type { ClinicWhatsAppCredentials } from '@/lib/whatsapp/client'
 import { registrarEstadosDeEntrega } from '@/lib/whatsapp/delivery-status'
 import { sanitizePatientMessage, isSupportedMessageType, isDocumentMediaType, getUnsupportedTypeMessage } from '@/lib/whatsapp/sanitize'
+import { nombreMedicoParaPaciente } from '@/lib/utils/normalize-name'
 import { detectarTipoDeRespuesta, buscarCitaConRecordatorioPendiente } from '@/lib/whatsapp/reminder-response'
 import { stripTimestampMarkers } from '@/lib/whatsapp/strip-timestamp-markers'
 import { getWhatsAppConfig, findActiveDoctors, findActiveConsultationTypes, buildExistingPatient, resolveTratantesForClinic } from '@/lib/agent/agent-context'
@@ -1933,12 +1934,26 @@ async function handleReminderResponse(
 
     console.log(`[Webhook] Cita ${pendingAppointment.id} CANCELADA vía recordatorio`)
   } else {
-    // CAMBIAR — rutear al agente de IA para reagendamiento
-    // Marcar conversación con flag wants_to_reschedule para que el agente lo detecte
+    // CAMBIAR — se le ofrecen CUPOS CONCRETOS, no una pregunta.
+    //
+    // Antes esto contestaba "¿Qué día y hora te quedaría mejor?" y ahí murieron
+    // 5 de las 21 conversaciones que pidieron cita y se fueron sin ella en una
+    // semana. La paciente tocó un botón —un gesto de un segundo— y recibía algo
+    // que exige pensar, elegir y escribir. Después de un botón van opciones.
+    //
+    // El context se MERGEA, no se pisa: sobrescribirlo entero borraba el motivo
+    // de escalación si la conversación tenía uno.
+    const { data: convActual } = await supabaseAdmin
+      .from('conversations').select('context').eq('id', conversationId).maybeSingle()
+    const contextActual = (convActual as { context?: Record<string, unknown> } | null)?.context
     await supabaseAdmin
       .from('conversations')
       .update({
-        context: { wants_to_reschedule: true, appointment_id: pendingAppointment.id },
+        context: {
+          ...((contextActual ?? {}) as Record<string, unknown>),
+          wants_to_reschedule: true,
+          appointment_id: pendingAppointment.id,
+        },
       })
       .eq('id', conversationId)
 
@@ -1947,7 +1962,18 @@ async function handleReminderResponse(
       .update({ response: 'rescheduled' })
       .eq('appointment_id', pendingAppointment.id)
 
-    const response = 'Claro, con gusto te ayudo a cambiar la cita. ¿Qué día y hora te quedaría mejor?'
+    // Los cupos salen de la MISMA fuente que usa el agente. Si no hay ninguno,
+    // mensajeConCupos deriva a una persona en vez de preguntar al aire.
+    const { proximosCuposLibres, mensajeConCupos } = await import('@/lib/calendar/proximos-cupos')
+    const { data: medicoDeLaCita } = await supabaseAdmin
+      .from('doctors').select('name').eq('id', pendingAppointment.doctor_id ?? '').maybeSingle()
+    const cupos = pendingAppointment.doctor_id
+      ? await proximosCuposLibres(clinicId, pendingAppointment.doctor_id, 3)
+      : []
+    const response = mensajeConCupos(
+      cupos,
+      nombreMedicoParaPaciente((medicoDeLaCita?.name as string) ?? '', null),
+    )
     await saveMessage(conversationId, 'agent', response)
     await sendWhatsAppMessage(whatsappFrom, response, clinicCreds)
 

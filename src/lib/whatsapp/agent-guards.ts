@@ -201,9 +201,27 @@ export function detectPromesaDeHumanoSinEscalar(args: {
    *  no pasan por la tool. Sin este flag el guard dispararía sobre
    *  conversaciones que ya están escalando: ruido en la bandeja, no un guard. */
   yaVaAEscalar: boolean
+  /** ¿Esta conversación tiene un servicio ruleado marcado y sin gestionar?
+   *
+   *  🔴 LA CALIBRACIÓN (2026-08-20). "Para colposcopia, un asesor del
+   *  consultorio confirma los detalles contigo" es la frase que emite la Capa 0
+   *  al marcar un servicio ruleado — y ESA promesa SÍ tiene respaldo: el
+   *  servicio quedó en `servicios_marcados` y la conversación vive en la
+   *  pestaña Servicios. No hay nada que escalar.
+   *
+   *  Medido sobre las 19 escalaciones de la semana: 5 tenían el servicio
+   *  marcado con fecha (y el texto era exactamente el del servicio ruleado);
+   *  las otras 14 no tenían rastro en ningún lado y son detecciones correctas.
+   *  La exención baja el guard de 19 a 14 sin eximir una sola promesa huérfana.
+   *
+   *  Ojo con la condición: NO alcanza con que el context tenga la clave. Tiene
+   *  que haber un servicio PENDIENTE (marcado y no resuelto) — si ya lo
+   *  gestionaron, una promesa nueva vuelve a no tener respaldo. */
+  tieneServicioPendiente: boolean
 }): GuardResult {
   if (args.yaVaAEscalar) return { blocked: false }
   if (args.toolsUsed.includes('escalate_to_human')) return { blocked: false }
+  if (args.tieneServicioPendiente) return { blocked: false }
 
   const prometeConSujeto = SUJETO_HUMANO.test(args.agentText) && ACCION_DE_CONTACTO.test(args.agentText)
   const prometeEscalar = VERBO_ESCALAR.test(args.agentText)

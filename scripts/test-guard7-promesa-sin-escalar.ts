@@ -7,11 +7,12 @@
 import { detectPromesaDeHumanoSinEscalar } from '../src/lib/whatsapp/agent-guards'
 
 let passed = 0, failed = 0
-function check(label: string, texto: string, opts: { tools?: string[]; yaEscala?: boolean }, esperado: boolean) {
+function check(label: string, texto: string, opts: { tools?: string[]; yaEscala?: boolean; servicioPendiente?: boolean }, esperado: boolean) {
   const r = detectPromesaDeHumanoSinEscalar({
     agentText: texto,
     toolsUsed: opts.tools ?? [],
     yaVaAEscalar: opts.yaEscala ?? false,
+    tieneServicioPendiente: opts.servicioPendiente ?? false,
   })
   const ok = r.blocked === esperado
   if (ok) { console.log(`  ✅ ${label}`); passed++ }
@@ -67,6 +68,21 @@ function check8(label: string, agente: string, paciente: string, opts: { tools?:
   if (ok) { console.log(`  ✅ ${label}`); passed++ }
   else { console.log(`  ❌ ${label} — esperaba ${esperado}, dio ${r.blocked}`); failed++ }
 }
+
+console.log('\n═══ GUARD 7 · LA CALIBRACIÓN — servicio ruleado marcado ═══')
+// La Capa 0 emite esta frase EXACTA al marcar un servicio ruleado. Esa promesa
+// SÍ tiene respaldo: el servicio queda en servicios_marcados y la conversación
+// vive en la pestaña Servicios. Escalar además sería duplicar el trabajo.
+// Medido: 5 de las 19 escalaciones de la semana del 20/08 estaban en este caso.
+check('servicio marcado → NO escala',
+  'Para colposcopia, un asesor del consultorio confirma los detalles contigo antes de agendar. Ya les avisé.',
+  { servicioPendiente: true }, false)
+check('MISMO texto SIN servicio marcado → sí escala',
+  'Para colposcopia, un asesor del consultorio confirma los detalles contigo antes de agendar. Ya les avisé.',
+  { servicioPendiente: false }, true)
+check('servicio ya gestionado → la promesa vuelve a quedar huérfana',
+  'Un asesor del consultorio te contacta para coordinar.',
+  { servicioPendiente: false }, true)
 
 console.log('\n═══ GUARD 8 · DEBE disparar ═══')
 check8('pide reagendar y no la encuentra',

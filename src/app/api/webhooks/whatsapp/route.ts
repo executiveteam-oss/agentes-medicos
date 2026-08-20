@@ -35,6 +35,7 @@ import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
 import { escalarConversacion, mensajeEscalacionFallida } from '@/lib/conversations/escalar'
+import { serviciosPendientes, type ContextPendientes } from '@/lib/conversations/pendientes'
 import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery, normalizeForSafety } from '@/lib/safety/crisis-patterns'
 import { detectEscalateService, isPriceOnlyQuestion } from '@/lib/safety/escalate-service-matcher'
 import { buildPrivacyNotice } from '@/lib/legal/privacy-notice'
@@ -1290,6 +1291,11 @@ async function processWebhook(body: unknown): Promise<void> {
         toolsUsed: agentResponse.toolsUsed,
         // Los DOS caminos de escalación: la tool y el corte determinista.
         yaVaAEscalar: agentResponse.toolsUsed.includes('escalate_to_human') || Boolean(agentResponse.escalate),
+        // Si hay un servicio ruleado marcado y sin gestionar, la frase "un
+        // asesor confirma los detalles" TIENE respaldo: el servicio quedó
+        // registrado y la conversación está en la pestaña Servicios. Misma
+        // fuente que la cola — serviciosPendientes, no leer el context a mano.
+        tieneServicioPendiente: serviciosPendientes(conversation.context as ContextPendientes).length > 0,
       })
       if (g7.blocked) {
         console.warn('[Webhook] 🚨 Guard 7: prometió una persona sin escalar → escalando')

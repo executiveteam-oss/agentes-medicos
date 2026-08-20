@@ -106,11 +106,15 @@ export async function executeTool(
 ): Promise<ToolResult> {
   try {
     switch (toolName) {
-      case 'check_availability':
-        return (
-          bloqueoPorPinDeMedico(input.doctor_id as string | undefined, pinMedico) ??
-          (await checkAvailability(input, clinicId, clinic, doctor, pinMedico))
-        )
+      case 'check_availability': {
+        const bloqueo = bloqueoPorPinDeMedico(input.doctor_id as string | undefined, pinMedico)
+        if (bloqueo) return bloqueo
+        const r = await checkAvailability(input, clinicId, clinic, doctor, pinMedico)
+        // Se instrumenta ACÁ y no adentro: checkAvailability tiene 14 puntos de
+        // salida y tocarlos uno por uno se desincroniza al primer return nuevo.
+        await registrarConsultaDeDisponibilidad(clinicId, input, r, pinMedico)
+        return r
+      }
 
       case 'create_appointment':
         return (
@@ -181,6 +185,64 @@ export async function executeTool(
 // Por eso ahora: el médico se resuelve UNA vez, arriba, y de ahí para abajo
 // `medico` es la única fuente. El default se llama `doctorPorDefecto` para que
 // `doctorPorDefecto.name` se lea mal a simple vista — que es todo el punto.
+/**
+ * Deja registro de CADA consulta de disponibilidad: cuántos cupos devolvió, de
+ * qué médico y para qué fecha.
+ *
+ * 🔴 POR QUÉ (2026-08-20)
+ * En el embudo de la semana, 27 de 50 pacientes que pidieron cita se caían
+ * ANTES de ver un horario — y no había forma de saber por qué. Son dos
+ * problemas distintos mezclados en un número:
+ *   · no había cupo         → dato comercial: demanda que la clínica no atiende
+ *   · había cupo y la conversación murió igual → es nuestro
+ * Sin esto, los dos se ven idénticos desde afuera.
+ *
+ * No bloquea ni cambia el resultado: si el registro falla, la consulta sigue.
+ */
+async function registrarConsultaDeDisponibilidad(
+  clinicId: string,
+  input: Record<string, unknown>,
+  resultado: ToolResult,
+  pinMedico?: DoctorPin | null,
+): Promise<void> {
+  try {
+    const data = (resultado.data ?? {}) as {
+      available?: boolean
+      date?: string
+      doctor_name?: string | null
+      slots?: unknown[]
+      total_available?: number
+      proximas_fechas?: unknown[] | null
+      reason?: string
+    }
+    const cupos = data.total_available ?? (Array.isArray(data.slots) ? data.slots.length : 0)
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'disponibilidad_consultada',
+      actor_type: 'agent',
+      target_type: 'doctor',
+      target_id: (input.doctor_id as string) ?? pinMedico?.doctor_id ?? null,
+      details: {
+        cupos_devueltos: cupos,
+        // La distinción que hace útil todo esto: cero cupos NO es lo mismo que
+        // una consulta fallida, y ninguna de las dos es "la paciente se fue".
+        hubo_cupos: cupos > 0,
+        exito: resultado.success,
+        fecha_pedida: (input.preferred_date as string) ?? null,
+        fecha_resuelta: data.date ?? null,
+        medico: data.doctor_name ?? pinMedico?.doctor_name ?? null,
+        medico_fijado_por_la_paciente: Boolean(pinMedico?.doctor_id),
+        tipo_consulta_id: (input.consultation_type_id as string) ?? null,
+        // Cuando no hay cupo, el motivo separa "no atiende ese día" de
+        // "atiende pero está lleno" — que para la clínica son cosas distintas.
+        motivo_sin_cupo: cupos === 0 ? (data.reason ?? resultado.error ?? null) : null,
+        ofrecio_otras_fechas: Array.isArray(data.proximas_fechas) && data.proximas_fechas.length > 0,
+      },
+    })
+  } catch { /* el registro nunca bloquea la consulta */ }
+}
+
 async function checkAvailability(
   input: Record<string, unknown>,
   clinicId: string,

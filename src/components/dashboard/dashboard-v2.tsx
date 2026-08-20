@@ -369,37 +369,34 @@ export function EscalatedCard({ conversations }: { conversations: EscalatedConve
 // ---- Agent Week Stats ----
 
 export function AgentWeekCard({
-  messagesResolved,
-  avgResponseTime,
+  messagesSent,
   appointmentsBooked,
 }: {
-  messagesResolved: number
-  avgResponseTime: string
+  /** Mensajes ENVIADOS por el agente, no casos resueltos. Ver abajo. */
+  messagesSent: number
   appointmentsBooked: number
 }) {
   return (
     <SectionCard title="Agente esta semana" icon={<Sparkles size={14} style={{ color: 'var(--v2-primary)' }} />}>
-      <div className="grid grid-cols-3 gap-4 px-5 py-4">
+      {/* Dos columnas, no tres: se sacó "Resp. promedio < 1 min", que estaba
+          ESCRITO A MANO en el código. No había ninguna medición detrás: no
+          cambiaba nunca y no iba a cambiar. Un número inventado en la pantalla
+          del cliente no se sostiene — o se mide de verdad o no está.
+
+          Y "Resueltos" pasa a "Mensajes enviados", que es lo que la consulta
+          cuenta de verdad: cada burbuja que escribió el agente, incluidas las de
+          conversaciones que terminaron escaladas o sin respuesta. La palabra era
+          la que engañaba, no el número. */}
+      <div className="grid grid-cols-2 gap-4 px-5 py-4">
         <div className="text-center">
           <p
             className="text-xl font-extrabold"
             style={{ fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-primary)' }}
           >
-            {messagesResolved}
+            {messagesSent}
           </p>
           <p className="text-[11px] font-semibold mt-0.5" style={{ color: 'var(--v2-text-subtle)' }}>
-            Resueltos
-          </p>
-        </div>
-        <div className="text-center">
-          <p
-            className="text-xl font-extrabold"
-            style={{ fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-green)' }}
-          >
-            {avgResponseTime}
-          </p>
-          <p className="text-[11px] font-semibold mt-0.5" style={{ color: 'var(--v2-text-subtle)' }}>
-            Resp. promedio
+            Mensajes enviados
           </p>
         </div>
         <div className="text-center">

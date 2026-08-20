@@ -132,8 +132,12 @@ export default async function DashboardPage() {
     todayAptsQuery,
     allTimeQuery,
     noShowQuery,
-    supabaseAdmin.from('messages').select('id', { count: 'exact', head: true }).eq('role', 'agent').gte('created_at', todayStartISO).lte('created_at', todayEndISO),
-    supabaseAdmin.from('messages').select('id', { count: 'exact', head: true }).eq('role', 'agent').gte('created_at', weekStartISO).lte('created_at', weekEndISO),
+    // El filtro por clínica NO estaba: contaba los mensajes del agente de TODAS
+    // las clínicas. Hoy da igual porque sólo una tiene tráfico, pero el día que
+    // entre el segundo cliente este widget le muestra a uno los números del otro.
+    // Misma familia que las otras deudas de multi-tenant del CLAUDE.md.
+    supabaseAdmin.from('messages').select('id, conversations!inner(clinic_id)', { count: 'exact', head: true }).eq('role', 'agent').eq('conversations.clinic_id', clinic.id).gte('created_at', todayStartISO).lte('created_at', todayEndISO),
+    supabaseAdmin.from('messages').select('id, conversations!inner(clinic_id)', { count: 'exact', head: true }).eq('role', 'agent').eq('conversations.clinic_id', clinic.id).gte('created_at', weekStartISO).lte('created_at', weekEndISO),
     supabaseAdmin.from('appointments').select('id', { count: 'exact', head: true }).eq('clinic_id', clinic.id).eq('source', 'whatsapp_agent').gte('created_at', weekStartISO).lte('created_at', weekEndISO),
     escalatedQuery,
   ])
@@ -316,8 +320,7 @@ export default async function DashboardPage() {
         <div className="space-y-6">
           <EscalatedCard conversations={escalated} />
           <AgentWeekCard
-            messagesResolved={agentMsgWeek}
-            avgResponseTime="< 1 min"
+            messagesSent={agentMsgWeek}
             appointmentsBooked={agentBooked}
           />
         </div>

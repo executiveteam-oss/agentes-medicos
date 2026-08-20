@@ -35,6 +35,7 @@ import { toZonedTime } from 'date-fns-tz'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { BUSY_STATUSES, isSlotFree, type BusyAppointment } from './slot-availability'
 import { isRangeWithinSchedule, isFutureStart } from './schedule-check'
+import { SLOT_GRID_MINUTES } from './time-slots'
 import { traerDisponibilidadDia } from './fetch-day-availability'
 import type { Clinic, WhatsAppConfig } from '@/types/database'
 
@@ -43,6 +44,7 @@ const TIMEZONE = 'America/Bogota'
 /** Por qué no se puede escribir. Cada valor tiene su texto y su código. */
 export type MotivoNoEscribible =
   | 'slot_taken'
+  | 'fuera_de_grilla'
   | 'in_the_past'
   | 'agenda_closed'
   | 'blocked_date'
@@ -125,6 +127,32 @@ export async function puedeEscribirseLaCita(args: ArgsEscritura): Promise<Result
   const startHHMM = format(startZoned, 'HH:mm')
   const endHHMM = format(endZoned, 'HH:mm')
 
+  // (0) ¿La hora EXISTE como cupo? Los cupos caen siempre en :00/:15/:30/:45
+  //     (time-slots.ts). Una hora fuera de la grilla no la ofreció nunca
+  //     check_availability, así que el modelo la inventó.
+  //
+  //     Va ANTES del chequeo de ocupación a propósito: 08:07 no está "ocupada",
+  //     no existe. Decirle a la paciente que ese horario ya se tomó sería
+  //     mentirle sobre un horario que nadie tuvo nunca.
+  //
+  //     Ojo: 08:15 SÍ es un cupo válido — la grilla es de 15 minutos, no de 30.
+  const minutosDelDia = startZoned.getHours() * 60 + startZoned.getMinutes()
+  if (minutosDelDia % SLOT_GRID_MINUTES !== 0) {
+    return {
+      ok: false,
+      outcome: 'fuera_de_grilla',
+      errorCode: 'BLOCKED_OUT_OF_SCHEDULE',
+      messageForPatient: 'Ese horario no está disponible. ¿Buscamos otro?',
+      instructionForLlm:
+        `Esa hora (${startHHMM}) no existe como cupo: la agenda va de ${SLOT_GRID_MINUTES} en ${SLOT_GRID_MINUTES} minutos. ` +
+        'NO la inventes. Ofrecele a la paciente los cupos de cupos_disponibles, que son reales.',
+      auditDetails: {
+        outcome: 'fuera_de_grilla', starts_at: startsAt, start_hhmm: startHHMM,
+        grilla_minutos: SLOT_GRID_MINUTES, llm_attempted_anyway: true,
+      },
+    }
+  }
+
   // (1) ¿Está libre? Misma lógica de solapamiento que check_availability.
   let queryDia = supabaseAdmin
     .from('appointments')
@@ -142,11 +170,19 @@ export async function puedeEscribirseLaCita(args: ArgsEscritura): Promise<Result
       ok: false,
       outcome: 'slot_taken',
       errorCode: 'SLOT_JUST_TAKEN',
-      messageForPatient: 'Ese horario se acaba de ocupar. ¿Buscamos otro?',
+      // 🔴 ACÁ DECÍA "se acaba de ocupar", Y ERA MENTIRA (2026-08-20).
+      //
+      // Los cuatro choques medidos del 15 al 19/08 fueron contra citas de
+      // iSalud creadas el 10/07 — llevaban MÁS DE UN MES ocupando el cupo.
+      // No se ocupó mientras hablaban: nunca estuvo libre. El texto le
+      // explicaba a la paciente una carrera que no existió.
+      //
+      // Y el que bloquea trae la salida: el caller adjunta los cupos reales.
+      messageForPatient: 'Esa hora ya está ocupada 🙏',
       instructionForLlm:
-        'Ese horario se ocupó mientras hablaban. DEBES: (1) disculparte ("Disculpa, ese horario ' +
-        'se acaba de ocupar mientras hablábamos") (2) usar check_availability (3) ofrecer 2-3 ' +
-        'opciones nuevas. NUNCA actúes como si nunca hubieras propuesto el horario original.',
+        'Ese horario ya está ocupado. NO digas que "se acaba de ocupar" ni que fue mientras hablaban: ' +
+        'puede llevar semanas tomado. NO escales y NO llames check_availability — los cupos ya vienen ' +
+        'en cupos_disponibles. Ofrecele esa lista.',
       auditDetails: { outcome: 'slot_taken', starts_at: startsAt, ends_at: endsAt },
     }
   }

@@ -692,17 +692,23 @@ async function conCuposDelMedico(
 ): Promise<{ message_for_patient: string; instruction_for_llm: string; cupos_disponibles?: Array<{ starts_at: string; texto: string }> }> {
   // Sólo para los bloqueos que el agente resuelve solo. Los que escalan
   // (fecha pasada, agenda cerrada) no llegan a hablarle a la paciente.
-  if (chequeo.outcome !== 'out_of_schedule' && chequeo.outcome !== 'blocked_date') {
+  const CON_SALIDA = ['out_of_schedule', 'blocked_date', 'slot_taken', 'fuera_de_grilla']
+  if (!CON_SALIDA.includes(chequeo.outcome)) {
     return { message_for_patient: chequeo.messageForPatient, instruction_for_llm: chequeo.instructionForLlm }
   }
   try {
     const { proximosCuposLibres, mensajeCuposAlternativos } = await import('@/lib/calendar/proximos-cupos')
+    // El encabezado sale del MOTIVO: "no tiene agenda" y "ya está ocupada" no
+    // son lo mismo para quien está del otro lado.
+    const motivoTexto = chequeo.outcome === 'slot_taken' ? 'ocupado' as const
+      : chequeo.outcome === 'blocked_date' ? 'dia_bloqueado' as const
+      : 'fuera_de_horario' as const
     const { data: med } = await supabaseAdmin
       .from('doctors').select('name').eq('id', doctorId).eq('clinic_id', clinicId).maybeSingle()
     const cupos = await proximosCuposLibres(clinicId, doctorId, 3)
     const nombre = med?.name ?? 'el médico'
     return {
-      message_for_patient: mensajeCuposAlternativos(cupos, nombre),
+      message_for_patient: mensajeCuposAlternativos(cupos, nombre, motivoTexto),
       instruction_for_llm: cupos.length > 0
         ? `NO escales y NO llames check_availability: los cupos ya están en cupos_disponibles, son de ${nombre} ` +
           `(el médico de ESTA cita) y están libres. Ofrecele message_for_patient tal cual. Cuando elija un número, ` +
@@ -1409,6 +1415,74 @@ async function createAppointment(
   // 13:00 con un médico que atiende 07:30–11:00.
   //
   // Si mañana se agrega una regla, va allá y vale para los dos caminos.
+  // ── IDEMPOTENCIA ────────────────────────────────────────────────────
+  //
+  // 🔴 EL AGENTE CHOCANDO CONTRA SÍ MISMO (2026-08-20)
+  // El 17/08 a las 21:17:33 se creó la cita de una paciente. DOCE SEGUNDOS
+  // después ella recibió "Uy, tuve un inconveniente para agendar tu cita": el
+  // modelo reintentó create_appointment, chocó con la fila que él mismo acababa
+  // de escribir, y el choque se reportó como cupo ocupado. Ella leyó el ✅ y el
+  // error en el mismo minuto, y al día siguiente la clínica canceló la cita.
+  //
+  // Un reintento de la MISMA cita no es un conflicto: es la misma cita. Se
+  // devuelve la que existe, como éxito. Va ANTES de puedeEscribirseLaCita
+  // porque si no, el chequeo de ocupación la encuentra y la rechaza.
+  //
+  // La identidad es (paciente, médico, starts_at). No se limita por tiempo: si
+  // la paciente ya tiene EXACTAMENTE esa cita, crearla otra vez no tiene
+  // sentido ni a los 12 segundos ni a los dos días.
+  {
+    // 🔴 LA PACIENTE SE RESUELVE PRIMERO, POR SEPARADO.
+    //
+    // La primera versión filtraba con `.eq('patients.phone', patientPhone)`
+    // sobre el embed. En PostgREST eso NO filtra la fila padre sin un
+    // `!inner`, así que el match salía por (clínica, médico, hora) IGNORANDO a
+    // la paciente: en el test, una segunda paciente recibió como suya la cita
+    // de la primera. Un "no encontró" habría sido inocuo; devolver la cita de
+    // otra persona no.
+    const { data: pacienteIdem } = await supabaseAdmin
+      .from('patients').select('id')
+      .eq('clinic_id', clinicId).eq('phone', patientPhone).maybeSingle()
+
+    const { data: yaExiste } = pacienteIdem
+      ? await supabaseAdmin
+          .from('appointments')
+          .select('id, starts_at, ends_at, calendar_sequence')
+          .eq('clinic_id', clinicId)
+          .eq('doctor_id', doctorId)
+          .eq('starts_at', startsAt)
+          .eq('status', 'confirmed')
+          .eq('patient_id', pacienteIdem.id)
+          .maybeSingle()
+      : { data: null }
+
+    if (yaExiste) {
+      console.warn(`[createAppointment] Reintento de una cita que ya existe (${yaExiste.id}) — se devuelve la existente`)
+      const { data: docIdem } = await supabaseAdmin
+        .from('doctors').select('name').eq('id', doctorId).maybeSingle()
+      return {
+        success: true,
+        data: {
+          appointment_id: yaExiste.id,
+          message: 'La cita ya estaba creada.',
+          // instruction_for_llm y no un texto nuevo: la confirmación ya salió en
+          // el turno anterior. Repetirla le mandaría dos mensajes iguales.
+          instruction_for_llm:
+            'Esta cita YA ESTABA CREADA por vos en este mismo flujo — no es un error ni un conflicto. ' +
+            'NO vuelvas a confirmarla ni digas que hubo un problema. Si ya le mandaste la confirmación, seguí la conversación normalmente.',
+          appointmentData: {
+            id: yaExiste.id,
+            starts_at: yaExiste.starts_at,
+            ends_at: yaExiste.ends_at,
+            doctor_name: docIdem?.name ?? '',
+            consultation_type: null,
+            sequence: (yaExiste.calendar_sequence as number) ?? 0,
+          },
+        },
+      }
+    }
+  }
+
   const chequeo = await puedeEscribirseLaCita({
     clinic,
     doctorId,
@@ -1418,7 +1492,9 @@ async function createAppointment(
   })
 
   if (!chequeo.ok) {
-    // slot_taken no se audita (es carrera normal, no intento inválido del modelo).
+    // slot_taken no se audita: un cupo ocupado es una agenda funcionando, no un
+    // intento inválido del modelo. El resto sí — incluida fuera_de_grilla, que
+    // es el modelo inventando una hora.
     if (chequeo.outcome !== 'slot_taken') {
       await supabaseAdmin.from('audit_log').insert({
         clinic_id: clinicId,

@@ -33,7 +33,18 @@ const BOOKING_TOOLS = new Set(['create_appointment', 'reschedule_appointment'])
 export function isHardBookingFailure(toolName: string, errorCode: string | null | undefined): boolean {
   if (!BOOKING_TOOLS.has(toolName)) return false
   const code = String(errorCode ?? '')
-  return code.startsWith('SLOT_JUST_TAKEN') || code === 'BLOCKED_BY_SCHEDULE'
+  // 🔴 SLOT_JUST_TAKEN SALIÓ DE ACÁ (2026-08-20).
+  //
+  // Escalaba, así que la paciente oía "Uy, tuve un inconveniente para agendar"
+  // y una secretaria recibía la alerta — por un cupo ocupado, que es la cosa
+  // más normal de una agenda. Medidos 4 casos del 15 al 19/08: NINGUNA de las
+  // cuatro terminó con cita, y una (Nataly) probó CINCO días a ciegas antes de
+  // rendirse porque el agente nunca le dijo cuáles estaban libres.
+  //
+  // Ahora el bloqueo trae los cupos reales del médico y el agente los ofrece.
+  // El intento queda igual en audit_log. Sigue siendo falla dura sólo lo que
+  // amerita que una persona mire: fecha pasada y agenda cerrada.
+  return code === 'BLOCKED_BY_SCHEDULE'
 }
 
 /**

@@ -11,7 +11,7 @@ import { AppointmentDetail, type SurveyPropsForQuickActions } from './appointmen
 import { BulkCancelModal } from './bulk-cancel-modal'
 import type { CalendarAppointment } from './types'
 import type { DisponibilidadDelDia } from '@/lib/calendar/day-availability'
-import { STATUS_STYLES, etiquetaEstado, toDateStr, MONTHS_ES, marcaConfirmacion } from './types'
+import { estiloEstado, etiquetaEstado, toDateStr, MONTHS_ES, marcaConfirmacion } from './types'
 
 /** Convert "JUAN PEREZ GOMEZ" → "Juan Perez Gomez". Skip if single word <4 chars (sigla). */
 function toTitleCase(str: string): string {
@@ -308,7 +308,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
             const patient = apt.patient
             const doctor = apt.doctor
             const isExpanded = expandedApt === apt.id
-            const st = STATUS_STYLES[apt.status] ?? STATUS_STYLES.confirmed
+            const st = estiloEstado(apt.status, apt.cancellation_reason)
             const patientName = toTitleCase(patient?.name ?? apt.reason ?? 'Sin nombre')
 
             // Solo el caso malo tiñe el borde: "confirmó" ya se lee en el ✓.
@@ -393,7 +393,7 @@ export function DayView({ date, todayStr, appointments, expandedApt, setExpanded
                         Docs {apt.documents_received ? 'ok' : '⏳'}
                       </Pill>
                     )}
-                    <Pill bg={st.bg} fg={st.fg}>{etiquetaEstado(apt.status, apt.reason, apt.source)}</Pill>
+                    <Pill bg={st.bg} fg={st.fg}>{etiquetaEstado(apt.status, apt.reason, apt.source, apt.cancellation_reason)}</Pill>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--v2-text-subtle)', transition: 'transform 0.15s', transform: isExpanded ? 'rotate(180deg)' : 'none' }}>
                       <path d="M19 9l-7 7-7-7" />
                     </svg>

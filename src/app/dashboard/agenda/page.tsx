@@ -81,7 +81,7 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
     .from('appointments')
     .select(`
       id, starts_at, ends_at, status, attendance_outcome, survey_sent, survey_sent_at,
-      reason, reminder_24h_sent, reminder_confirmed,
+      reason, cancellation_reason, reminder_24h_sent, reminder_confirmed,
       payment_type, eps_name, source, doctor_id, modality, virtual_link,
       documents_requested, documents_received, free_text_reason, external_service_name, external_data,
       patients(id, name, phone, no_show_probability, no_show_count, total_appointments, document_type, document_number, date_of_birth, doctor_notes, data_consent_at, first_name, entidad),

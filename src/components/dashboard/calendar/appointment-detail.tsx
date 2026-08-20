@@ -7,7 +7,7 @@ import { formatTimeForPatient, formatDateForPatient, formatPhone } from '@/lib/u
 import { QuickActions } from '@/components/dashboard/quick-actions'
 import { CancelAppointmentButton } from '@/components/dashboard/dashboard-actions'
 import type { CalendarAppointment, CalendarDoctor } from './types'
-import { STATUS_STYLES, etiquetaEstado, esCupoCompartido } from './types'
+import { estiloEstado, etiquetaEstado, esCupoCompartido } from './types'
 import type { AppointmentStatus } from '@/types/database'
 import { motivoEsElNombre, parsearEntidadISalud } from '@/lib/isalud/servicio-cita'
 
@@ -32,7 +32,9 @@ interface Props {
 export function AppointmentDetail({ appointment: apt, onClose, surveyConfig, onEditar }: Props) {
   const patient = apt.patient
   const doctor = apt.doctor
-  const st = STATUS_STYLES[apt.status] ?? STATUS_STYLES.confirmed
+  // El color sale de la misma decisión que el texto (patrón 8): si la píldora
+  // dice "Reagendada", se ve ámbar y no gris de cancelación.
+  const st = estiloEstado(apt.status, apt.cancellation_reason)
   const probability = patient?.no_show_probability ?? 0
 
   return (
@@ -57,13 +59,23 @@ export function AppointmentDetail({ appointment: apt, onClose, surveyConfig, onE
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
           <span style={{ fontSize: '10px', fontWeight: 700, padding: '2px 8px', borderRadius: '4px', background: st.bg, color: st.fg }}>
-            {etiquetaEstado(apt.status, apt.reason, apt.source)}
+            {etiquetaEstado(apt.status, apt.reason, apt.source, apt.cancellation_reason)}
           </span>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--v2-text-subtle)', padding: '4px' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
           </button>
         </div>
       </div>
+
+      {/* EL MOTIVO DE CANCELACIÓN, QUE ANTES NO SE VEÍA EN NINGÚN LADO.
+          Se exige al cancelar —el modal no deja seguir sin él— y no había
+          pantalla donde leerlo. Un dato obligatorio que nadie puede consultar
+          es trabajo que le pedimos a la secretaria a cambio de nada. */}
+      {apt.cancellation_reason && (
+        <div style={{ fontSize: '13px', color: 'var(--v2-text-muted)', marginBottom: '14px', paddingLeft: '10px', borderLeft: '2px solid var(--v2-border-soft)' }}>
+          {apt.cancellation_reason}
+        </div>
+      )}
 
       {/* ============================================================
           EL PANEL SE PARTE EN DOS.

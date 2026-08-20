@@ -183,6 +183,7 @@ export interface PatientAppointment {
   status: string
   reason: string | null
   payment_type: string
+  cancellation_reason: string | null
   documents_requested: boolean
   documents_received: boolean
   doctor_name: string | null
@@ -232,7 +233,7 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
   const [apptRes, convRes] = await Promise.all([
     supabaseAdmin
       .from('appointments')
-      .select('id, starts_at, status, attendance_outcome, reason, payment_type, documents_requested, documents_received, doctors(name)')
+      .select('id, starts_at, status, attendance_outcome, reason, cancellation_reason, payment_type, documents_requested, documents_received, doctors(name)')
       .eq('clinic_id', clinicId)
       .eq('patient_id', patientId)
       .order('starts_at', { ascending: false })
@@ -285,6 +286,7 @@ export async function getPatientDetail(patientId: string): Promise<PatientDetail
         status: a.status,
         reason: a.reason,
         payment_type: a.payment_type,
+        cancellation_reason: (a.cancellation_reason as string | null) ?? null,
         documents_requested: (a.documents_requested as boolean) ?? false,
         documents_received: (a.documents_received as boolean) ?? false,
         doctor_name: doc?.name ?? null,

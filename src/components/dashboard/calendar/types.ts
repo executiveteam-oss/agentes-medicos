@@ -11,6 +11,10 @@ export interface CalendarAppointment {
   survey_sent: boolean
   survey_sent_at: string | null
   reason: string | null
+  /** Por qué se canceló. Se EXIGE al cancelar (tres capas de validación) y
+   *  hasta hoy no se mostraba en ninguna pantalla: pedíamos un dato que nadie
+   *  podía leer. También distingue una cita movida de una cancelada. */
+  cancellation_reason?: string | null
   reminder_24h_sent: boolean
   reminder_confirmed: boolean | null
   payment_type: string
@@ -85,6 +89,8 @@ export const HOURS = Array.from({ length: 14 }, (_, i) => i + 7) // 7am - 8pm
 // Solo cambia la etiqueta. El valor 'confirmed' en la DB no se toca: lo usan
 // BUSY_STATUSES, el índice único de doble-booking y los crons.
 export const STATUS_LABELS: Record<string, string> = {
+  // 'rescheduled' ya no lo escribe nadie (la cita movida se cancela con motivo),
+  // pero la etiqueta se queda: hay filas históricas con ese estado.
   confirmed: 'Agendada', rescheduled: 'Reagendada', completed: 'Completada',
   no_show: 'No-show', blocked_external: 'Cupo compartido', cancelled: 'Cancelada',
 }
@@ -123,12 +129,46 @@ export function esExtraDelPanel(status: string, source?: string | null): boolean
   return status === 'blocked_external' && source === 'dashboard'
 }
 
-export function etiquetaEstado(status: string, reason?: string | null, source?: string | null): string {
+/** Prefijo que escribe rescheduleAppointment en `cancellation_reason` al mover
+ *  una cita. Si cambia allá, cambia acá — es el único enlace entre las dos. */
+export const MOTIVO_REAGENDADA = 'Reagendada'
+
+/** ¿Esta cancelación es en realidad un reagendamiento?
+ *
+ *  La cita vieja de un reagendamiento se cancela (antes quedaba en un estado
+ *  'rescheduled' propio, que ~30 consultas leían como cita VIVA: ocupaba cupo,
+ *  salía en la agenda y recibía recordatorio). La distinción "la movieron" vs
+ *  "no podía venir" vive ahora en el MOTIVO, que es donde corresponde.
+ *
+ *  Una sola función para que las tres vistas no diverjan — mismo patrón que
+ *  esCupoCompartido y esExtraDelPanel. */
+export function esCancelacionPorReagendamiento(status: string, cancellationReason?: string | null): boolean {
+  return status === 'cancelled' && (cancellationReason ?? '').trim().startsWith(MOTIVO_REAGENDADA)
+}
+
+export function etiquetaEstado(
+  status: string,
+  reason?: string | null,
+  source?: string | null,
+  cancellationReason?: string | null,
+): string {
   if (status === 'blocked_external') {
     if (esExtraDelPanel(status, source)) return 'Extra'
     return esCupoCompartido(status, reason) ? 'Cupo compartido' : 'Bloqueo de agenda'
   }
+  if (esCancelacionPorReagendamiento(status, cancellationReason)) return 'Reagendada'
   return STATUS_LABELS[status] ?? status
+}
+
+/** El estilo de la píldora. Va con etiquetaEstado: si la fila DICE "Reagendada"
+ *  tiene que verse como una reagendada (ámbar), no como una cancelación gris.
+ *  Que el color y el texto salgan de la misma decisión es el patrón 8. */
+export function estiloEstado(
+  status: string,
+  cancellationReason?: string | null,
+): { bg: string; fg: string; dot: string } {
+  if (esCancelacionPorReagendamiento(status, cancellationReason)) return STATUS_STYLES.rescheduled
+  return STATUS_STYLES[status] ?? STATUS_STYLES.confirmed
 }
 
 export const STATUS_STYLES: Record<string, { bg: string; fg: string; dot: string }> = {

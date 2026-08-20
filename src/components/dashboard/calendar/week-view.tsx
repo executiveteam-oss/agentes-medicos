@@ -290,7 +290,7 @@ export function WeekView({ selectedDate, todayStr, appointments, onDayClick, exp
                             </span>
                             <span style={{ display: 'block' }}>{fullName}</span>
                             {apt.doctor?.name && <span style={{ display: 'block', opacity: 0.85 }}>Dr. {apt.doctor.name}</span>}
-                            <span style={{ display: 'block', opacity: 0.85 }}>Estado: {etiquetaEstado(apt.status, apt.reason, apt.source)}</span>
+                            <span style={{ display: 'block', opacity: 0.85 }}>Estado: {etiquetaEstado(apt.status, apt.reason, apt.source, apt.cancellation_reason)}</span>
                             {cupoCompartido && (
                               <span style={{ display: 'block', marginTop: '4px', opacity: 0.85 }}>
                                 Comparte el horario con otra cita en iSalud. No se le puede marcar asistencia.

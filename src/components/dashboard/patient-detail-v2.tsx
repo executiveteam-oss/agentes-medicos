@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { ChevronRight, Calendar, MessageSquare, Phone, Mail, FileText, StickyNote, User, Plus } from 'lucide-react'
 import { ReactivationBanner } from '@/components/dashboard/reactivation-banner'
 import { formatPhone, formatTimeForPatient } from '@/lib/utils/dates'
+import { esCancelacionPorReagendamiento } from '@/components/dashboard/calendar/types'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { formatUI } from '@/lib/utils/format-time-ui'
@@ -43,6 +44,9 @@ interface Appointment {
   starts_at: string
   status: string
   reason: string | null
+  /** Por qué se canceló. Se exige al cancelar y hasta hoy no se mostraba en
+   *  ninguna pantalla. También distingue una cita movida de una cancelada. */
+  cancellation_reason: string | null
   payment_type: string
   documents_requested: boolean
   documents_received: boolean
@@ -76,6 +80,9 @@ const STATUS_MAP: Record<string, { label: string; bg: string; fg: string; dot: s
   completed: { label: 'Atendida', bg: 'var(--v2-green-soft)', fg: 'var(--v2-green-deep)', dot: 'var(--v2-green)' },
   no_show: { label: 'No-show', bg: 'var(--v2-amber-soft)', fg: '#b07d00', dot: 'var(--v2-amber)' },
   cancelled: { label: 'Cancelada', bg: 'var(--v2-red-soft)', fg: 'var(--v2-red)', dot: 'var(--v2-red)' },
+  // La cita vieja de un reagendamiento se cancela con motivo "Reagendada: …".
+  // No es lo mismo que "no pudo venir", así que no se ve igual.
+  cancelled_reagendada: { label: 'Reagendada', bg: 'var(--v2-amber-soft)', fg: '#b07d00', dot: 'var(--v2-amber)' },
   blocked_external: { label: 'iSalud', bg: 'var(--v2-primary-soft)', fg: 'var(--v2-primary)', dot: 'var(--v2-primary)' },
 }
 
@@ -349,7 +356,12 @@ function HistoriaTab({ appointments }: { appointments: Appointment[] }) {
       <div style={{ position: 'absolute', left: '7px', top: '8px', bottom: '8px', width: '2px', background: 'linear-gradient(180deg, var(--v2-primary), var(--v2-pink), var(--v2-border-soft))', borderRadius: '1px' }} />
 
       {appointments.map((a) => {
-        const st = STATUS_MAP[a.status] ?? STATUS_MAP.completed
+        // El badge sale del MOTIVO, no sólo del estado: una cancelación por
+        // reagendamiento dice "Reagendada". Mismo criterio que la agenda
+        // (esCancelacionPorReagendamiento en calendar/types.ts).
+        const st = esCancelacionPorReagendamiento(a.status, a.cancellation_reason)
+          ? STATUS_MAP.cancelled_reagendada
+          : (STATUS_MAP[a.status] ?? STATUS_MAP.completed)
         return (
           <div key={a.id} style={{ position: 'relative', marginBottom: '12px' }}>
             {/* Dot */}
@@ -373,6 +385,14 @@ function HistoriaTab({ appointments }: { appointments: Appointment[] }) {
                   {st.label}
                 </span>
               </div>
+              {a.cancellation_reason && (
+                /* El motivo de cancelación se EXIGE en tres capas al cancelar y
+                   hasta hoy no se mostraba en ninguna pantalla: pedíamos un dato
+                   que nadie podía leer. */
+                <div style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', marginBottom: '4px' }}>
+                  {a.cancellation_reason}
+                </div>
+              )}
               <p style={{ fontSize: '14px', fontWeight: 700, color: 'var(--v2-text)' }}>{a.reason ?? 'Consulta general'}</p>
               <p style={{ fontSize: '11.5px', color: 'var(--v2-text-muted)', marginTop: '2px' }}>
                 {a.doctor_name ?? 'Sin doctor asignado'} &middot; {a.payment_type || '—'}

@@ -1976,10 +1976,34 @@ async function rescheduleAppointment(
   // per-doctor de whatsapp_config.
   const newEndsAt = chequeoMov.endsAt
 
-  // Marcar la cita actual como reagendada
+  // La cita vieja se CANCELA, no queda en un estado propio.
+  //
+  // 🔴 POR QUÉ NO ES 'rescheduled' (2026-08-20)
+  // Ese estado significaba "la movieron", pero ~30 consultas del sistema lo
+  // leen junto a 'confirmed' como cita VIVA: aparecía en la agenda del día,
+  // recibía recordatorio, contaba en los reportes y reservaba el cupo. Una
+  // cita movida del 28 al 30 dejaba el 28 muerto y le mandaba a la paciente
+  // un recordatorio de una cita que ya no existía.
+  //
+  // 'cancelled' ya lo entienden bien esos treinta lugares sin tocar ninguno:
+  // no aparece, no recuerda, no ocupa, no cuenta. La distinción entre "la
+  // movieron" y "no podía venir" va en el MOTIVO, que es donde corresponde —
+  // no en un estado paralelo que cada consulta tiene que aprender aparte.
+  //
+  // Efecto en la Resolución 256: deja de contar DOS atenciones por cada cita
+  // movida (la vieja y la nueva). El reporte empieza a decir la verdad.
+  const fechaVieja = formatForPatient(appointment.starts_at)
+  const fechaNueva = formatForPatient(newStartsAt)
   await supabaseAdmin
     .from('appointments')
-    .update({ status: 'rescheduled' })
+    .update({
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      // El prefijo "Reagendada" NO es decorativo: la pantalla lo lee para
+      // mostrar el badge correcto (MOTIVO_REAGENDADA en calendar/types.ts).
+      // Si cambia acá, cambia allá.
+      cancellation_reason: `Reagendada: movida del ${fechaVieja} al ${fechaNueva}`,
+    })
     .eq('id', appointmentId)
     .eq('clinic_id', clinicId)
 

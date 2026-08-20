@@ -42,18 +42,55 @@ export default async function ConversationsPage() {
     .maybeSingle()
   const claimConfig = parseClaimConfig((clinicRow as { feature_config: unknown } | null)?.feature_config)
 
-  // ---- Single optimized query: conversations + patient + last message ----
-  const { data: conversations } = await supabaseAdmin
-    .from('conversations')
-    .select(`
+  // ---- Conversaciones de la bandeja ----
+  //
+  // 🔴 EL LÍMITE NO PUEDE DEJAR AFUERA A LAS QUE ESPERAN (2026-08-20)
+  //
+  // Antes era UNA consulta con `.limit(200)` ordenada por last_message_at. El
+  // orden real de la bandeja NO es ese —el cliente reordena por tiempo de
+  // espera, ver conversations-panel— así que el límite recortaba por
+  // "actividad reciente" una lista que después se muestra por "hace cuánto
+  // espera". Una conversación que espera hace once días queda vieja por
+  // definición: es la primera candidata a caerse del corte y la última que
+  // debería.
+  //
+  // Al medirlo: 166 conversaciones en total, y 40 y 45 nuevas los días 18 y 19
+  // — el corte se alcanzaba esta misma semana. Hoy nadie queda afuera (la que
+  // más espera está en el puesto 158), pero eso era cuestión de días.
+  //
+  // Ahora son DOS consultas: las que requieren acción entran SIEMPRE, sin
+  // límite; las demás completan hasta 300 por actividad reciente.
+  const SELECT_CONVERSACION = `
       id, status, triage_state, context, last_message_at, whatsapp_phone, claimed_by, claimed_by_name, claimed_at,
       patients(id, name, phone, eps, no_show_count, total_appointments, tratantes),
       messages(id, content, role, created_at)
-    `)
-    .eq('clinic_id', session.clinicId)
-    .order('last_message_at', { ascending: false })
-    .order('created_at', { referencedTable: 'messages', ascending: false })
-    .limit(200)
+    `
+
+  const [{ data: requierenAccion }, { data: recientes }] = await Promise.all([
+    // SIN límite: son las que alguien tiene que mirar. Hoy ~50 de 166, y si
+    // algún día fueran miles, el problema sería ese y no el corte de la lista.
+    supabaseAdmin
+      .from('conversations')
+      .select(SELECT_CONVERSACION)
+      .eq('clinic_id', session.clinicId)
+      .or('status.eq.escalated,triage_state.eq.atencion,triage_state.eq.pendiente')
+      .order('last_message_at', { ascending: false })
+      .order('created_at', { referencedTable: 'messages', ascending: false }),
+    supabaseAdmin
+      .from('conversations')
+      .select(SELECT_CONVERSACION)
+      .eq('clinic_id', session.clinicId)
+      .order('last_message_at', { ascending: false })
+      .order('created_at', { referencedTable: 'messages', ascending: false })
+      .limit(300),
+  ])
+
+  // Merge sin duplicados: una conversación puede estar en las dos listas.
+  const porId = new Map<string, NonNullable<typeof recientes>[number]>()
+  for (const c of [...(requierenAccion ?? []), ...(recientes ?? [])]) {
+    porId.set(c.id as string, c)
+  }
+  const conversations = [...porId.values()]
 
   // Especialidad por conversación (señal visual — punto 8). Orden de derivación
   // del spec: médico de la cita del paciente (structured, refleja actividad

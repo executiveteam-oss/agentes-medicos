@@ -63,7 +63,11 @@ export async function traerArchivosSinRevisar(clinicId: string): Promise<Pending
     `)
     .eq('clinic_id', clinicId)
     .is('reviewed_at', null)
-    .order('created_at', { ascending: true })
+    // El ÚLTIMO que llegó, arriba — como cualquier bandeja de mensajes.
+    // Estaba al revés y la secretaria abría primero el archivo más viejo, que
+    // es justo el que ya perdió actualidad: lo que acaba de llegar es lo que
+    // tiene una paciente esperando del otro lado ahora mismo.
+    .order('created_at', { ascending: false })
 
   if (error) throw new Error('Error consultando archivos recibidos')
 

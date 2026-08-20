@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { puedeAtenderVirtual, motivoSinVirtual } from '@/lib/clinic/virtual-config'
-import { calculateEndTime, formatForPatient, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
+import { formatForPatient, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
 import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
 import { notifyStaffAppointmentCreated } from '@/lib/whatsapp/staff-appointment-notify'
 import { syncClinicSheet } from '@/lib/google-sheets'

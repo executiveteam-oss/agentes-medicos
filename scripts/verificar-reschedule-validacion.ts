@@ -83,11 +83,14 @@ async function main(): Promise<void> {
   // Si el gate fallara, esto escribiría — por eso va después de confirmarlo arriba.
   console.log('── El mismo caso, por el executor real (reschedule_appointment) ──')
   const antes = await supa.from('appointments').select('id', { count: 'exact', head: true }).eq('clinic_id', ALGIA)
+  const { data: clinicRow } = await supa.from('clinics').select('*').eq('id', ALGIA).single()
+  const { data: doctorRow } = await supa.from('doctors').select('*').eq('id', JORGE).single()
   const res = await executeTool(
     'reschedule_appointment',
     { appointment_id: cita!.id, new_starts_at: '2026-09-04T18:00:00.000Z' },
     ALGIA,
-    (await supa.from('clinics').select('*').eq('id', ALGIA).single()).data as never
+    clinicRow as Parameters<typeof executeTool>[3],
+    doctorRow as Parameters<typeof executeTool>[4]
   )
   const despues = await supa.from('appointments').select('id', { count: 'exact', head: true }).eq('clinic_id', ALGIA)
   console.log(`   success=${(res as { success: boolean }).success}  error=${(res as { error?: string }).error}`)

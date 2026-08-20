@@ -245,7 +245,14 @@ export function NotificationBell() {
                         </p>
                       )}
                       <p style={{ fontSize: '10px', fontFamily: 'var(--font-jetbrains), monospace', color: 'var(--v2-text-subtle)', marginTop: '3px' }}>
-                        <RelativeTime iso={notif.created_at} />
+                        {/* El MISMO campo que ordena. La lista se ordena por
+                            refreshed_at (una alerta se refresca cuando la
+                            paciente vuelve a escribir) y mostraba created_at:
+                            una notificación refrescada subía al tope diciendo
+                            "hace 6 días". 232 de 576 estaban así, con hasta 150
+                            horas de diferencia entre lo que ordena y lo que se
+                            lee. Mismo desfase que la lista de conversaciones. */}
+                        <RelativeTime iso={notif.refreshed_at ?? notif.created_at} />
                       </p>
                     </div>
                     {isUnread && (

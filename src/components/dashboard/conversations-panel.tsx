@@ -125,6 +125,10 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
   // la lista. Eso destruía el propósito: la pusimos en Atención para que
   // alguien la vea, y quedaba donde nadie mira. Para esas, el reloj corre
   // desde que se MARCÓ el servicio, no desde el último mensaje.
+  /** El instante desde el que esta conversación espera. LO MISMO que ordena y
+   *  lo mismo que se muestra: si son dos cosas distintas, la lista se lee como
+   *  desordenada aunque el sort sea correcto (pasó — ver el comentario de
+   *  `relojDeEspera` abajo). */
   const waitingMs = (e: ConversationEntry) => {
     // El pendiente MÁS VIEJO manda: lo que lleva más tiempo sin resolverse va
     // arriba, sea un servicio marcado, una orden pedida o un contacto sin
@@ -133,6 +137,27 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
     if (e.pendientes.length > 0) return new Date(e.pendientes[0].desde).getTime()
     return e.last_message_role === 'patient' ? new Date(e.last_message_at).getTime() : Infinity
   }
+  /**
+   * El reloj que se MUESTRA, derivado del mismo criterio que ordena.
+   *
+   * 🔴 POR QUÉ (2026-08-20)
+   * La fila mostraba "Esperando hace X" calculado desde `last_message_at`,
+   * mientras el orden usaba la fecha del PENDIENTE cuando había uno. Dos
+   * relojes distintos en la misma fila: la secretaria veía "1 día" arriba de
+   * "2 días" y concluía, con toda lógica, que la lista estaba rota. No lo
+   * estaba — mostraba un número que no explicaba la posición.
+   *
+   * Devuelve null cuando no hay nada esperando (la respondimos y no quedó
+   * pendiente): ahí no se muestra reloj, que es lo correcto.
+   */
+  const relojDeEspera = (e: ConversationEntry): { desde: string; motivo: string | null } | null => {
+    if (e.pendientes.length > 0) {
+      return { desde: e.pendientes[0].desde, motivo: e.pendientes[0].etiqueta }
+    }
+    if (e.last_message_role === 'patient') return { desde: e.last_message_at, motivo: null }
+    return null
+  }
+
   const filtered = entries
     .filter((e) => {
       if (bucketOf(e) !== filter) return false
@@ -326,11 +351,17 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                       </p>
                       {/* La consecuencia visible: hace cuánto espera sin respuesta.
                           Ordena la cola sola y distingue una escalada normal de una caída. */}
-                      {isUnread && bucketOf(entry) !== 'agente' ? (
-                        <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 7px', borderRadius: '4px', background: 'var(--v2-amber-soft)', color: '#b07d00' }}>
-                          ⏳ Esperando <RelativeTime iso={entry.last_message_at} />
-                        </span>
-                      ) : null}
+                      {(() => {
+                        // Un solo reloj por fila, y es el que la posiciona.
+                        const reloj = bucketOf(entry) === 'agente' ? null : relojDeEspera(entry)
+                        if (!reloj) return null
+                        return (
+                          <span style={{ fontSize: '9px', fontWeight: 800, padding: '1px 7px', borderRadius: '4px', background: 'var(--v2-amber-soft)', color: '#b07d00' }}>
+                            ⏳ Esperando <RelativeTime iso={reloj.desde} />
+                            {reloj.motivo ? ` · ${reloj.motivo}` : ''}
+                          </span>
+                        )
+                      })()}
                       {entry.last_message_role === 'staff' && (
                         <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 6px', borderRadius: '4px', background: 'var(--v2-pink-soft)', color: 'var(--v2-pink)' }}>
                           TU
@@ -354,7 +385,14 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                         🩺 {entry.specialty}{entry.doctor_name ? ` · ${entry.doctor_name}` : ''}
                       </span>
                     )}
-                    {entry.pendientes.map((p) => (
+                    {/* El PRIMER pendiente ya viaja en el reloj de arriba
+                        ("Esperando hace 2 días · Mapeo"). Acá van sólo los
+                        demás, cuando hay más de uno. Si el reloj no se muestra
+                        (bucket "agente"), van todos. */}
+                    {(bucketOf(entry) !== 'agente' && relojDeEspera(entry)?.motivo
+                      ? entry.pendientes.slice(1)
+                      : entry.pendientes
+                    ).map((p) => (
                       <span
                         key={p.tipo}
                         style={{
@@ -362,7 +400,10 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
                           background: 'var(--v2-amber-soft)', color: '#b07d00', whiteSpace: 'nowrap',
                         }}
                       >
-                        {p.etiqueta} — <RelativeTime iso={p.desde} />
+                        {/* Sin tiempo: lo dice el reloj de "Esperando", que es el
+                            que ordena. Dos números diciendo lo mismo es de dónde
+                            venía la confusión. */}
+                        {p.etiqueta}
                       </span>
                     ))}
                     {entry.claimed_active_label !== null && (

@@ -6,6 +6,7 @@
 import { getUserSession } from '@/lib/session'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { pendientesDe, type ContextPendientes } from '@/lib/conversations/pendientes'
 import { ConversationChat } from '@/components/dashboard/conversation-chat'
 import { getClinicLabels } from '@/app/actions/patient-labels'
 import Link from 'next/link'
@@ -109,6 +110,10 @@ export default async function ConversationDetailPage({ params }: Props) {
     escalated_to: conv.escalated_to as string | null,
     escalated_at: conv.escalated_at as string | null,
     escalation_reason: ((conv.context as Record<string, unknown> | null)?.escalation_reason as string | null) ?? null,
+    // Los servicios que la Capa 0 marcó y todavía espera que alguien gestione.
+    // Misma fuente que la lista de conversaciones (pendientesDe) — el badge de
+    // la cola y el de acá no pueden decir cosas distintas.
+    pendientes: pendientesDe(conv.context as ContextPendientes | null),
     created_at: conv.created_at as string,
   }
 

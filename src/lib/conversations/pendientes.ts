@@ -46,8 +46,42 @@ export const nombreServicio = (k: string) => NOMBRE_SERVICIO[k] ?? k
 export interface ContextPendientes {
   servicios_marcados?: string[]
   servicios_marcados_at?: string | null
+  /** Los servicios que una persona YA gestionó. Ver el bloque de abajo. */
+  servicios_resueltos?: string[]
+  servicios_resueltos_at?: string | null
+  servicios_resueltos_por?: string | null
   orden_medica_pedida_at?: string | null
   contacto_enviado_at?: string | null
+}
+
+// ============================================================
+// CERRAR UN SERVICIO MARCADO
+//
+// 🔴 POR QUÉ HIZO FALTA (2026-08-20)
+// La Capa 0 marcaba servicios y NADIE los sacaba nunca: un solo escritor
+// (webhook) que sólo agrega. Medido sobre Algia: 27 conversaciones con servicio
+// marcado, CERO con cualquier señal de cierre — el campo no existía. Un servicio
+// marcado el 12/08 seguía en la cola de Atención el año siguiente.
+//
+// El cierre se guarda como la LISTA de los resueltos, no como un booleano ni una
+// fecha suelta. La diferencia importa: si mañana la Capa 0 marca un servicio
+// NUEVO sobre una conversación ya gestionada, `servicios_marcados - resueltos`
+// vuelve a dar no-vacío y el pendiente reaparece solo. Con un flag "ya está
+// revisada" ese caso quedaría enterrado.
+//
+// Y al cerrar se limpia `servicios_marcados_at`, que es el reloj de la cola: el
+// webhook lo fija con `?? new Date()` y nunca lo pisa, así que un servicio nuevo
+// heredaría la antigüedad del anterior y la fila diría "esperando hace 9 días"
+// recién marcada. Es el patrón 8 — el número que se muestra tiene que ser el que
+// explica la posición.
+// ============================================================
+
+/** Los servicios marcados que TODAVÍA esperan a una persona. */
+export function serviciosPendientes(ctx: ContextPendientes | null | undefined): string[] {
+  const c = ctx ?? {}
+  const marcados = Array.isArray(c.servicios_marcados) ? c.servicios_marcados : []
+  const resueltos = new Set(Array.isArray(c.servicios_resueltos) ? c.servicios_resueltos : [])
+  return marcados.filter((s) => !resueltos.has(s))
 }
 
 /**
@@ -58,7 +92,8 @@ export function pendientesDe(ctx: ContextPendientes | null | undefined): Pendien
   const c = ctx ?? {}
   const out: Pendiente[] = []
 
-  const servicios = Array.isArray(c.servicios_marcados) ? c.servicios_marcados : []
+  // Sólo los que nadie gestionó todavía.
+  const servicios = serviciosPendientes(c)
   if (servicios.length > 0 && c.servicios_marcados_at) {
     out.push({
       tipo: 'servicio',

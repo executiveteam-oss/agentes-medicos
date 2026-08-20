@@ -15,6 +15,7 @@ import { crisisReturnMissingReason } from '@/lib/rules/return-to-agent'
 import { parseClaimConfig, resolveClaimState } from '@/lib/rules/claim-logic'
 import type { ConversationStatus } from '@/types/database'
 import { ESCALATION_REASONS, staffEscalationContext, historyOnReturn } from '@/lib/conversations/escalation-reasons'
+import { serviciosPendientes, type ContextPendientes } from '@/lib/conversations/pendientes'
 
 // ---- Tipos ----
 
@@ -366,6 +367,81 @@ export async function takeOverConversation(
 /** Triage de bandeja: Atención / Pendiente / Resuelta. SEPARADO del flujo del
  *  agente. 'pendiente' se persiste (override); atención/resuelta se derivan del
  *  status. Abrir/leer NO llama a esto — el estado solo cambia por acción explícita. */
+/**
+ * "Ya lo gestioné" — cierra los servicios que la Capa 0 marcó para revisión
+ * humana en esta conversación.
+ *
+ * 🔴 POR QUÉ EXISTE (2026-08-20)
+ * La Capa 0 marcaba servicios y no había forma de cerrarlos: un solo escritor
+ * que sólo agregaba. Sobre Algia eran 27 conversaciones marcadas y CERO con
+ * señal de cierre — el campo no existía. El pendiente mandaba la conversación a
+ * Atención y se quedaba ahí para siempre, aunque la secretaria ya hubiera
+ * agendado el servicio el mismo día.
+ *
+ * Guarda QUIÉN y CUÁNDO. No toca el estado de la conversación ni el triage: si
+ * la paciente además está esperando respuesta, sigue en Atención por ESE motivo,
+ * que es otra pregunta. Cerrar el servicio no es cerrar la conversación.
+ *
+ * Idempotente: cerrar dos veces no rompe ni duplica el registro.
+ */
+export async function resolverServiciosMarcados(
+  conversationId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const clinicId = await checkWritePermission('conversations')
+    const session = await getUserSession()
+    if (!session) return { ok: false, error: 'No autenticado' }
+
+    const { data: conv } = await supabaseAdmin
+      .from('conversations')
+      .select('context')
+      .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
+      .single()
+    if (!conv) return { ok: false, error: 'Conversación no encontrada' }
+
+    const ctx = (conv.context ?? {}) as Record<string, unknown>
+    const pendientes = serviciosPendientes(ctx as ContextPendientes)
+    if (pendientes.length === 0) return { ok: true }   // ya estaba cerrado
+
+    const yaResueltos = Array.isArray(ctx.servicios_resueltos) ? (ctx.servicios_resueltos as string[]) : []
+    const ahora = new Date().toISOString()
+
+    await supabaseAdmin
+      .from('conversations')
+      .update({
+        context: {
+          ...ctx,
+          servicios_resueltos: [...yaResueltos, ...pendientes],
+          servicios_resueltos_at: ahora,
+          servicios_resueltos_por: session.clinicUserId,
+          // El reloj de la cola se reinicia: si mañana la Capa 0 marca un
+          // servicio NUEVO, el webhook le pone fecha propia en vez de heredar
+          // la antigüedad de éste. Ver el bloque en lib/conversations/pendientes.
+          servicios_marcados_at: null,
+        },
+      })
+      .eq('id', conversationId)
+      .eq('clinic_id', clinicId)
+
+    await supabaseAdmin.from('audit_log').insert({
+      clinic_id: clinicId,
+      action: 'conversation_servicios_resueltos',
+      actor_type: 'staff',
+      actor_id: session.clinicUserId,
+      target_type: 'conversation',
+      target_id: conversationId,
+      details: { servicios: pendientes, resueltos_por_nombre: session.fullName ?? null },
+    })
+
+    revalidatePath('/dashboard/conversations')
+    revalidatePath(`/dashboard/conversations/${conversationId}`)
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'Error de permisos o sesión' }
+  }
+}
+
 export async function setConversationTriageState(
   conversationId: string,
   state: 'atencion' | 'pendiente' | 'resuelta',

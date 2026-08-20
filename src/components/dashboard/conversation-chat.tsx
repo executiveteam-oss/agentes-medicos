@@ -7,7 +7,8 @@
 import { useState, useRef, useEffect, useTransition, useCallback } from 'react'
 import { formatPhone } from '@/lib/utils/dates'
 import { getInitials } from '@/lib/utils/ui-helpers'
-import { sendStaffMessage, setConversationTriageState, returnConversationToAgent, getMessagesSince, takeOverConversation } from '@/app/actions/conversations'
+import type { Pendiente } from '@/lib/conversations/pendientes'
+import { sendStaffMessage, setConversationTriageState, returnConversationToAgent, getMessagesSince, takeOverConversation, resolverServiciosMarcados } from '@/app/actions/conversations'
 import { PatientLabelsEditor } from '@/components/dashboard/patient-labels-editor'
 import type { ClinicLabel } from '@/lib/labels/patient-labels'
 import { resolveClaimState, type ClaimConfig, type ClaimRow } from '@/lib/rules/claim-logic'
@@ -49,6 +50,9 @@ interface ConversationInfo {
   escalated_at: string | null
   escalation_reason: string | null
   created_at: string
+  /** Servicios marcados por la Capa 0 que todavía esperan a una persona.
+   *  Misma fuente que la cola: lib/conversations/pendientes. */
+  pendientes: Pendiente[]
 }
 
 interface NextAppointment {
@@ -99,6 +103,10 @@ function needsDateSep(current: string, previous: string | null): boolean {
 export function ConversationChat({ conversation, initialMessages, canWrite, staffName, nextAppointment, claimConfig, claim: initialClaim, myClinicUserId, patientLabelIds, labelCatalog, canLabelWrite }: Props) {
   const [messages, setMessages] = useState(initialMessages)
   const [status, setStatus] = useState(conversation.status)
+  // El pendiente del servicio se cierra en el acto: la secretaria ya sabe si lo
+  // gestionó, no necesita esperar un round-trip para que el badge se apague.
+  const [pendientes, setPendientes] = useState(conversation.pendientes)
+  const [cerrandoServicio, setCerrandoServicio] = useState(false)
   const [triage, setTriage] = useState(conversation.triage_state)
   // Estado de triage derivado: resuelta/atención salen del status; pendiente se persiste.
   const triageState: 'atencion' | 'pendiente' | 'resuelta' =
@@ -364,6 +372,46 @@ export function ConversationChat({ conversation, initialMessages, canWrite, staf
               </div>
             )}
           </div>
+
+          {/* EL SERVICIO MARCADO, CON SU CIERRE.
+              Va acá y no en otra pantalla porque es donde la secretaria ya está
+              parada cuando lo resuelve: abre la conversación, agenda o deriva, y
+              cierra. Un paso administrativo que obliga a cambiar de pantalla es
+              un paso que no se da — de los 27 servicios marcados de Algia, cero
+              tenían señal de cierre porque no había dónde darla.
+
+              NO toca el estado de la conversación: si además la paciente está
+              esperando respuesta, sigue en Atención por ESE motivo. Cerrar el
+              servicio no es cerrar la conversación. */}
+          {pendientes.some((p) => p.tipo === 'servicio') && (
+            <div className="max-lg:w-full" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <span style={{
+                fontSize: '11px', fontWeight: 700, padding: '3px 8px', borderRadius: '6px',
+                background: 'var(--v2-amber-soft)', color: '#b07d00', whiteSpace: 'nowrap',
+              }}>
+                {pendientes.find((p) => p.tipo === 'servicio')!.etiqueta}
+              </span>
+              {canWrite && (
+                <button
+                  onClick={async () => {
+                    setCerrandoServicio(true)
+                    const r = await resolverServiciosMarcados(conversation.id)
+                    if (r.ok) setPendientes((prev) => prev.filter((p) => p.tipo !== 'servicio'))
+                    else alert(r.error ?? 'No se pudo cerrar el servicio')
+                    setCerrandoServicio(false)
+                  }}
+                  disabled={cerrandoServicio}
+                  style={{
+                    fontSize: '11px', fontWeight: 700, padding: '5px 10px', borderRadius: '6px',
+                    background: 'var(--v2-green-soft)', color: 'var(--v2-green-deep)',
+                    border: 'none', cursor: cerrandoServicio ? 'wait' : 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  {cerrandoServicio ? 'Guardando…' : '✓ Ya lo gestioné'}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Eje B — Triage: Atención / Pendiente / Resuelta. SIEMPRE visible, sin
               depender del status (nunca hay que escalar primero para triar). Un

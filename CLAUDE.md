@@ -159,6 +159,13 @@ es de donde venía la confusión.
 mirar el `sort` — es **verificar si el número que se muestra es el que ordena**. Las dos veces
 que pasó, el orden estaba bien.
 
+**Y al arreglarlo: contar los tiempos de la fila. No alcanza con corregir el que reportaron.**
+En Conversaciones se corrigió el reloj de la izquierda —el que alguien señaló— y quedó vivo un
+SEGUNDO reloj a la derecha, con `last_message_at`, tres líneas más abajo en el mismo archivo. Se
+leía "1 día, 2 días, 21 horas, 12 horas" y la lista volvía a parecer rota. Una fila tiene UN
+tiempo: el que explica su posición. Si hay otro dato temporal que alguien necesita, va en el
+detalle, no en la lista.
+
 ### 9. Si un dato vive en la DB, no se copia al doc.
 
 Ver la regla de arriba. Está acá también porque es la misma clase de error que las otras seis:

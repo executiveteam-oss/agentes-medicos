@@ -151,6 +151,11 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
    *
    * Devuelve null cuando no hay nada esperando (la respondimos y no quedó
    * pendiente): ahí no se muestra reloj, que es lo correcto.
+   *
+   * ⚠️ AL TOCAR ESTO: contá los tiempos de la fila, no alcanza con corregir el
+   * que te reportaron. La primera vez se arregló este reloj y quedó vivo un
+   * SEGUNDO —last_message_at, a la derecha, tres líneas más abajo— que decía
+   * otra cosa y hacía parecer rota la lista igual. Una fila, un tiempo.
    */
   const relojDeEspera = (e: ConversationEntry): { desde: string; motivo: string | null } | null => {
     if (e.pendientes.length > 0) {

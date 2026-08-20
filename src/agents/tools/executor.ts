@@ -663,6 +663,61 @@ async function checkAvailability(
 // ============================================================
 // CREATE APPOINTMENT — Crear cita nueva
 // ============================================================
+/**
+ * Un bloqueo que NO escala tiene que salir con horarios, no con un "no puedo".
+ *
+ * 🔴 POR QUÉ (2026-08-20)
+ * Al sacar out_of_schedule de las fallas duras, el rechazo dejó de escalar y
+ * pasó a manos del modelo. Pero el `message_for_patient` decía "Ese horario no
+ * está dentro de la agenda del médico. ¿Buscamos otro?" — una pregunta abierta,
+ * que es de lo que se murieron 5 de las 21 conversaciones sin cita de la semana
+ * del 17/08. Y encima ese texto es una SUGERENCIA: el modelo redacta lo que
+ * quiere. Blindar la escritura con estructura y dejar la recuperación en una
+ * instrucción es el patrón 1 aplicado a medias.
+ *
+ * Acá se resuelve estructuralmente: se buscan los cupos REALES del médico de la
+ * cita y se devuelven junto al bloqueo. El modelo ya no tiene que ir a buscarlos
+ * —ni puede equivocarse de agenda, que es de donde salió la hora imposible del
+ * 18/08: consultó con una médica y escribió con otro.
+ *
+ * El import es dinámico A PROPÓSITO: proximos-cupos importa executeTool de este
+ * mismo archivo, así que un import estático sería un ciclo. La alternativa era
+ * reescribir acá la búsqueda de cupos, que es exactamente la duplicación que
+ * este commit vino a eliminar.
+ */
+async function conCuposDelMedico(
+  chequeo: { outcome: string; messageForPatient: string; instructionForLlm: string },
+  clinicId: string,
+  doctorId: string,
+): Promise<{ message_for_patient: string; instruction_for_llm: string; cupos_disponibles?: Array<{ starts_at: string; texto: string }> }> {
+  // Sólo para los bloqueos que el agente resuelve solo. Los que escalan
+  // (fecha pasada, agenda cerrada) no llegan a hablarle a la paciente.
+  if (chequeo.outcome !== 'out_of_schedule' && chequeo.outcome !== 'blocked_date') {
+    return { message_for_patient: chequeo.messageForPatient, instruction_for_llm: chequeo.instructionForLlm }
+  }
+  try {
+    const { proximosCuposLibres, mensajeCuposAlternativos } = await import('@/lib/calendar/proximos-cupos')
+    const { data: med } = await supabaseAdmin
+      .from('doctors').select('name').eq('id', doctorId).eq('clinic_id', clinicId).maybeSingle()
+    const cupos = await proximosCuposLibres(clinicId, doctorId, 3)
+    const nombre = med?.name ?? 'el médico'
+    return {
+      message_for_patient: mensajeCuposAlternativos(cupos, nombre),
+      instruction_for_llm: cupos.length > 0
+        ? `NO escales y NO llames check_availability: los cupos ya están en cupos_disponibles, son de ${nombre} ` +
+          `(el médico de ESTA cita) y están libres. Ofrecele message_for_patient tal cual. Cuando elija un número, ` +
+          `usá el starts_at de ESE elemento. NUNCA busques con otro médico.`
+        : `No hay cupos libres con ${nombre}. Enviá message_for_patient y llamá escalate_to_human.`,
+      cupos_disponibles: cupos.map((c) => ({ starts_at: c.startsAt, texto: c.texto })),
+    }
+  } catch (e) {
+    // Si la búsqueda falla, el bloqueo se mantiene con el texto original: lo que
+    // no puede pasar es que un error acá deje entrar la cita.
+    console.error('[conCuposDelMedico] no se pudieron buscar cupos:', e)
+    return { message_for_patient: chequeo.messageForPatient, instruction_for_llm: chequeo.instructionForLlm }
+  }
+}
+
 async function createAppointment(
   input: Record<string, unknown>,
   clinicId: string,
@@ -1383,8 +1438,7 @@ async function createAppointment(
       error: chequeo.errorCode,
       data: {
         outcome: chequeo.outcome,
-        message_for_patient: chequeo.messageForPatient,
-        instruction_for_llm: chequeo.instructionForLlm,
+        ...(await conCuposDelMedico(chequeo, clinicId, doctorId)),
       },
     }
   }
@@ -1924,8 +1978,9 @@ async function rescheduleAppointment(
       error: chequeoMov.errorCode,
       data: {
         outcome: chequeoMov.outcome,
-        message_for_patient: chequeoMov.messageForPatient,
-        instruction_for_llm: chequeoMov.instructionForLlm,
+        // Los cupos salen del médico de la cita ORIGINAL, no de uno que el
+        // modelo haya nombrado: appointment.doctor_id es la única fuente.
+        ...(await conCuposDelMedico(chequeoMov, clinicId, appointment.doctor_id!)),
       },
     }
   }

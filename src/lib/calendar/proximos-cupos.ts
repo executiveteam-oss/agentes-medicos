@@ -84,3 +84,24 @@ export function mensajeConCupos(cupos: CupoLibre[], nombreMedico: string): strin
   return `Claro, te ayudo a cambiar la cita 😊\n\nEstos son los próximos cupos con ${nombreMedico}:\n\n${lista}\n\n` +
     `Respóndeme con el número que prefieras, o dime otro día si ninguno te sirve.`
 }
+
+/**
+ * El mensaje cuando el horario que pidió NO SE PUEDE y hay que ofrecer otros.
+ *
+ * Distinto de mensajeConCupos: aquel abre la conversación ("Claro, te ayudo a
+ * cambiar la cita"), éste responde a un pedido que el sistema rechazó. La
+ * diferencia importa — decirle "claro, te ayudo" a alguien cuyo horario acabás
+ * de rechazar suena a que no la escuchaste.
+ *
+ * No explica POR QUÉ no se puede: "está fuera de la franja del médico" es
+ * vocabulario nuestro, no de ella. Lo que necesita son las horas que sí existen.
+ */
+export function mensajeCuposAlternativos(cupos: CupoLibre[], nombreMedico: string): string {
+  if (cupos.length === 0) {
+    return `A esa hora ${nombreMedico} no tiene agenda, y ahora mismo no veo otros cupos libres. ` +
+      `Le paso tu caso a una persona del consultorio para que te ofrezca opciones. Te escriben pronto 🙏`
+  }
+  const lista = cupos.map((c, i) => `${i + 1}. ${c.texto}`).join('\n')
+  return `A esa hora ${nombreMedico} no tiene agenda 🙏 Estos son sus próximos cupos:\n\n${lista}\n\n` +
+    `Respóndeme con el número que prefieras, o dime otro día y lo reviso.`
+}

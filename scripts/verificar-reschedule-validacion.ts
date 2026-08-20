@@ -100,6 +100,11 @@ async function main(): Promise<void> {
     .select('action, details').eq('clinic_id', ALGIA)
     .eq('action', 'reschedule_appointment_blocked_by_schedule')
     .order('created_at', { ascending: false }).limit(1)
-  console.log(`   audit_log: ${audit?.length ? JSON.stringify(audit[0].details).slice(0, 160) + '…' : '(sin registro)'}\n`)
+  console.log(`   audit_log: ${audit?.length ? JSON.stringify(audit[0].details).slice(0, 120) + '…' : '(sin registro)'}`)
+
+  const d = (res as { data?: { message_for_patient?: string; cupos_disponibles?: Array<{ texto: string }> } }).data
+  console.log(`\n── LO QUE LEE LA PACIENTE ──`)
+  console.log(d?.message_for_patient ?? '(sin texto)')
+  console.log(`\n   cupos adjuntos: ${d?.cupos_disponibles?.length ?? 0}\n`)
 }
 main().catch((e) => { console.error(e); process.exit(1) })

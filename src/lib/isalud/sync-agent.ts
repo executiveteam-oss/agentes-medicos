@@ -54,7 +54,14 @@ interface ISaludDisponibilidadSlot {
 export interface ImportResult {
   doctors_created: number
   doctors_existing: number
-  appointments_blocked: number
+  /** Filas de admisión que el sync escribió (insert + update).
+   *
+   *  🔴 Se llamaba `appointments_blocked` y contaba OTRA COSA (2026-08-20).
+   *  El nombre decía "bloqueadas" y el valor eran los upserts: en una corrida
+   *  reportó 251 cuando los `blocked_external` futuros eran 28. Casi mandó a
+   *  investigar un problema de cupos compartidos que no existía. Es el patrón 8
+   *  metido en un log — el número que se muestra no es el que se está contando. */
+  appointments_upserted: number
   errors: string[]
 }
 
@@ -126,7 +133,7 @@ export async function importISalud(credentials: ISaludCredentials, clinicId: str
     console.error(`[iSalud importISalud] STACK: ${stack}`)
     const persisted = await persistSyncError({ clinic_id: clinicId }, errMsg, 'importISalud')
     if (persisted) reachedTerminal = true
-    return { doctors_created: 0, doctors_existing: 0, appointments_blocked: 0, errors: [errMsg] }
+    return { doctors_created: 0, doctors_existing: 0, appointments_upserted: 0, errors: [errMsg] }
   } finally {
     const durationS = (Date.now() - runStart) / 1000
     console.log(`[iSalud importISalud] RUN END at ${new Date().toISOString()}, duration=${durationS.toFixed(2)}s, reachedTerminal=${reachedTerminal}`)
@@ -239,7 +246,7 @@ export async function ingestISaludData(
       if (mapped.created) doctorsCreated++; else doctorsExisting++
     }
 
-    const appointmentsBlocked = await upsertBlockedAppointments(clinicId, admisiones, errors)
+    const appointmentsUpserted = await upsertAdmisiones(clinicId, admisiones, errors)
     await cleanupOrphans(clinicId, admisiones)
 
     const { error: idleUpdErr } = await supabaseAdmin.from('sync_integrations').update({
@@ -254,9 +261,9 @@ export async function ingestISaludData(
     reachedTerminal = true
 
     const insertErrors = errors.filter((e) => e.startsWith('Insert ')).length
-    console.log(`[iSalud] Clinic ${clinicId}: +${doctorsCreated} docs, ${appointmentsBlocked} blocked, ${insertErrors} insert errors, ${errors.length} total errors`)
+    console.log(`[iSalud] Clinic ${clinicId}: +${doctorsCreated} docs, ${appointmentsUpserted} citas escritas, ${insertErrors} insert errors, ${errors.length} total errors`)
     if (insertErrors > 0) console.log(`[iSalud] Sample errors: ${errors.filter((e) => e.startsWith('Insert ')).slice(0, 3).join(' | ')}`)
-    return { doctors_created: doctorsCreated, doctors_existing: doctorsExisting, appointments_blocked: appointmentsBlocked, errors }
+    return { doctors_created: doctorsCreated, doctors_existing: doctorsExisting, appointments_upserted: appointmentsUpserted, errors }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     const stack = err instanceof Error ? err.stack : ''
@@ -264,7 +271,7 @@ export async function ingestISaludData(
     console.error(`[iSalud ingest] STACK: ${stack}`)
     const persisted = await persistSyncError({ clinic_id: clinicId }, errMsg, 'ingest')
     if (persisted) reachedTerminal = true
-    return { doctors_created: 0, doctors_existing: 0, appointments_blocked: 0, errors: [errMsg] }
+    return { doctors_created: 0, doctors_existing: 0, appointments_upserted: 0, errors: [errMsg] }
   } finally {
     const durationS = (Date.now() - runStart) / 1000
     console.log(`[iSalud ingest] RUN END at ${new Date().toISOString()}, clinic=${clinicId}, duration=${durationS.toFixed(2)}s, reachedTerminal=${reachedTerminal}`)
@@ -331,7 +338,7 @@ function buildDefaultWorkingHours(): Record<string, { active: boolean; blocks: A
   }
 }
 
-async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdmision[], errors: string[]): Promise<number> {
+async function upsertAdmisiones(clinicId: string, admisiones: ISaludAdmision[], errors: string[]): Promise<number> {
   let count = 0
 
   // ── El enlace con la ficha, en el momento del insert ──────────────
@@ -433,7 +440,16 @@ async function upsertBlockedAppointments(clinicId: string, admisiones: ISaludAdm
       // a una decisión humana.
       const yaEnlazada = (ex as { patient_id: string | null }).patient_id
       const decisionUpd = yaEnlazada ? null : decidirEnlace(adm.identificacion, fichasPorDocumento)
+      // Se cuenta el resultado COMPLETO, no solo el éxito.
+      //
+      // 🔴 Acá había un `if (decisionUpd?.enlazar) enlaces.ok++` a secas, y los
+      // motivos de NO enlace no se contaban nunca en este camino — solo en el de
+      // INSERT. Como casi todas las corridas son updates, el log salía
+      // "0 ok · 0 sin ficha · 0 sin documento · 0 duplicado" y se leía como
+      // "no había nada que enlazar", cuando en realidad había 63 citas futuras
+      // sin ficha que fallaban en silencio. Mismo patrón que appointments_blocked.
       if (decisionUpd?.enlazar) enlaces.ok++
+      else if (decisionUpd) enlaces[decisionUpd.razon]++
       const { error: updateErr } = await supabaseAdmin.from('appointments').update({
         status, external_data: adm as unknown as Record<string, unknown>,
         synced_at: new Date().toISOString(), reason: reasonText, notes: notesText,

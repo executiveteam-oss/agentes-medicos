@@ -16,7 +16,10 @@ interface SyncIntegration {
 interface ImportResult {
   doctors_created: number
   doctors_existing: number
-  appointments_blocked: number
+  /** Filas de admisión escritas (insert + update). NO son "bloqueadas": el
+   *  nombre viejo (appointments_blocked) decía una cosa y contaba otra —
+   *  reportaba 251 cuando los blocked_external futuros eran 28. */
+  appointments_upserted: number
   errors: string[]
 }
 
@@ -48,7 +51,7 @@ export function ISaludSyncButton({ integration }: { integration: SyncIntegration
             try {
               const res = await fetch('/api/sync/isalud', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'force_sync' }) })
               const data = await res.json()
-              setSyncMsg(`+${data.doctors_created ?? 0} docs, ${data.appointments_blocked ?? 0} bloqueadas`)
+              setSyncMsg(`+${data.doctors_created ?? 0} docs, ${data.appointments_upserted ?? 0} citas`)
             } catch { setSyncMsg('Error') }
             setSyncing(false)
           }}
@@ -161,7 +164,7 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({ action: 'import', credentials: { subdomain, username, password } }),
       })
       const importData = await importRes.json() as ImportResult
-      if (importData.errors.length > 0 && importData.appointments_blocked === 0 && importData.doctors_created === 0) {
+      if (importData.errors.length > 0 && importData.appointments_upserted === 0 && importData.doctors_created === 0) {
         setError(importData.errors[0]); setStep('error'); return
       }
       setResult(importData)
@@ -257,7 +260,7 @@ function ISaludImportModal({ onClose }: { onClose: () => void }) {
             <div style={{ background: 'var(--v2-bg-soft)', borderRadius: 'var(--v2-radius)', padding: '16px', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--v2-text-muted)' }}>Medicos importados</span><span style={{ fontWeight: 700 }}>{result.doctors_created}</span></div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--v2-text-muted)' }}>Medicos existentes</span><span style={{ fontWeight: 700 }}>{result.doctors_existing}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--v2-text-muted)' }}>Citas bloqueadas (60 dias)</span><span style={{ fontWeight: 700 }}>{result.appointments_blocked}</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--v2-text-muted)' }}>Citas traídas (60 días)</span><span style={{ fontWeight: 700 }}>{result.appointments_upserted}</span></div>
             </div>
             {result.errors.length > 0 && (
               <div style={{ padding: '10px 14px', background: 'var(--v2-amber-soft)', borderRadius: 'var(--v2-radius)', fontSize: '12px', color: '#b07d00' }}>

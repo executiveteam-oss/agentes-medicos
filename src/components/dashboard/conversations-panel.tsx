@@ -430,14 +430,16 @@ export function ConversationsPanel({ entries: initialEntries, clinicId }: Props)
 
                   {/* Right */}
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{
-                      fontSize: '11px',
-                      fontFamily: 'var(--font-jetbrains), monospace',
-                      fontWeight: 500,
-                      color: isUnread ? 'var(--v2-primary)' : 'var(--v2-text-subtle)',
-                    }}>
-                      <RelativeTime iso={entry.last_message_at} />
-                    </p>
+                    {/* Acá había un SEGUNDO reloj (last_message_at) que competía
+                        con el de "Esperando" de la izquierda —el que ordena— y
+                        se leía "1 día, 2 días, 21 horas, 12 horas": un orden
+                        roto que no existía. Patrón 8: una fila, un tiempo, y es
+                        el que explica su posición.
+
+                        Cuándo fue el último mensaje se ve al ABRIR la
+                        conversación, donde está el chat completo con la hora de
+                        cada mensaje. En la lista sobra: la pregunta ahí es
+                        "¿a quién atiendo primero?", no "¿cuándo escribió". */}
                     {isUnread && (
                       <div
                         style={{

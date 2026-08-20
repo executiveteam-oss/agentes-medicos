@@ -34,6 +34,7 @@ import { checkRateLimit, RATE_LIMITS, getClientIp } from '@/lib/rate-limit'
 import { normalizePhone } from '@/lib/utils/dates'
 import { syncClinicSheet } from '@/lib/google-sheets'
 import { notifyStaffOfEscalation, notifyCrisis, notifyDataRightsRequest, refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
+import { escalarConversacion, mensajeEscalacionFallida } from '@/lib/conversations/escalar'
 import { detectCrisis, detectHumanRequest, detectDataRightsRequest, detectPrivacyPolicyQuery, normalizeForSafety } from '@/lib/safety/crisis-patterns'
 import { detectEscalateService, isPriceOnlyQuestion } from '@/lib/safety/escalate-service-matcher'
 import { buildPrivacyNotice } from '@/lib/legal/privacy-notice'
@@ -834,20 +835,28 @@ async function processWebhook(body: unknown): Promise<void> {
           : agentResponse.escalate.reason === 'clinica_no_operativa' ? ESCALATION_REASONS.CLINIC_NOT_OPERATING
           : agentResponse.escalate.reason === 'servicio_no_existe_con_medico' ? ESCALATION_REASONS.SERVICE_NOT_WITH_DOCTOR
           : ESCALATION_REASONS.BOOKING_FAILURE
-        await supabaseAdmin
-          .from('conversations')
-          .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, motivoEsc, agentResponse.escalate.code) })
-          .eq('id', conversation.id)
-        await refreshEscalationNotifications({
+        // Se captura acá porque adentro del closure TS pierde el narrowing.
+        const codigoEsc = agentResponse.escalate.code
+        // Escalar PRIMERO. El texto que sigue depende de que esto haya entrado:
+        // si la conversación no queda marcada, no hay nadie del otro lado y
+        // prometer una persona sería mentir (patrón 1).
+        const escalacion = await escalarConversacion({
           conversationId: conversation.id,
           clinicId: clinic.id,
-          patientName: patient.name,
-          latestMessage:
-            motivoEsc === ESCALATION_REASONS.TOOL_ERROR
-              ? `⚠ El agente tuvo un error técnico (${agentResponse.escalate.code}) — revisar el sistema y atender a la paciente`
-              : motivoEsc === ESCALATION_REASONS.UNKNOWN_CONVENIO
-                ? `⚠ La paciente dijo un convenio que NO tenemos registrado — confirmar si existe cobertura ANTES de mandarla a particular`
-                : `⚠ El agente no pudo agendar (${agentResponse.escalate.code}) — hay que agendar a mano y revisar`,
+          motivo: motivoEsc,
+          detalle: codigoEsc,
+          contextPrevio: conversation.context,
+          notificar: () => refreshEscalationNotifications({
+            conversationId: conversation.id,
+            clinicId: clinic.id,
+            patientName: patient.name,
+            latestMessage:
+              motivoEsc === ESCALATION_REASONS.TOOL_ERROR
+                ? `⚠ El agente tuvo un error técnico (${codigoEsc}) — revisar el sistema y atender a la paciente`
+                : motivoEsc === ESCALATION_REASONS.UNKNOWN_CONVENIO
+                  ? `⚠ La paciente dijo un convenio que NO tenemos registrado — confirmar si existe cobertura ANTES de mandarla a particular`
+                  : `⚠ El agente no pudo agendar (${codigoEsc}) — hay que agendar a mano y revisar`,
+          }),
         })
         await supabaseAdmin.from('audit_log').insert({
           clinic_id: clinic.id,
@@ -862,9 +871,13 @@ async function processWebhook(body: unknown): Promise<void> {
           // identifica la conversación para cualquier traza.
           details: { code: agentResponse.escalate.code, reason: agentResponse.escalate.reason },
         })
-        await saveMessage(conversation.id, 'agent', agentResponse.text)
-        await sendWhatsAppMessage(message.from, agentResponse.text, clinicCreds)
-        console.warn(`[Webhook] 🚨 Escalación del agente (${motivoEsc}): ${agentResponse.escalate.code}`)
+        // El texto del agente promete una persona. Sólo sale si la hay.
+        const textoEsc = escalacion.ok
+          ? agentResponse.text
+          : mensajeEscalacionFallida(clinic.phone)
+        await saveMessage(conversation.id, 'agent', textoEsc)
+        await sendWhatsAppMessage(message.from, textoEsc, clinicCreds)
+        console.warn(`[Webhook] 🚨 Escalación del agente (${motivoEsc}): ${codigoEsc}${escalacion.ok ? '' : ' — ⚠️ NO SE PUDO ESCALAR'}`)
         return
       }
 
@@ -1640,10 +1653,13 @@ async function handleCrisis(
 
   // 2. Escalar la conversación (si no lo estaba).
   if (conversation.status !== 'escalated') {
-    await supabaseAdmin
-      .from('conversations')
-      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.CRISIS) })
-      .eq('id', conversation.id)
+    // Crisis: se escala con chequeo y reintento, pero el MENSAJE NO cambia
+    // nunca. Las líneas de ayuda salen aunque la escalación falle — es lo
+    // único que esta persona necesita ahora. El fallo queda en audit_log.
+    await escalarConversacion({
+      conversationId: conversation.id, clinicId: clinic.id,
+      motivo: ESCALATION_REASONS.CRISIS, contextPrevio: conversation.context,
+    })
   }
 
   // 3. Alerta 🆘 SIEMPRE (rompe idempotencia).
@@ -1775,10 +1791,12 @@ async function handleDataRightsRequest(
 
   // 2. Escalar (si no lo estaba).
   if (conversation.status !== 'escalated') {
-    await supabaseAdmin
-      .from('conversations')
-      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.DATA_RIGHTS) })
-      .eq('id', conversation.id)
+    // Derecho ARCO: obligación legal (Ley 1581). Chequeo, reintento y
+    // audit_log si falla — no puede perderse en silencio.
+    await escalarConversacion({
+      conversationId: conversation.id, clinicId: clinic.id,
+      motivo: ESCALATION_REASONS.DATA_RIGHTS, contextPrevio: conversation.context,
+    })
   }
 
   // 3. Alerta 🔐 SIEMPRE (rompe idempotencia; created_at arranca el término legal).
@@ -1808,19 +1826,36 @@ async function handleHumanRequest(
   clinicCreds: ClinicWhatsAppCredentials | null,
   crisisCfg: CrisisConfig,
 ): Promise<void> {
-  await saveMessage(conversation.id, 'agent', crisisCfg.human_handoff_message)
-  await sendWhatsAppMessage(patientPhone, crisisCfg.human_handoff_message, clinicCreds)
-
+  // ORDEN INVERTIDO (2026-08-20): primero se escala, después se promete.
+  //
+  // Acá el mensaje salía ANTES del update. "Ya le pedí al equipo que te
+  // contacte" se enviaba aunque la escalación no entrara, y la conversación
+  // quedaba en `active`, sin marca y fuera de toda bandeja. Cinco pacientes
+  // recibieron esa promesa entre el 12 y el 13/08 sin que nadie las viera.
+  let escalacionOk = true
   if (conversation.status === 'escalated') {
-    await refreshEscalationNotifications({ conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name, latestMessage: patientMessage })
+    // Ya estaba escalada: sólo se refresca la alerta. No hay promesa nueva que
+    // sostener, así que un fallo acá no cambia lo que ella lee.
+    try {
+      await refreshEscalationNotifications({ conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name, latestMessage: patientMessage })
+    } catch (e) { console.error('[CAPA0][HUMANO] refresh de alerta falló:', e) }
   } else {
-    await supabaseAdmin
-      .from('conversations')
-      .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.HUMAN_REQUEST) })
-      .eq('id', conversation.id)
-    await notifyStaffOfEscalation({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, reason: patientMessage })
+    const r = await escalarConversacion({
+      conversationId: conversation.id,
+      clinicId: clinic.id,
+      motivo: ESCALATION_REASONS.HUMAN_REQUEST,
+      contextPrevio: conversation.context,
+      notificar: () => notifyStaffOfEscalation({ clinicId: clinic.id, conversationId: conversation.id, patientName: patient.name, reason: patientMessage }),
+    })
+    escalacionOk = r.ok
   }
-  console.log(`[CAPA0][HUMANO] manejado. conv ${conversation.id}`)
+
+  const textoHumano = escalacionOk
+    ? crisisCfg.human_handoff_message
+    : mensajeEscalacionFallida(clinic.phone)
+  await saveMessage(conversation.id, 'agent', textoHumano)
+  await sendWhatsAppMessage(patientPhone, textoHumano, clinicCreds)
+  console.log(`[CAPA0][HUMANO] manejado. conv ${conversation.id}${escalacionOk ? '' : ' — ⚠️ NO SE PUDO ESCALAR'}`)
 }
 
 /**

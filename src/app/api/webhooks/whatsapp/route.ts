@@ -868,32 +868,32 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
-      // POST-CITA LOCKOUT DEFENSIVO:
-      // Bloquea si el agente intenta re-agendar tras una cita confirmada,
-      // SALVO que el paciente haya pedido explícitamente otra cita.
-      const recentAgentMsgs = messageHistory.filter((m) => m.role === 'agent').slice(-5)
-      const recentPatientMsgs = messageHistory.filter((m) => m.role === 'patient').slice(-10)
-      const alreadyConfirmed = recentAgentMsgs.some((m) => m.content.includes('✅') && /cita (confirmada|agendada|creada)/i.test(m.content))
-      const patientAskedForAnother = recentPatientMsgs.some((m) => {
-        const t = m.content.toLowerCase()
-        return /otra (cita|consulta)|adicional|una m[aá]s|tambi[eé]n.*cita|agendar otra|otra para/i.test(t)
-      })
-      const agentAskedAboutAnother = recentAgentMsgs.some((m) => /cita adicional|otra cita/i.test(m.content))
-      const confirmedAnother = agentAskedAboutAnother && recentPatientMsgs.some((m) => /^(s[ií]|dale|claro|ok|sip|ajá)/i.test(m.content.trim()))
-
-      if (
-        alreadyConfirmed &&
-        agentResponse.toolsUsed.includes('check_availability') &&
-        !agentResponse.text.includes('✅') &&
-        !patientAskedForAnother &&
-        !confirmedAnother
-      ) {
-        console.warn(`[Webhook] ⚠️ POST-CITA LOCKOUT: agente intentó re-agendar sin pedido explícito. Bloqueando.`)
-        const lockoutText = 'Tu cita ya está confirmada. ¿Necesitas agregar algún dato o agendar una cita diferente?'
-        await saveMessage(conversation.id, 'agent', lockoutText)
-        await sendWhatsAppMessage(message.from, lockoutText, clinicCreds)
-        return
-      }
+      // ⚰️ ACÁ VIVÍA EL "POST-CITA LOCKOUT" — no lo revivas.
+      //
+      // Cortaba el turno cuando el agente llamaba check_availability teniendo
+      // una cita ya confirmada, y respondía un texto fijo. Estaba mal de dos
+      // formas distintas:
+      //
+      // 1. EL VERBO. check_availability es una LECTURA: no escribe, no promete
+      //    y no puede hacer daño. Lo único peligroso es crear una cita de más,
+      //    y eso nunca lo miró. Consecuencia: a quien quería MOVER su cita se
+      //    le cortaba la consulta de horarios, que es justo lo que necesitaba.
+      //
+      // 2. EL LUGAR. Acá las tools YA CORRIERON (runAppointmentAgent, arriba).
+      //    Un guard en este punto no puede impedir una escritura: la fila ya
+      //    está en la base. Lo único que lograría es tragarse el mensaje de
+      //    confirmación y dejar una cita fantasma que la paciente no conoce.
+      //    Si algún día hace falta bloquear una segunda cita, va en el
+      //    executor ANTES del insert, junto a los otros BLOCKED_BY_*.
+      //
+      // Además dependía de matchear palabras ("otra cita", "adicional") para
+      // detectar la excepción, así que "modificar" y "reprogramar" caían del
+      // lado equivocado. Disparó 4 veces en 4 meses, las 4 contra pacientes
+      // que estaban pidiendo algo legítimo, y nunca bloqueó una escritura.
+      //
+      // La capa A (regla del prompt) sigue viva y ahora habla del verbo
+      // correcto: mirar horarios siempre se puede; crear una SEGUNDA cita
+      // requiere que la paciente la pida.
 
       // GUARD 6 (días/fechas/horarios sin respaldo de tool) — corrige al MODELO.
       //

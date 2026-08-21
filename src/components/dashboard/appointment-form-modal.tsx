@@ -15,7 +15,7 @@ import {
 import type { AppointmentInput } from '@/app/actions/appointments'
 import type { PaymentType, AppointmentModality } from '@/types/database'
 import {
-  agruparPorMedico, filtrarGrupos, rangoDePrecios, precioCorto, CONVENIO_NO_LISTADO,
+  agruparPorMedico, filtrarGrupos, rangoDePrecios, precioCorto,
   type OpcionServicio,
 } from '@/lib/consultation-types/opciones-agendamiento'
 
@@ -87,9 +87,7 @@ export function AppointmentFormModal({
   /** Servicio elegido (clave del grupo) + búsqueda + convenio. */
   const [servicioKey, setServicioKey] = useState('')
   const [busquedaServicio, setBusquedaServicio] = useState('')
-  /** id del consultation_type, o CONVENIO_NO_LISTADO. */
-  const [convenioSel, setConvenioSel] = useState('')
-  const [convenioLibre, setConvenioLibre] = useState('')
+  const [listaAbierta, setListaAbierta] = useState(false)
   const [paymentType, setPaymentType] = useState<PaymentType>('Particular')
   const [epsName, setEpsName] = useState('')
   const [modality, setModality] = useState<AppointmentModality>('presencial')
@@ -160,7 +158,7 @@ export function AppointmentFormModal({
       setVirtualLink(initialData.virtual_link ?? '')
       setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno(''); setConfirmarExtra(null); setConfirmarFueraDeHorario(null)
       setAvisarAlCrear(true); setMotivoSinAviso('')
-      setServicioKey(''); setBusquedaServicio(''); setConvenioSel(''); setConvenioLibre('')
+      setServicioKey(''); setBusquedaServicio(''); setListaAbierta(false)
     } else {
       // Reset para creación nueva (con paciente pre-seleccionada si viene)
       setPatientId(prefillPatient?.id ?? '')
@@ -175,6 +173,9 @@ export function AppointmentFormModal({
       setModality('presencial')
       setVirtualLink('')
       setDesiredAt('')
+      // 🔴 Faltaba: al abrir el formulario para una cita NUEVA, el servicio de
+      // la anterior quedaba elegido.
+      setServicioKey(''); setBusquedaServicio(''); setListaAbierta(false)
     }
     setError('')
     setFieldErrors({})
@@ -236,17 +237,44 @@ export function AppointmentFormModal({
   const grupoSel = gruposDelMedico.find((g) => g.key === servicioKey) ?? null
   const usaCatalogo = (consultationTypes?.length ?? 0) > 0
 
-  /** La fila concreta: el grupo elegido + el convenio elegido. */
-  const varianteSel: OpcionServicio | null =
-    grupoSel && convenioSel && convenioSel !== CONVENIO_NO_LISTADO
-      ? grupoSel.variantes.find((v) => v.id === convenioSel) ?? null
-      : null
+  /** Las entidades que ese servicio acepta, sacadas de sus variantes.
+   *  Particular no es entidad: es la ausencia de convenio. */
+  const entidadesDelServicio = (grupoSel?.variantes ?? [])
+    .filter((v) => v.epsName !== null)
+    .map((v) => ({ id: v.id, label: v.epsLabel ?? v.epsName ?? '', price: v.price }))
+
+  /** La fila concreta = servicio + entidad. Si es Particular, la variante sin
+   *  convenio. Si la entidad no está en el catálogo, cae a la particular: es el
+   *  precio real hasta que la clínica cargue el convenio. */
+  const varianteSel: OpcionServicio | null = !grupoSel
+    ? null
+    : paymentType === 'Particular'
+      ? grupoSel.variantes.find((v) => v.epsName === null) ?? null
+      : (grupoSel.variantes.find((v) => v.id === epsName)
+         ?? grupoSel.variantes.find((v) => v.epsName === null)
+         ?? grupoSel.variantes[0] ?? null)
+
+  /** ¿La entidad que eligió NO existe como fila del catálogo? */
+  const entidadNoListada = paymentType !== 'Particular'
+    && epsName !== ''
+    && !entidadesDelServicio.some((e) => e.id === epsName)
+
+  /** 🔴 El servicio no tiene tarifa PARTICULAR cargada.
+   *
+   *  Pasa de verdad: "primera vez" de 20 min con Juan Diego tiene 7 convenios y
+   *  ninguna fila particular. Sin esto, elegir Particular dejaba la cita sin
+   *  consultation_type_id —exactamente lo que este formulario vino a evitar— y
+   *  en silencio. Se avisa y se registra como algo que la clínica tiene que
+   *  cargar, igual que un convenio faltante. */
+  const sinTarifaParticular = paymentType === 'Particular'
+    && grupoSel !== null
+    && !grupoSel.variantes.some((v) => v.epsName === null)
 
   /** Al cambiar de servicio: la duración sale del catálogo y el convenio se
    *  reinicia (los convenios son del servicio, no globales). */
   function elegirServicio(key: string) {
     setServicioKey(key)
-    setConvenioSel(''); setConvenioLibre('')
+    setBusquedaServicio('')
     const g = gruposDelMedico.find((x) => x.key === key)
     if (g) {
       setDurationMinutes(g.durationMinutes)
@@ -272,11 +300,13 @@ export function AppointmentFormModal({
       // La fila del catálogo. Con "Otro convenio" no hay fila que corresponda,
       // así que se manda la PARTICULAR del mismo servicio: el precio real es
       // ése hasta que la clínica cargue el convenio.
-      consultation_type_id: varianteSel?.id
-        ?? (convenioSel === CONVENIO_NO_LISTADO
-            ? (grupoSel?.variantes.find((v) => v.epsName === null)?.id ?? grupoSel?.variantes[0]?.id ?? null)
-            : null),
-      convenio_no_listado: convenioSel === CONVENIO_NO_LISTADO ? convenioLibre.trim() || null : null,
+      consultation_type_id: varianteSel?.id ?? null,
+      // Lo que la clínica todavía no cargó: un convenio, o la tarifa particular.
+      convenio_no_listado: entidadNoListada
+        ? (epsName.trim() || null)
+        : sinTarifaParticular
+          ? `Particular — ${grupoSel?.label ?? ''} (tarifa sin cargar)`
+          : null,
       payment_type: paymentType,
       eps_name: paymentType === 'EPS' ? epsName : '',
       modality,
@@ -567,11 +597,16 @@ export function AppointmentFormModal({
 
           {/* Motivo */}
           <div>
-            {/* SERVICIO — desplegable con buscador, filtrado por médico.
-                Reemplaza al Motivo en texto libre: la cita necesita
-                consultation_type_id para tener precio, duración y reglas, igual
-                que una del agente (invariante 5). Antes el panel guardaba texto
-                y las 10 citas que creó quedaron sin tipo. */}
+            {/* SERVICIO — buscador + lista propia.
+                🔴 PRIMERA VERSIÓN, TRES BUGS (2026-08-21): era un <select> con
+                `size={7}`, que el navegador renderiza como lista SIEMPRE
+                ABIERTA; las <option> no admiten dos líneas, así que el nombre,
+                la duración y el precio salían pegados en un bloque corrido; y
+                elegir no se veía porque el resaltado nativo de un listbox es
+                casi invisible.
+                Por eso acá va una lista propia: se abre al hacer clic, cada
+                opción tiene su renglón con nombre arriba y duración · precio
+                abajo, y la elegida queda a la vista en el campo. */}
             {usaCatalogo ? (
               <>
                 <label className="label">Servicio</label>
@@ -580,74 +615,87 @@ export function AppointmentFormModal({
                     Elige primero el médico.
                   </p>
                 ) : (
-                  <>
-                    <input
-                      type="text"
-                      value={busquedaServicio}
-                      onChange={(e) => setBusquedaServicio(e.target.value)}
-                      placeholder="🔍 Escribe para buscar entre los servicios…"
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      type="button"
+                      onClick={() => setListaAbierta((v) => !v)}
                       className="input-v2 w-full"
-                      style={{ marginBottom: '6px' }}
-                    />
-                    <select
-                      value={servicioKey}
-                      onChange={(e) => elegirServicio(e.target.value)}
-                      className="input-v2 w-full"
-                      size={gruposVisibles.length > 6 ? 7 : undefined}
+                      style={{ textAlign: 'left', cursor: 'pointer', minHeight: '38px' }}
                     >
-                      <option value="">— Elige el servicio —</option>
-                      {gruposVisibles.map((g) => (
-                        <option key={g.key} value={g.key}>
-                          {g.label} · {g.durationMinutes} min · {rangoDePrecios(g)}
-                        </option>
-                      ))}
-                    </select>
-                    {busquedaServicio && gruposVisibles.length === 0 && (
-                      <p style={{ fontSize: '12px', color: 'var(--v2-red)', marginTop: '4px' }}>
-                        Ese médico no tiene ningún servicio que coincida con &quot;{busquedaServicio}&quot;.
-                      </p>
-                    )}
-                  </>
-                )}
+                      {grupoSel ? (
+                        <span>
+                          <span style={{ fontWeight: 600 }}>{grupoSel.label}</span>
+                          <span style={{ color: 'var(--v2-text-subtle)', fontSize: '11px' }}>
+                            {'  ·  '}{grupoSel.durationMinutes} min · {rangoDePrecios(grupoSel)}
+                          </span>
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--v2-text-subtle)' }}>— Elige el servicio —</span>
+                      )}
+                    </button>
 
-                {/* CONVENIO — sale de las variantes del servicio ELEGIDO, no de
-                    una lista global: un convenio que no tiene ese servicio no
-                    puede ofrecerse. La opción "Otro" es la salida honesta para
-                    lo que la clínica todavía no cargó. */}
-                {grupoSel && (
-                  <div style={{ marginTop: '10px' }}>
-                    <label className="label">Quién paga</label>
-                    <select
-                      value={convenioSel}
-                      onChange={(e) => setConvenioSel(e.target.value)}
-                      className="input-v2 w-full"
-                    >
-                      <option value="">— Elige —</option>
-                      {grupoSel.variantes.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.epsLabel ?? 'Particular'} · {precioCorto(v.price)}
-                        </option>
-                      ))}
-                      <option value={CONVENIO_NO_LISTADO}>Otro convenio (no listado)…</option>
-                    </select>
-
-                    {convenioSel === CONVENIO_NO_LISTADO && (
-                      <div style={{ marginTop: '6px' }}>
-                        <input
-                          type="text"
-                          value={convenioLibre}
-                          onChange={(e) => setConvenioLibre(e.target.value)}
-                          placeholder="Ej: Nueva EPS"
-                          className="input-v2 w-full"
-                        />
-                        <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
-                          La clínica no tiene ese convenio cargado en este servicio, así que la cita
-                          queda con el <strong>precio particular</strong>. Va a aparecer en{' '}
-                          <strong>Conversaciones → Servicios</strong> para que lo carguen.
-                        </p>
+                    {listaAbierta && (
+                      <div
+                        style={{
+                          position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: 0, right: 0,
+                          background: 'var(--v2-bg-card)', border: '1px solid var(--v2-border)',
+                          borderRadius: 'var(--v2-radius)', boxShadow: 'var(--v2-shadow-sm)',
+                          maxHeight: '260px', overflowY: 'auto',
+                        }}
+                      >
+                        <div style={{ padding: '8px', borderBottom: '1px solid var(--v2-border-soft)' }}>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={busquedaServicio}
+                            onChange={(e) => setBusquedaServicio(e.target.value)}
+                            placeholder="🔍 Escribe para buscar…"
+                            className="input-v2 w-full"
+                            style={{ fontSize: '12px' }}
+                          />
+                        </div>
+                        {gruposVisibles.length === 0 ? (
+                          <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', padding: '12px' }}>
+                            Ese médico no tiene ningún servicio que coincida.
+                          </p>
+                        ) : (
+                          gruposVisibles.map((g) => (
+                            <button
+                              key={g.key}
+                              type="button"
+                              onClick={() => { elegirServicio(g.key); setListaAbierta(false) }}
+                              style={{
+                                display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
+                                padding: '9px 12px', border: 'none',
+                                borderBottom: '1px solid var(--v2-border-soft)',
+                                background: g.key === servicioKey ? 'var(--v2-primary-soft)' : 'transparent',
+                                fontFamily: 'var(--font-manrope), sans-serif',
+                              }}
+                            >
+                              <span style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--v2-text)', lineHeight: 1.35 }}>
+                                {g.label}
+                              </span>
+                              <span style={{ display: 'block', fontSize: '11px', color: 'var(--v2-text-subtle)', marginTop: '2px' }}>
+                                {g.durationMinutes} min · {rangoDePrecios(g)}
+                                {g.variantes.length > 1 && ` · ${g.variantes.length} convenios`}
+                              </span>
+                            </button>
+                          ))
+                        )}
                       </div>
                     )}
                   </div>
+                )}
+                {sinTarifaParticular && (
+                  <p style={{
+                    fontSize: '11px', color: '#b07d00', marginTop: '6px', lineHeight: 1.45,
+                    background: 'var(--v2-amber-soft)', padding: '8px 10px',
+                    borderRadius: 'var(--v2-radius)',
+                  }}>
+                    Este servicio no tiene <strong>tarifa particular</strong> cargada con ese médico —
+                    solo convenios. Puedes agendarla igual, pero va a quedar sin precio y va a aparecer
+                    en <strong>Conversaciones → Servicios</strong> para que la carguen.
+                  </p>
                 )}
               </>
             ) : (
@@ -824,10 +872,20 @@ export function AppointmentFormModal({
             </select>
           </div>
 
-          {/* EPS (condicional) */}
-          {paymentType === 'EPS' && (
+          {/* LA ENTIDAD — un solo campo, condicional al tipo de pago.
+              🔴 La primera versión agregó un "Quién paga" NUEVO al lado de este
+              "Tipo de pago" que ya existía: dos campos para lo mismo. Acá va
+              uno solo.
+              Y las opciones salen del CATÁLOGO —las variantes del servicio
+              elegido— no de una lista global: si Adriana no hace colposcopia
+              con Coomeva, ofrecerla sería fabricar un precio. La lista fija de
+              EPS se suma sólo para el tipo EPS, que es régimen contributivo y
+              no depende de que la clínica lo tenga cargado como convenio. */}
+          {paymentType !== 'Particular' && (
             <div>
-              <label className="label">EPS</label>
+              <label className="label">
+                {paymentType === 'EPS' ? 'EPS' : paymentType === 'Prepagada' ? 'Prepagada' : 'Entidad'}
+              </label>
               <select
                 value={epsName}
                 onChange={(e) => {
@@ -836,13 +894,50 @@ export function AppointmentFormModal({
                 }}
                 className="input-v2 w-full"
               >
-                <option value="">Seleccionar EPS...</option>
-                {EPS_OPTIONS.map((eps) => (
-                  <option key={eps} value={eps}>
-                    {eps}
-                  </option>
-                ))}
+                <option value="">Seleccionar...</option>
+
+                {/* Las que ESTE servicio acepta, con su precio real. */}
+                {entidadesDelServicio.length > 0 && (
+                  <optgroup label={grupoSel ? `Con convenio para ${grupoSel.label.slice(0, 40)}` : 'Con convenio'}>
+                    {entidadesDelServicio.map((ent) => (
+                      <option key={ent.id} value={ent.id}>
+                        {ent.label} — {precioCorto(ent.price)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+
+                {paymentType === 'EPS' && (
+                  <optgroup label="EPS del régimen contributivo">
+                    {EPS_OPTIONS.map((eps) => (
+                      <option key={eps} value={eps}>{eps}</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
+
+              {/* Sin convenio cargado: la salida honesta. */}
+              {usaCatalogo && grupoSel && (
+                <div style={{ marginTop: '6px' }}>
+                  <input
+                    type="text"
+                    value={entidadNoListada ? epsName : ''}
+                    onChange={(e) => setEpsName(e.target.value)}
+                    placeholder="¿No está en la lista? Escríbela aquí (ej: Nueva EPS)"
+                    className="input-v2 w-full"
+                    style={{ fontSize: '12px' }}
+                  />
+                  {entidadNoListada && (
+                    <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                      La clínica no tiene <strong>{epsName}</strong> cargada para este servicio, así que la
+                      cita queda con el <strong>precio particular</strong>
+                      {varianteSel?.price ? ` (${precioCorto(varianteSel.price)})` : ''}. Va a aparecer en{' '}
+                      <strong>Conversaciones → Servicios</strong> para que la carguen.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {fieldErrors.eps && (
                 <p className="mt-1 text-xs text-red-600">{fieldErrors.eps}</p>
               )}

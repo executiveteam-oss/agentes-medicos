@@ -22,9 +22,6 @@
 // ============================================================
 import { supabaseAdmin } from '@/lib/supabase/admin'
 
-/** Cómo se marca un convenio que la clínica todavía no cargó. */
-export const CONVENIO_NO_LISTADO = '__otro__'
-
 export interface OpcionServicio {
   id: string
   /** Lo que se muestra. display_name si existe; si no, el nombre crudo. */

@@ -9,7 +9,7 @@ function assert(label: string, ok: boolean): void { if (ok) { console.log(`  ✅
 
 console.log('Tests — isHardBookingFailure\n')
 
-const SLOT = 'SLOT_JUST_TAKEN — Ese horario se acaba de ocupar... check_availability...'
+const SLOT = 'SLOT_JUST_TAKEN — Esa hora ya está ocupada...'
 
 // DURAS → escalan
 assert('create + SLOT_JUST_TAKEN → dura (escala)', isHardBookingFailure('create_appointment', SLOT))

@@ -36,6 +36,7 @@ import {
   SURVEY_BUTTON_URL_SUFFIX,
   type SurveyConfig,
 } from '@/lib/rules/survey-config'
+import { ESTADOS_VIVOS } from '@/lib/clinic/clinicas-vivas'
 
 export const maxDuration = 60
 
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { data: clinics, error: clinicsErr } = await supabaseAdmin
     .from('clinics')
     .select('id, name, whatsapp_config, feature_config')
-    .in('subscription_status', ['trial', 'active'])
+    .in('subscription_status', ESTADOS_VIVOS as unknown as string[])
 
   if (clinicsErr) {
     console.error('[Cron:Survey] Error consultando clinics:', clinicsErr)

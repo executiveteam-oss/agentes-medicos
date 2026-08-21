@@ -12,6 +12,7 @@ import { sendWhatsAppMessage } from '@/lib/whatsapp/client'
 import { formatCOP } from '@/lib/utils/dates'
 import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import type { NotificationSettings } from '@/types/database'
+import { ESTADOS_VIVOS } from '@/lib/clinic/clinicas-vivas'
 
 export const maxDuration = 30
 
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
     const { data: clinics } = await supabaseAdmin
       .from('clinics')
       .select('id, name, phone, staff_notify_phone, consultation_price, notification_settings, whatsapp_phone_id, whatsapp_access_token')
-      .in('subscription_status', ['trial', 'active'])
+      .in('subscription_status', ESTADOS_VIVOS as unknown as string[])
 
     let sentCount = 0
     let skipped = 0

@@ -26,8 +26,11 @@ export default async function DoctorsPage() {
   const doctorList = await Promise.all(
     (doctors ?? []).map(async (doc) => {
       const [ctRes, aptRes] = await Promise.all([
-        supabaseAdmin.from('consultation_types').select('id', { count: 'exact', head: true }).eq('doctor_id', doc.id),
-        supabaseAdmin.from('appointments').select('id', { count: 'exact', head: true }).eq('doctor_id', doc.id).gte('starts_at', new Date().toISOString()).in('status', ['confirmed', 'rescheduled']),
+        // El clinic_id va aunque el doctor_id ya venga de un médico de ESTA
+        // clínica: un conteo que no nombra al inquilino es un conteo que deja
+        // de ser correcto en cuanto alguien cambie la query de arriba.
+        supabaseAdmin.from('consultation_types').select('id', { count: 'exact', head: true }).eq('clinic_id', session.clinicId).eq('doctor_id', doc.id),
+        supabaseAdmin.from('appointments').select('id', { count: 'exact', head: true }).eq('clinic_id', session.clinicId).eq('doctor_id', doc.id).gte('starts_at', new Date().toISOString()).in('status', ['confirmed', 'rescheduled']),
       ])
       return {
         ...doc,

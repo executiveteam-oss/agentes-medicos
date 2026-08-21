@@ -159,9 +159,17 @@ export async function syncAllISaludIntegrations(): Promise<{ synced: number; err
   // pickup si lleva >1h sin updated_at — auto-recuperación si el process muere
   // sin ejecutar try/catch (SIGKILL, OOM, timeout externo).
   const staleThresholdIso = new Date(Date.now() - STALE_RUNNING_MS).toISOString()
+  // Sólo integraciones de clínicas vivas. Antes procesaba cualquier fila de
+  // sync_integrations, incluida la de una clínica dada de baja: scraping y
+  // escritura de citas para alguien que ya no es cliente.
+  const { clinicasVivas } = await import('@/lib/clinic/clinicas-vivas')
+  const vivas = (await clinicasVivas('id')).map((c) => c.id)
+  console.log(`[iSalud] clínicas vivas con integración posible: ${vivas.length}`)
+  if (vivas.length === 0) return { synced: 0, errors: [] }
   const { data: integrations } = await supabaseAdmin
     .from('sync_integrations')
     .select('id, clinic_id, credentials, config, sync_status, updated_at')
+    .in('clinic_id', vivas)
     .eq('provider', 'isalud')
     .neq('sync_status', 'disabled')
     .or(`sync_status.neq.running,updated_at.lt.${staleThresholdIso}`)

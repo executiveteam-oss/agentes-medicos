@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { verifyCronSecret } from '@/lib/rate-limit'
+import { clinicasVivas } from '@/lib/clinic/clinicas-vivas'
 
 export async function GET(request: NextRequest) {
   if (!verifyCronSecret(request.headers.get('authorization'))) {
@@ -14,9 +15,19 @@ export async function GET(request: NextRequest) {
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
+  // Este cron BORRA. Antes lo hacía sobre la tabla entera, sin mirar de quién
+  // era cada fila: un proceso destructivo que cruzaba inquilinos por omisión.
+  const clinicas = await clinicasVivas('id')
+  const clinicIds = clinicas.map((c) => c.id)
+  console.log(`[Cron:CleanupNotifs] clínicas vivas: ${clinicIds.length}`)
+  if (clinicIds.length === 0) {
+    return NextResponse.json({ deleted: 0, icsPurged: 0, clinicas: 0 })
+  }
+
   const { error, count } = await supabaseAdmin
     .from('staff_notifications')
     .delete({ count: 'exact' })
+    .in('clinic_id', clinicIds)
     .lt('created_at', thirtyDaysAgo)
     // Las alertas de CRISIS nunca se borran por cron (registro de seguridad),
     // sin importar leída o antigüedad.
@@ -45,6 +56,7 @@ export async function GET(request: NextRequest) {
     const { data: pastWithICS } = await supabaseAdmin
       .from('appointments')
       .select('id, calendar_ics_path')
+      .in('clinic_id', clinicIds)
       .not('calendar_ics_path', 'is', null)
       .lt('starts_at', new Date().toISOString())
       .limit(500)

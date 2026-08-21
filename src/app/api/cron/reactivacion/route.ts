@@ -19,6 +19,7 @@ import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import { formatFrequency } from '@/app/actions/reactivation'
 import type { WhatsAppConfig } from '@/types/database'
 import { format } from 'date-fns'
+import { ESTADOS_VIVOS } from '@/lib/clinic/clinicas-vivas'
 
 export const maxDuration = 30
 
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
     const { data: clinics } = await supabaseAdmin
       .from('clinics')
       .select('id, name, whatsapp_config')
-      .in('subscription_status', ['trial', 'active'])
+      .in('subscription_status', ESTADOS_VIVOS as unknown as string[])
 
     let totalSent = 0
     let totalFailed = 0

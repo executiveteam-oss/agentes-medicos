@@ -7,6 +7,7 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
+import { getSessionClinicId } from '@/lib/actions-helpers'
 
 export interface PendingContact {
   id: string
@@ -82,8 +83,10 @@ export async function markPendingContactResolved(contactId: string): Promise<{ o
 }
 
 /** Auto-expire pending contacts for appointments >48h ago */
-export async function autoExpirePendingContacts(): Promise<number> {
+export async function autoExpirePendingContacts(clinicId?: string): Promise<number> {
   const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const cid = await resolverClinica(clinicId)
+  if (!cid) return 0   // sin clínica no se toca NADA (nunca "todas")
 
   const { data } = await supabaseAdmin
     .from('pending_contacts')
@@ -91,6 +94,7 @@ export async function autoExpirePendingContacts(): Promise<number> {
       resolved_at: new Date().toISOString(),
       resolution_method: 'auto_expired',
     })
+    .eq('clinic_id', cid)
     .is('resolved_at', null)
     .lt('appointment_date', cutoff)
     .select('id')
@@ -98,13 +102,28 @@ export async function autoExpirePendingContacts(): Promise<number> {
   return data?.length ?? 0
 }
 
-/** Delete resolved contacts older than 7 days (hard cleanup) */
-export async function cleanupOldPendingContacts(): Promise<number> {
+/** La clínica sobre la que opera una limpieza: la que se pasa, o la de la
+ *  sesión. Si no hay ninguna devuelve null y el llamador NO toca nada — el
+ *  default seguro de un proceso destructivo es cero filas, no todas. */
+async function resolverClinica(clinicId?: string): Promise<string | null> {
+  if (clinicId) return clinicId
+  try { return await getSessionClinicId() } catch { return null }
+}
+
+/** Borra los contactos resueltos de MÁS de 7 días, de UNA clínica.
+ *
+ *  🔴 Antes no recibía clinicId y borraba sobre la tabla entera: llamado desde
+ *  la sesión de una clínica, le limpiaba los contactos resueltos a todas las
+ *  demás. Un borrado silencioso que cruzaba inquilinos. */
+export async function cleanupOldPendingContacts(clinicId?: string): Promise<number> {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const cid = await resolverClinica(clinicId)
+  if (!cid) return 0   // sin clínica no se borra NADA (nunca "todas")
 
   const { data } = await supabaseAdmin
     .from('pending_contacts')
     .delete()
+    .eq('clinic_id', cid)
     .not('resolved_at', 'is', null)
     .lt('resolved_at', sevenDaysAgo)
     .select('id')

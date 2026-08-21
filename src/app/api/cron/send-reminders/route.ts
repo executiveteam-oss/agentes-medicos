@@ -22,6 +22,8 @@ import { checkRateLimit, RATE_LIMITS, verifyCronSecret } from '@/lib/rate-limit'
 import type { NotificationSettings } from '@/types/database'
 import { insertPendingContact, autoExpirePendingContacts, cleanupOldPendingContacts } from '@/app/actions/pending-contacts'
 import { refreshEscalationNotifications } from '@/lib/notifications/escalation-notify'
+import { clinicasVivas } from '@/lib/clinic/clinicas-vivas'
+import { ESTADOS_VIVOS } from '@/lib/clinic/clinicas-vivas'
 
 // Máximo tiempo de ejecución
 export const maxDuration = 30
@@ -65,7 +67,7 @@ export async function GET(request: NextRequest) {
     const { data: clinics } = await supabaseAdmin
       .from('clinics')
       .select('id, notification_settings')
-      .in('subscription_status', ['trial', 'active'])
+      .in('subscription_status', ESTADOS_VIVOS as unknown as string[])
 
     const clinicSettings = new Map<string, NotificationSettings>()
     for (const c of clinics ?? []) {
@@ -94,11 +96,16 @@ export async function GET(request: NextRequest) {
     // Re-alerta (NO reabre) escalaciones estancadas >24h sin atender
     const escalationRealerts = await realertStaleEscalations()
 
-    // Auto-expire pending contacts for appointments >48h ago
-    const pendingExpired = await autoExpirePendingContacts()
-
-    // Hard cleanup: delete resolved pending contacts older than 7 days
-    const pendingCleaned = await cleanupOldPendingContacts()
+    // Los pendientes se expiran y se limpian POR CLÍNICA. Antes las dos
+    // funciones corrían sobre la tabla entera desde acá: un cron de una clínica
+    // resolviendo y borrando los pendientes de todas.
+    const clinicasParaPendientes = await clinicasVivas('id')
+    let pendingExpired = 0, pendingCleaned = 0
+    for (const c of clinicasParaPendientes) {
+      pendingExpired += await autoExpirePendingContacts(c.id)
+      pendingCleaned += await cleanupOldPendingContacts(c.id)
+    }
+    console.log(`[Cron:Reminders] pendientes — clínicas=${clinicasParaPendientes.length} expirados=${pendingExpired} borrados=${pendingCleaned}`)
 
     console.log(
       `[Cron:Reminders] Completado — 72h: ${result72h.sent}, 24h: ${result24h.sent}, 2h: ${result2h.sent}, ` +

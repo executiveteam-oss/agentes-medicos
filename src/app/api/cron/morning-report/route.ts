@@ -27,6 +27,7 @@ import { toTitleCase } from '@/lib/utils/normalize-name'
 // lugar y lo comparte con el calendario. Duplicarlo acá era garantizar que un día
 // el resumen y la agenda contaran distinto.
 import { esCupoCompartido } from '@/components/dashboard/calendar/types'
+import { ESTADOS_VIVOS } from '@/lib/clinic/clinicas-vivas'
 
 export const maxDuration = 30
 
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
     const { data: clinics } = await supabaseAdmin
       .from('clinics')
       .select('id, name')
-      .in('subscription_status', ['trial', 'active'])
+      .in('subscription_status', ESTADOS_VIVOS as unknown as string[])
 
     let sent = 0
     let skipped = 0

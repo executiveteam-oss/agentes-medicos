@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { verifyCronSecret } from '@/lib/rate-limit'
+import { clinicasVivas } from '@/lib/clinic/clinicas-vivas'
 import { nowColombia } from '@/lib/utils/dates'
 import { format } from 'date-fns'
 
@@ -20,10 +21,19 @@ export async function GET(request: NextRequest) {
   // Fecha de hoy en Colombia (UTC-5)
   const todayStr = format(nowColombia(), 'yyyy-MM-dd')
 
+  // Sólo médicos de clínicas vivas. Antes barría la tabla entera: reabría la
+  // agenda de un médico de una clínica de prueba y lo dejaba en audit_log de
+  // esa clínica, sin que nadie lo mirara nunca.
+  const clinicas = await clinicasVivas('id')
+  const clinicIds = clinicas.map((c) => c.id)
+  console.log(`[Cron:ReopenAgendas] clínicas vivas: ${clinicIds.length}`)
+  if (clinicIds.length === 0) return NextResponse.json({ reopened: 0, clinicas: 0 })
+
   // Buscar doctores cuya agenda cerrada ya venció
   const { data: doctors, error } = await supabaseAdmin
     .from('doctors')
     .select('id, clinic_id, name, agenda_closed_until')
+    .in('clinic_id', clinicIds)
     .eq('agenda_closed', true)
     .not('agenda_closed_until', 'is', null)
     .lte('agenda_closed_until', todayStr)
@@ -48,6 +58,7 @@ export async function GET(request: NextRequest) {
         agenda_closed_until: null,
       })
       .eq('id', doc.id)
+      .eq('clinic_id', doc.clinic_id)
 
     if (updateError) {
       console.error(`[Cron:ReopenAgendas] Error reabriendo ${doc.id}:`, updateError)

@@ -126,7 +126,11 @@ const tieneOtroPrecio = (t: string) => {
 const dice = (t: string, re: RegExp) => re.test(t)
 
 const TAREAS: Tarea[] = [
-  { id: 'precio', titulo: 'cuánto cuesta X', turnos: [`Hola, cuánto cuesta ${nombreServicio}?`, 'sí'],
+  // "particular" va en los turnos porque el precio DEPENDE del modo de pago: si
+  // la paciente de prueba tiene una entidad en la ficha, el agente pregunta
+  // antes de responder, y eso está bien. Sin esta respuesta la batería medía su
+  // propia falta de contexto y la anotaba como falla del agente.
+  { id: 'precio', titulo: 'cuánto cuesta X', turnos: [`Hola, cuánto cuesta ${nombreServicio}?`, 'sí', 'particular'],
     verdad: `${nombreServicio} = ${precioCOP} (consultation_types.price)`,
     juzgar: (t, _to, esc) => {
       const sinPuntos = t.replace(/[.\s]/g, '')
@@ -155,8 +159,16 @@ const TAREAS: Tarea[] = [
   { id: 'horario_clinica', titulo: 'horario de atención', turnos: ['¿En qué horario atienden?', 'sí'],
     verdad: `working_hours=${whRango ?? 'sin configurar'}  ·  whatsapp_config.schedule=${sched ? `${sched.start}–${sched.end}` : 'sin configurar'}${hayConflictoDeHorario ? '  🔴 NO COINCIDEN' : ''}`,
     juzgar: (t, _to, esc) => {
+      // El agente dice las horas en 12h ("6:00 PM") y la base las guarda en 24h
+      // ("18:00"). Comparar sólo el número de 24h daba INCORRECTA a una
+      // respuesta correcta — era un bug de la batería, no del agente.
       const h = (x: string) => Number(x.split(':')[0])
-      const dice = (x?: string) => !!x && new RegExp(`\\b${h(x)}\\b`).test(t)
+      const dice = (x?: string) => {
+        if (!x) return false
+        const h24 = h(x)
+        const h12 = h24 > 12 ? h24 - 12 : (h24 === 0 ? 12 : h24)
+        return new RegExp(`\\b(${h24}|${h12})\\b`).test(t)
+      }
       const coincideCitas = sched?.start ? dice(sched.start) && dice(sched.end) : false
       const coincideConsultorio = whRango ? dice(whRango.split('–')[0]) && dice(whRango.split('–')[1]) : false
       if (hayConflictoDeHorario && (coincideCitas || coincideConsultorio)) {
@@ -255,6 +267,9 @@ const TAREAS: Tarea[] = [
 // ── Correr ───────────────────────────────────────────────────────────
 console.log(`\n═══ BATERÍA DE RECEPCIONISTA · ${clinic.name} ═══`)
 console.log(`paciente de prueba: ficha con cita el ${fechaCita} ${horaCita} con ${toTitleCase(medicoDeLaCita)}`)
+console.log(`   ⚠ la paciente se elige por query (la próxima cita confirmada), así que CAMBIA entre corridas.`)
+console.log(`   Si dos corridas dan distinto, mirá primero si cambió la ficha —entidad cargada, cantidad de citas—`)
+console.log(`   antes de atribuírselo al código. Con --paciente <uuid> se fija.`)
 console.log(`(candado de escritura activo · no se envía WhatsApp)\n`)
 
 interface Fila { id: string; titulo: string; pregunta: string; respuesta: string; tools: string[]; verdad: string; veredicto: Veredicto; nota: string }

@@ -192,6 +192,63 @@ una fuente de verdad duplicada que diverge sin avisar.
 
 ---
 
+### 10. El texto para la paciente es el que el modelo emite cuando ya no va a llamar más tools.
+
+`src/lib/agent/contrato-de-salida.ts` — **una sola función decide qué lee la
+paciente**, y el loop no arma texto por su cuenta.
+
+Durante meses el mensaje se armaba acumulando el texto de TODAS las vueltas del
+loop (`collectedTexts.push()` por iteración → `join('\n\n')`). No había ninguna
+marca que separara "esto es para la paciente" de "esto es el modelo pensando en
+voz alta", así que cada narración interna salía por WhatsApp: *"Tienes razón.
+Debo llamar create_appointment ahora."*, *"Déjame obtener primero el ID de la
+cita actual"*. La defensa era `strip-internal-monologue`, una lista de patrones
+que crecía con cada caso — íbamos siempre un caso atrás.
+
+**La marca no había que pedírsela al modelo: ya estaba en la estructura del
+loop.** El modelo emite texto en dos posiciones y significan cosas distintas:
+en una vuelta que **cierra** (`end_turn`) ya no le falta información y eso es su
+respuesta; en una vuelta que sigue con un `tool_use` dijo algo y acto seguido fue
+a buscar un dato — es preámbulo. De ahí las reglas, en orden:
+
+```
+0. Si una vuelta llamó escalate_to_human → el texto de ESA vuelta.
+1. Si no: la vuelta que cerró el turno, si dijo algo.
+1-bis. …salvo que ese cierre no pregunte NADA y un bloque descartado sí
+   preguntara: entonces van los dos (la pregunta no puede quedar colgada).
+2. Si no: lo ÚLTIMO que alcanzó a decir antes de una tool.
+3. Si no: el fallback.
+```
+
+La regla 0 existe porque el prompt le exige hablarle a la paciente ANTES de
+llamar `escalate_to_human`: ese texto pre-tool es el único que ella va a leer.
+
+**Medido en sombra sobre los 1.020 turnos reales del 14 al 21 de agosto de 2026**
+(`scripts/sombra/replay-contrato-salida.mts`): 0 turnos sin respuesta, 0 mensajes
+que ganen texto, 210 bloques descartados —34 eran el eco del marcador
+`[fecha hora]`, 168 preámbulos, 8 con contenido propio y de esos 3 eran datos que
+el modelo inventaba y después se corregía—. Los turnos armados con más de una
+fuente pasaron de 188 a 0: **el bug de orden desaparece por construcción**, ya no
+puede salir el "✅ confirmada" antes del "¿confirmas?".
+
+Dos cosas que NO cambiaron y no hay que "ordenar":
+
+- **`strip-internal-monologue` se queda.** Bajó el problema, no lo eliminó:
+  quedan turnos donde el modelo se narra *dentro* del texto de cierre. Es red de
+  seguridad, no la defensa principal.
+- **La regla 1-bis es la única excepción, y se hizo a propósito que sólo pueda
+  AGREGAR texto, nunca quitarlo.** Su peor caso es un preámbulo de más. No se
+  agregan más excepciones: cada heurística nueva es un paso de vuelta a la lista
+  de patrones de la que salimos. Hay un caso conocido y aceptado —un mensaje que
+  termina con "Nuevamente, disculpa el error" sin que la primera disculpa esté en
+  el mismo mensaje— y se deja raro.
+
+Cada decisión del contrato que descarta algo queda en `audit_log`
+(`contrato_salida_descarto` + `origen` + los bloques recortados). Es la fuente
+para contestar después *"¿esto le está borrando algo a alguien?"* con evidencia.
+
+---
+
 ## 🏗️ Stack
 
 ```
@@ -536,37 +593,6 @@ Cuando se resuelva:
 Ojo con la distinción, que es fácil de mezclar: `proactive_contact_opt_in` es opt-in de **canal**
 (por dónde se la contacta). `patients.data_consent_at` es el consentimiento de **tratamiento de
 datos**, y es otro gate, con su propia Capa 0. Resolver uno no toca al otro.
-
-### 🔴 El contrato de salida del agente mezcla lo que lee la paciente con lo que el modelo se narra
-
-`appointment-agent` acumula el texto de **todas** las vueltas del loop de tools
-(`collectedTexts.push()` por iteración → `join('\n\n')` al final) y eso es lo
-que se envía. No hay ninguna marca que separe "esto es para la paciente" de
-"esto es el modelo pensando en voz alta".
-
-Consecuencia: cada vez que el modelo narra algo interno, sale por WhatsApp. Ya
-pasó tres veces con formas distintas:
-
-- *"Tienes razón. Debo llamar create_appointment ahora."*
-- *"Déjame obtener primero el ID de la cita actual del paciente."*
-- *"Disculpa, acabo de verificar y veo que el Dr. Jorge Dario está identificado
-  en el sistema con otro ID. Déjame revisar sus horarios correctamente:"*
-
-La defensa hoy es `strip-internal-monologue`, una lista de patrones que crece
-con cada caso nuevo. **Es tapar agujeros de a uno**: el modelo tiene infinitas
-formas de narrarse y nosotros vamos siempre un caso atrás.
-
-**Y no se arregla mandando sólo el último bloque.** La acumulación existe a
-propósito: el prompt le exige emitir el `message_for_patient` ANTES de llamar
-`escalate_to_human`, así que el texto pre-tool es legítimo y necesario. Si se
-manda sólo la última vuelta, la paciente escalada se queda sin la explicación.
-
-Lo que hace falta es que el modelo **marque** qué texto es para la paciente
-—una tool `responder_a_paciente`, un delimitador que el prompt exija, o separar
-el turno en "pensar" y "responder"— y que el webhook envíe sólo eso. Es
-rediseñar el contrato de salida del agente, con riesgo propio: hay que
-verificar que ningún mensaje pre-tool legítimo se pierda. No es de una línea, y
-por eso está acá y no como comentario suelto.
 
 ### 🔴 La identidad de una paciente es su TELÉFONO, y en Colombia el teléfono se comparte
 

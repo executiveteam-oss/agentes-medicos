@@ -43,3 +43,6 @@ next-env.d.ts
 
 # Extracciones del análisis de escalaciones (traen transcripciones de pacientes)
 .claude/skills/analizar-escalaciones/datos-*.json
+
+# Salida de la prueba en sombra: texto de conversaciones reales, no va al repo
+scripts/sombra/salida/

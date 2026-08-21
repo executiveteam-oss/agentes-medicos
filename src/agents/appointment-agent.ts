@@ -23,8 +23,14 @@ import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
 import type { Clinic, ConsultationType, Doctor, Message, WhatsAppConfig } from '@/types/database'
 import type { ContentBlock, MessageParam, ToolResultBlockParam, ToolUseBlock } from '@anthropic-ai/sdk/resources/messages'
 import { auditableToolCall, type ToolCallAudit } from '@/lib/safety/tool-input-audit'
+import { armarSalida, type VueltaDelLoop, type OrigenDelTexto } from '@/lib/agent/contrato-de-salida'
 
 const MAX_TOOL_ITERATIONS = 5 // Máximo de veces que Claude puede usar tools en una conversación
+
+// Los textos de último recurso. Se pasan al contrato de salida para que la
+// constante viva en un solo lugar (ver contrato-de-salida.ts).
+const FALLBACK_CIERRE = 'Lo siento, tuve un problema. Escribe "hablar con humano" para asistencia.'
+const FALLBACK_STOP_RARO = 'Disculpa, tuve un problema técnico. Intenta de nuevo o escribe "hablar con humano".'
 
 /**
  * Los hechos que las tools devolvieron en ESTE turno, para que el guard pueda
@@ -108,6 +114,10 @@ interface AgentResponse {
   // que escalar a una persona, no disfrazarlo de "se acaba de ocupar". El webhook, al ver
   // esto, escala la conversación + avisa al staff + audita.
   escalate?: { reason: string; code: string }
+  /** Qué regla del contrato de salida eligió el texto, y qué quedó afuera.
+   *  Lo audita el webhook: es la única forma de contestar después
+   *  "¿el contrato le está borrando algo a alguien?" con evidencia. */
+  contratoDeSalida?: { origen: OrigenDelTexto; descartados: number; descartadosTexto: string[] }
 }
 
 /**
@@ -184,25 +194,19 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   let totalInputTokens = 0
   let totalOutputTokens = 0
 
-  // Acumular el texto que Claude emite en TODAS las iteraciones, no solo
-  // el último turno. Sin esto, si el LLM emite texto junto con un tool_use
-  // (ej. "Para [servicio], un asesor confirma los detalles... [escalate_to_human]")
-  // y luego en el turno post-tool emite solo una confirmación corta
-  // ("Listo, ya quedó"), descartamos el primer mensaje y solo enviamos el
-  // segundo — el paciente nunca recibe el motivo. Recolectar todos los texts
-  // permite que la regla "el agente debe mencionar el motivo de la escalación"
-  // (system-prompt.ts, Bloque 1) funcione end-to-end.
-  const collectedTexts: string[] = []
-
-  // Después de que escalate_to_human se ejecutó, el LLM YA emitió al paciente
-  // el mensaje completo PRE-tool (regla del prompt). Cualquier texto que emita
-  // en iteraciones posteriores es duplicación ("Un asesor te contactará pronto..."
-  // repetido), que en WhatsApp suena robótico. Marcamos el flag para descartar
-  // texts post-escalación.
-  // Esto es ortogonal a los bloques de reglas — afecta a CUALQUIER flujo donde
-  // se llame escalate_to_human (bloque 1 escalate_human, bloque 2 age_limit
-  // derivación/sin DOB, escalaciones por urgencia médica, etc.)
-  let escalateToHumanCalled = false
+  // Registramos cada VUELTA del loop —qué dijo y cómo cerró— y al final el
+  // contrato de salida decide cuál de esos textos lee la paciente.
+  //
+  // Antes esto era un `collectedTexts.push()` por iteración unido con '\n\n':
+  // todo lo que el modelo dijera en cualquier vuelta salía por WhatsApp, sin
+  // ninguna marca que separara "esto es para la paciente" de "esto es el modelo
+  // pensando en voz alta". La marca no hacía falta pedírsela al modelo: ya está
+  // en la estructura del loop. Ver src/lib/agent/contrato-de-salida.ts.
+  //
+  // El corte por escalate_to_human que vivía acá (un flag que descartaba el
+  // texto posterior) ahora es la regla 0 del contrato — misma decisión, un
+  // solo lugar.
+  const vueltas: VueltaDelLoop[] = []
 
   let appointmentData: AppointmentData | undefined
 
@@ -240,31 +244,27 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
         `cache_read=${u.cache_read_input_tokens ?? 0} output=${u.output_tokens ?? 0}`
     )
 
-    // Capturar texto que el LLM emitió en este turno. Acumulamos entre
-    // iteraciones para preservar mensajes pre-tool con motivos. Excepción:
-    // si en una iteración previa se llamó escalate_to_human, descartamos
-    // cualquier texto subsecuente (sería duplicación del mensaje pre-tool
-    // que el paciente ya recibió).
-    if (!escalateToHumanCalled) {
-      for (const block of response.content) {
-        if (block.type === 'text' && block.text.trim()) {
-          collectedTexts.push(block.text.trim())
-        }
-      }
-    }
+    // El texto que el modelo emitió en ESTA vuelta. Qué se hace con él lo
+    // decide el contrato, no este bloque.
+    const textosDeLaVuelta = response.content
+      .filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text' && b.text.trim().length > 0)
+      .map((b) => b.text.trim())
 
     // Si Claude terminó de hablar (no quiere más tools) → devolver texto
     if (response.stop_reason === 'end_turn') {
-      const finalText = collectedTexts.length > 0
-        ? collectedTexts.join('\n\n')
-        : 'Lo siento, tuve un problema. Escribe "hablar con humano" para asistencia.'
+      vueltas.push({ textos: textosDeLaVuelta, cierre: 'end_turn', tools: [] })
+      const salida = armarSalida(vueltas, FALLBACK_CIERRE)
+      if (salida.descartados > 0) {
+        console.log(`[Agent] contrato de salida: origen=${salida.origen}, descartados=${salida.descartados} bloque(s)`)
+      }
       return {
-        text: finalText,
+        text: salida.text,
         toolsUsed,
         toolCalls,
         tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
         appointmentData,
         hechosDeTools: hechos,
+        contratoDeSalida: { origen: salida.origen, descartados: salida.descartados, descartadosTexto: salida.descartadosTexto },
       }
     }
 
@@ -274,6 +274,12 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       const toolUseBlocks = response.content.filter(
         (block): block is ToolUseBlock => block.type === 'tool_use'
       )
+
+      vueltas.push({
+        textos: textosDeLaVuelta,
+        cierre: 'tool_use',
+        tools: toolUseBlocks.map((b) => b.name),
+      })
 
       // Agregar la respuesta de Claude (con los tool_use) al historial
       messages.push({
@@ -287,13 +293,6 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       for (const toolUse of toolUseBlocks) {
         toolsUsed.push(toolUse.name)
         toolCalls.push(auditableToolCall(toolUse.name, toolUse.input as Record<string, unknown>))
-
-        // Marcar si se llamó escalate_to_human para descartar texto subsecuente.
-        // El mensaje al paciente ya se emitió pre-tool (regla del prompt) —
-        // cualquier texto post-tool sería duplicación.
-        if (toolUse.name === 'escalate_to_human') {
-          escalateToHumanCalled = true
-        }
 
         // Ejecutar la tool con los parámetros que Claude envió
         const result = await executeTool(
@@ -444,16 +443,17 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
       continue
     }
 
-    // Si llegamos aquí es un stop_reason inesperado — devolver lo recolectado
-    const fallbackJoined = collectedTexts.length > 0
-      ? collectedTexts.join('\n\n')
-      : 'Disculpa, tuve un problema técnico. Intenta de nuevo o escribe "hablar con humano".'
+    // Si llegamos aquí es un stop_reason inesperado — el contrato decide igual
+    vueltas.push({ textos: textosDeLaVuelta, cierre: 'otro', tools: [] })
+    const salidaRara = armarSalida(vueltas, FALLBACK_STOP_RARO)
+    console.warn(`[Agent] stop_reason inesperado (${response.stop_reason}) → origen=${salidaRara.origen}`)
     return {
-      text: fallbackJoined,
+      text: salidaRara.text,
       toolsUsed,
       toolCalls,
       tokenUsage: { input: totalInputTokens, output: totalOutputTokens },
       appointmentData,
+      contratoDeSalida: { origen: salidaRara.origen, descartados: salidaRara.descartados, descartadosTexto: salidaRara.descartadosTexto },
     }
   }
 

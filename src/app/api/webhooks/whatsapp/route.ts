@@ -728,7 +728,7 @@ async function processWebhook(body: unknown): Promise<void> {
       const existingPatient = buildExistingPatient(patient)
       const { tratanteMode, tratantes: resolvedTratantes } = await resolveTratantesForClinic(clinic, patient, conversation.id)
 
-      let agentResponse: { text: string; toolsUsed: string[]; toolCalls: ToolCallAudit[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string }; hechosDeTools?: { diasQueAtiende: string[]; fechasDeTools: string[]; minutosDeSlots: number[]; huboSlots: boolean } }
+      let agentResponse: { text: string; toolsUsed: string[]; toolCalls: ToolCallAudit[]; tokenUsage?: { input: number; output: number }; appointmentData?: { id: string; starts_at: string; ends_at: string; doctor_name: string; consultation_type: string | null; sequence: number }; escalate?: { reason: string; code: string }; hechosDeTools?: { diasQueAtiende: string[]; fechasDeTools: string[]; minutosDeSlots: number[]; huboSlots: boolean }; contratoDeSalida?: { origen: string; descartados: number; descartadosTexto: string[] } }
 
       // ── PIN DEL MÉDICO (capa 1) ─────────────────────────────────────
       // Si la paciente nombra un médico, deja de ser texto y pasa a ser una
@@ -1163,6 +1163,31 @@ async function processWebhook(body: unknown): Promise<void> {
             // El contador es la señal: si sube, el modelo está narrando de más y
             // hay que mirar el prompt además de este filtro.
             details: { bloques: monologosRemovidos },
+          })
+        } catch { /* no crítico */ }
+      }
+
+      // El CONTRATO DE SALIDA ya eligió qué bloque del loop lee la paciente
+      // (src/lib/agent/contrato-de-salida.ts). Registramos qué regla decidió y
+      // qué quedó afuera: sin esto, "¿el contrato le está borrando algo a
+      // alguien?" sólo se puede contestar mirando logs que caducan. El texto
+      // descartado se guarda recortado —es texto del agente, no de la paciente—
+      // y sólo cuando efectivamente se descartó algo.
+      const contrato = agentResponse.contratoDeSalida
+      if (contrato && contrato.descartados > 0) {
+        console.log(`[Webhook] contrato de salida: origen=${contrato.origen}, descartados=${contrato.descartados}`)
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'contrato_salida_descarto',
+            actor_type: 'system',
+            target_type: 'conversation',
+            target_id: conversation.id,
+            details: {
+              origen: contrato.origen,
+              descartados: contrato.descartados,
+              bloques: contrato.descartadosTexto.slice(0, 3).map((b) => b.slice(0, 300)),
+            },
           })
         } catch { /* no crítico */ }
       }

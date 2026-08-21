@@ -10,6 +10,7 @@ import { nombreMedicoParaPaciente, toTitleCase } from '@/lib/utils/normalize-nam
 import { nowColombia } from '@/lib/utils/dates'
 import type { ResolvedTratante } from '@/lib/isalud/tratante-specialty'
 import { normalizeWorkingHours } from '@/lib/utils/working-hours'
+import { fraseDiasQueAtiende } from '@/lib/calendar/schedule-check'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -146,15 +147,36 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
       const reasonText = d.agenda_closed_reason ? ` — Motivo: ${d.agenda_closed_reason}` : ''
       line += ` | ⛔ AGENDA CERRADA${untilText}${reasonText}`
     }
-    // Agregar horario específico del doctor si existe
-    if (dcConfig?.days && dcConfig.days.length > 0) {
+    // ── LOS DÍAS QUE ATIENDE, EN EL PROMPT (2026-08-21) ──
+    //
+    // Hasta hoy esta línea sólo mostraba días si existía `whatsapp_config
+    // .doctors[id]`, que en Algia está vacío — así que el prompt NO decía
+    // ningún día y el modelo los completaba. Medido con la batería: dijo que un
+    // médico que atiende lunes, miércoles y viernes "atiende lunes, martes,
+    // miércoles, jueves, viernes y sábado". Es el patrón 7 en su forma original:
+    // el prompt le pedía nombrar los días y ninguna fuente se los daba.
+    //
+    // Ahora sale de `doctors.working_hours` con fraseDiasQueAtiende — LA MISMA
+    // función con la que check_availability arma `dias_que_atiende`. Si el
+    // prompt y la tool no usan la misma, el agente se contradice a sí mismo
+    // entre un turno y el siguiente.
+    //
+    // El orden respeta la cadena real de disponibilidad
+    // (day-availability.resolverFranjas): working_hours del médico gana sobre
+    // la config de WhatsApp. Mostrar acá lo que NO manda sería peor que no
+    // mostrar nada.
+    const fraseDias = fraseDiasQueAtiende(d.working_hours)
+    if (fraseDias) {
+      line += ` | Atiende: ${fraseDias}`
+    } else if (dcConfig?.days && dcConfig.days.length > 0) {
       const dayNames: Record<number, string> = {
         0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb',
       }
       const days = dcConfig.days.sort((a: number, b: number) => a - b).map((n: number) => dayNames[n]).join(', ')
-      const start = formatHour(dcConfig.start)
-      const end = formatHour(dcConfig.end)
-      line += ` | Atiende: ${days} ${start}-${end}`
+      line += ` | Atiende: ${days} ${formatHour(dcConfig.start)}-${formatHour(dcConfig.end)}`
+    } else {
+      // Sin horario propio ni config: el agente NO puede inventarlo.
+      line += ` | ⚠️ SIN HORARIO CARGADO — no digas qué días atiende; usá check_availability`
     }
     // Agregar tipos de consulta si existen
     const doctorTypes = (consultationTypes ?? []).filter((ct) => ct.doctor_id === d.id && ct.is_active)
@@ -371,7 +393,24 @@ Solo aquí puedes listar doctores (máx 5-6 con especialidad).
   deriva con escalate_to_human para que el consultorio vea su caso.\n`
 
   // Formatear horario de citas del agente (waConfig)
-  const appointmentScheduleText = formatAppointmentSchedule(waConfig)
+  // whatsapp_config.schedule YA NO ALIMENTA EL PROMPT (2026-08-21).
+  //
+  // Había TRES horarios diciendo cosas distintas de la misma clínica:
+  //   clinics.working_hours            08:00–18:00  ← la única que queda
+  //   whatsapp_config.schedule         07:00–20:00  ← salía acá, ya no
+  //   ...out_of_hours_message          "de 7am a 8pm" ← sin un solo consumidor
+  // El prompt mostraba los dos primeros uno debajo del otro y el modelo citaba
+  // el que quería. No era que ignorara el dato: se lo dábamos dos veces.
+  //
+  // Se elige clinics.working_hours porque es la que YA DECIDE disponibilidad
+  // (day-availability.resolverFranjas la usa como último eslabón), es por día
+  // de la semana y admite un sábado distinto. La otra nunca estuvo en esa
+  // cadena: sólo era texto.
+  //
+  // 🚨 whatsapp_config.schedule NO se borra de la DB: el formulario de WhatsApp
+  // la usa para sembrar los días por defecto de un médico que todavía no tiene
+  // config propia (whatsapp-config-form.toggleDoctorDay). Sacarla de ahí es
+  // otro cambio, con su propia verificación.
 
   // Construir dirección completa para confirmaciones
   const fullLocationText = formatFullLocation(clinic)
@@ -396,14 +435,10 @@ INFO DEL CONSULTORIO:
 - Precios: usa SIEMPRE la herramienta get_consultation_price(consultation_type_id, modo_pago); NUNCA digas un precio de memoria.
 - Citas de la paciente: CUALQUIER afirmación sobre sus citas —cuándo es, con qué médico, a qué hora, si tiene una cita o no— sale SIEMPRE de get_patient_appointments(patient_phone), la pregunte ella o la menciones vos por tu cuenta (al saludar, al despedirte, al confirmar). NUNCA afirmes nada sobre una cita leyéndolo del historial ni de memoria: una cita mencionada antes en el chat pudo ya ocurrir, cancelarse o moverse. El tool GANA contra el historial PARA AFIRMAR: nunca digas que tiene una cita porque la viste mencionada en el chat. Pero un resultado VACÍO no es una certeza, es un no-encuentro: significa que TÚ no la ves, no que ella se equivoque. Si ella sostiene que tiene una cita y el tool no la trae, NO la contradigas y NO cierres la conversación: dile que no la encuentras en el sistema y que lo vas a confirmar con el consultorio, y llama a escalate_to_human. Decirle "no tienes citas programadas" a alguien que sabe que la tiene la manda a un consultorio donde nadie la espera, o la deja sin ir a una cita que sí existía.
 - Duración consulta por defecto: ${waConfig?.appointment.default_duration ?? clinic.consultation_duration_minutes} minutos
-- Horarios del consultorio:
+- Horario de atención del consultorio (ÚNICA fuente — si te preguntan "¿en qué horario atienden?", esto es lo que respondes):
 ${workingHoursText}
-
-HORARIO DE CITAS DISPONIBLES:
-${appointmentScheduleText}
-IMPORTANTE: Puedes chatear y responder preguntas a CUALQUIER hora. Pero las citas SOLO se pueden agendar dentro del horario de citas.
-Si un paciente pide cita fuera de este horario, responde naturalmente: "Las citas están disponibles de [días] [hora inicio] a [hora fin]. ¿Te agendo para [próximo día hábil]?"
-NUNCA dejes de responder por estar fuera de horario — siempre atiende al paciente.
+IMPORTANTE: tú atiendes por chat a CUALQUIER hora, todos los días. El horario de arriba es el del consultorio, no el tuyo: NUNCA dejes de responder por estar fuera de horario.
+El horario de arriba es el de la CLÍNICA. El de cada médico es el suyo y está en su línea de DOCTORES DISPONIBLES — para agendar manda el del médico, no éste.
 
 REGLAS DE ANTICIPACIÓN:
 ${formatBookingAdvanceRules(clinic)}
@@ -1264,6 +1299,12 @@ function formatFullLocation(clinic: Clinic): string {
 /**
  * Formatea el horario de citas disponibles desde la config del agente
  * Ejemplo: "  Lunes a Sábado: 7:00 AM - 8:00 PM"
+ */
+/**
+ * 🪦 SIN LLAMADORES desde 2026-08-21. Formateaba whatsapp_config.schedule para
+ * el prompt, y era el segundo horario que contradecía al de clinics.working_hours.
+ * Se deja el código —no la llamada— porque la clave sigue viva en la DB para
+ * sembrar los días por médico en el formulario de WhatsApp.
  */
 function formatAppointmentSchedule(waConfig?: WhatsAppConfig): string {
   if (!waConfig) return '  No configurado — usar horarios del consultorio'

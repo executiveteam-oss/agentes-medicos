@@ -154,34 +154,26 @@ const TAREAS: Tarea[] = [
       if (esc) return { v: 'ESCALÓ SIN NECESIDAD', nota: 'la dirección está en la base' }
       return { v: 'INCORRECTA', nota: 'no dio la dirección real' }
     } },
-  // 🔴 LA BASE TIENE DOS HORARIOS PARA ESTA PREGUNTA, y no coinciden:
-  //    clinics.working_hours            → el que el prompt llama "Horarios del consultorio"
-  //    whatsapp_config.schedule         → el que llama "HORARIO DE CITAS DISPONIBLES"
-  // Mientras discrepen, cualquiera de los dos que diga el agente es "correcto"
-  // contra una fuente e "incorrecto" contra la otra. Medirlo contra una sola
-  // sería inventar una verdad que la base no tiene — así que la batería reporta
-  // el conflicto, que es el hallazgo real.
+  // La ÚNICA fuente del horario que lee la paciente es clinics.working_hours
+  // (2026-08-21). whatsapp_config.schedule sigue en la DB porque siembra los
+  // días por médico en el formulario, pero ya no llega al prompt: si vuelve a
+  // aparecer en una respuesta, es que alguien la reconectó.
   { id: 'horario_clinica', titulo: 'horario de atención', turnos: ['¿En qué horario atienden?', 'sí'],
-    verdad: `working_hours=${whRango ?? 'sin configurar'}  ·  whatsapp_config.schedule=${sched ? `${sched.start}–${sched.end}` : 'sin configurar'}${hayConflictoDeHorario ? '  🔴 NO COINCIDEN' : ''}`,
+    verdad: `clinics.working_hours = ${whRango ?? 'sin configurar'}${hayConflictoDeHorario ? `   (whatsapp_config.schedule sigue en ${sched?.start}–${sched?.end}, pero YA NO alimenta el prompt)` : ''}`,
     juzgar: (t, _to, esc) => {
-      // El agente dice las horas en 12h ("6:00 PM") y la base las guarda en 24h
-      // ("18:00"). Comparar sólo el número de 24h daba INCORRECTA a una
-      // respuesta correcta — era un bug de la batería, no del agente.
+      if (!whRango) return { v: 'REVISAR', nota: 'la clínica no tiene working_hours' }
       const h = (x: string) => Number(x.split(':')[0])
-      const dice = (x?: string) => {
-        if (!x) return false
-        const h24 = h(x)
-        const h12 = h24 > 12 ? h24 - 12 : (h24 === 0 ? 12 : h24)
+      const dice = (x: string) => {
+        const h24 = h(x); const h12 = h24 > 12 ? h24 - 12 : (h24 === 0 ? 12 : h24)
         return new RegExp(`\\b(${h24}|${h12})\\b`).test(t)
       }
-      const coincideCitas = sched?.start ? dice(sched.start) && dice(sched.end) : false
-      const coincideConsultorio = whRango ? dice(whRango.split('–')[0]) && dice(whRango.split('–')[1]) : false
-      if (hayConflictoDeHorario && (coincideCitas || coincideConsultorio)) {
-        return { v: 'REVISAR', nota: `dijo el de ${coincideConsultorio ? 'clinics.working_hours' : 'whatsapp_config.schedule'} — la base tiene DOS y no coinciden, arreglar el dato antes de juzgar al agente` }
+      const [ini, fin] = whRango.split('–')
+      if (dice(ini) && dice(fin)) return { v: 'CORRECTA', nota: `coincide con working_hours (${whRango})` }
+      if (sched?.start && dice(sched.start) && dice(sched.end ?? '')) {
+        return { v: 'INCORRECTA', nota: `🔴 dijo el horario de whatsapp_config.schedule (${sched.start}–${sched.end}), que ya no debería llegarle` }
       }
-      if (coincideCitas || coincideConsultorio) return { v: 'CORRECTA', nota: 'coincide con la base' }
       if (esc) return { v: 'ESCALÓ SIN NECESIDAD', nota: 'el horario está en la config' }
-      return { v: 'INCORRECTA', nota: `la base dice ${whRango ?? ''} / ${sched?.start}–${sched?.end}` }
+      return { v: 'INCORRECTA', nota: `la base dice ${whRango}` }
     } },
   { id: 'cual_medico_mi_cita', titulo: '¿con qué médico es mi cita?', turnos: ['Con qué médico es mi cita?', 'sí'],
     verdad: `${medicoDeLaCita} (appointments → doctors.name)`,

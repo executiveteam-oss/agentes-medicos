@@ -51,7 +51,7 @@ import {
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
-import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma } from '@/lib/whatsapp/agent-guards'
+import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
@@ -1192,7 +1192,12 @@ async function processWebhook(body: unknown): Promise<void> {
         } catch { /* no crítico */ }
       }
 
-      const { text: sendText, stripped: tsStripped } = stripTimestampMarkers(sinMonologo)
+      // `let` y no `const`: el guard 9 puede reemplazar este texto ANTES de
+      // guardarlo y enviarlo (los guards 7 y 8 corren después del envío porque
+      // sólo escalan; éste cambia lo que la paciente lee).
+      const strippedTs = stripTimestampMarkers(sinMonologo)
+      let sendText = strippedTs.text
+      const tsStripped = strippedTs.stripped
       if (tsStripped > 0) {
         console.warn(`[Webhook] ⚠ ECO timestamp: removidos ${tsStripped} marcador(es) [YYYY-MM-DD HH:MM] de la respuesta`)
         try {
@@ -1210,6 +1215,49 @@ async function processWebhook(body: unknown): Promise<void> {
       // 18.1. Registrar uso de tokens
       if (agentResponse.tokenUsage) {
         await trackTokenUsage(clinic.id, agentResponse.tokenUsage.input, agentResponse.tokenUsage.output)
+      }
+
+      // 18.9 GUARD 9 — afirmó una preparación que nadie cargó.
+      //
+      // Va ACÁ, sobre `sendText`, y no en el bucle de guards de arriba, porque
+      // además de reemplazar el texto tiene que ESCALAR: el mensaje le promete
+      // a la paciente que el consultorio le confirma la indicación, y una
+      // promesa sin respaldo es exactamente lo que el guard 7 existe para
+      // impedir. Reemplazar sin escalar sería crear el bug de al lado.
+      const preparacionesCargadas = (consultationTypes ?? [])
+        .map((ct) => (ct as { preparacion?: string | null }).preparacion ?? '')
+        .filter((t) => t.trim().length > 0)
+      const g9 = detectPreparacionInventada({ agentText: sendText, preparacionesCargadas })
+      if (g9.blocked && g9.replacement) {
+        console.warn(`[Webhook] 🚨 Guard 9: preparación inventada (cargadas=${preparacionesCargadas.length}) → reemplazar y escalar`)
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'preparacion_inventada_bloqueada',
+            actor_type: 'system',
+            target_type: 'conversation',
+            target_id: conversation.id,
+            details: {
+              texto_que_lo_activo: sendText.slice(0, 500),
+              preparaciones_cargadas: preparacionesCargadas.length,
+            },
+          })
+        } catch { /* no crítico */ }
+        sendText = g9.replacement
+        await supabaseAdmin
+          .from('conversations')
+          .update({
+            status: 'escalated',
+            escalated_at: new Date().toISOString(),
+            context: escalationContext(conversation.context, ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION),
+          })
+          .eq('id', conversation.id)
+        await notifyStaffOfEscalation({
+          clinicId: clinic.id,
+          conversationId: conversation.id,
+          patientName: patient.name,
+          reason: 'Preguntó por la preparación de un examen y no la tenemos cargada — hay que confirmársela',
+        })
       }
 
       // 19. Guardar respuesta del agente en DB (versión limpia, ya sin marcador)

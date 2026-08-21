@@ -84,7 +84,7 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
   const [ctRes, docRes] = await Promise.all([
     supabaseAdmin
       .from('consultation_types')
-      .select('id, name, display_name, price, doctor_id, eps_name, available_conventions, requires_preparation, preparation_instructions, bookable_via_whatsapp')
+      .select('id, name, display_name, price, doctor_id, eps_name, available_conventions, preparacion, bookable_via_whatsapp')
       .eq('clinic_id', clinicId)
       .eq('is_active', true),
     supabaseAdmin
@@ -97,7 +97,7 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
   type CT = {
     id: string; name: string; display_name: string | null; price: number | null
     doctor_id: string | null; eps_name: string | null; available_conventions: string[] | null
-    requires_preparation: boolean | null; preparation_instructions: string | null
+    preparacion: string | null
     bookable_via_whatsapp: boolean | null
   }
   type Doc = { id: string; name: string; working_hours: Record<string, { active?: boolean; blocks?: unknown[] }> | null; agenda_closed: boolean | null }
@@ -162,20 +162,20 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
   // agente igual contesta, y lo que contesta se lo inventa. Medido el
   // 2026-08-21: dio "vejiga llena, toma agua 1 hora antes" para una ecografía
   // transvaginal, sin una sola línea de preparación en la base.
-  const sinPreparacion = tipos.filter((c) => !c.requires_preparation && !c.preparation_instructions?.trim())
+  const sinPreparacion = tipos.filter((c) => !c.preparacion?.trim())
   hallazgos.push({
     clave: 'servicios_sin_preparacion',
     titulo: 'Servicios sin preparación cargada',
     cuantos: sinPreparacion.length,
     deUnTotalDe: tipos.length,
     queImplica: sinPreparacion.length > 0
-      ? `Si una paciente pregunta "¿qué preparación lleva?", el agente no tiene qué responder — y el riesgo no es que se quede callado, es que conteste algo que no le dio nadie. Cargar la preparación de los exámenes que la necesitan es lo que lo impide.`
+      ? `Si una paciente pregunta "¿qué preparación lleva?" por uno de estos ${sinPreparacion.length}, el agente NO responde de memoria: le dice que la indicación se la confirma el consultorio y le pasa la conversación a una persona. Cargá la preparación de los exámenes que la necesitan y la contesta él.`
       : 'Los servicios que lo necesitan tienen su preparación cargada.',
     ejemplos: ejemplosUnicos(sinPreparacion.map(nombre)),
     href: '/dashboard/doctors',
     hrefLabel: 'Médicos y servicios',
     severidad: 'alta',
-    verificadoContra: 'no hay ninguna tool que devuelva preparación: el agente no tiene de dónde sacarla, y por eso la inventa',
+    verificadoContra: 'consultation_types.preparacion es la única fuente; el prompt la inyecta textual y agent-guards.detectPreparacionInventada bloquea cualquier indicación no anclada en ella',
   })
 
   // ── 4. Médicos sin horario ────────────────────────────────────────

@@ -527,3 +527,81 @@ export function detectDatosSinRespaldo(args: Guard6Args): GuardResult {
 
   return { blocked: false }
 }
+
+// ============================================================
+// GUARD 9: preparación inventada
+//
+// El 2026-08-21, preguntado por la preparación de una ecografía transvaginal,
+// el agente contestó "vejiga llena, toma agua 1 hora antes y no orines". No
+// había una sola línea de preparación cargada en la base: se la inventó. Y en
+// ginecología, para ese examen, la indicación suele ser la contraria.
+//
+// El prompt ya lleva el texto real cuando existe y una marca de "no la sabemos"
+// cuando no — pero eso es capa A. Esto es capa B: si el modelo afirma una
+// indicación que NO está anclada en ninguna preparación cargada de esta
+// clínica, el mensaje no sale.
+//
+// EL ANCLAJE ES EL CRITERIO, no una lista de frases prohibidas: por eso funciona
+// también para la clínica que sí cargó sus preparaciones. Si el texto que el
+// modelo escribió reproduce una preparación cargada, pasa; si no reproduce
+// ninguna, es de él.
+// ============================================================
+
+/** Afirmaciones que son una INDICACIÓN previa al examen, no charla general. */
+const AFIRMA_PREPARACION: RegExp[] = [
+  /\bvejiga\s+(llena|vac[ií]a|desocupada)\b/i,
+  /\bayun[oa]s?\b|\ben ayunas\b/i,
+  /\bno\s+(tener|tengas|debes tener)\s+relaciones\b/i,
+  /\b\d{1,2}\s*horas?\s+antes\b/i,
+  /\b\d{1,2}\s*d[ií]as?\s+antes\b/i,
+  /\bno\s+(usar|uses|aplicar|apliques)\s+(óvulos|ovulos|cremas|duchas|gel)\b/i,
+  /\babstinencia\b/i,
+  /\bno\s+(orines|orinar)\b/i,
+  /\b(toma|tomar|beber|bebe)\s+\S{0,12}\s*(agua|l[ií]quidos?)\b/i,
+  /\bdepilaci[óo]n\b|\brasurar\b/i,
+  /\benema\b|\blaxante\b/i,
+]
+
+const PALABRAS_VACIAS = new Set(['de','la','el','en','y','a','que','los','las','un','una','por','para','con','no','se','su','tu','del','al','lo','es','o','antes','debe','debes','tener','si'])
+function contenido(texto: string): Set<string> {
+  return new Set(
+    texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9ñ ]+/g, ' ').split(/\s+/)
+      .filter((w) => w.length > 2 && !PALABRAS_VACIAS.has(w))
+  )
+}
+
+/** ¿Lo que el agente escribió reproduce alguna preparación cargada? */
+function estaAnclada(agentText: string, preparaciones: string[]): boolean {
+  const dicho = contenido(agentText)
+  return preparaciones.some((p) => {
+    const suyo = contenido(p)
+    if (suyo.size === 0) return false
+    const compartidos = [...suyo].filter((w) => dicho.has(w)).length
+    // 60%: tolera que el agente reordene o resuma, no que invente otra cosa.
+    return compartidos / suyo.size >= 0.6
+  })
+}
+
+export function detectPreparacionInventada(args: {
+  agentText: string
+  /** Las preparaciones cargadas de los servicios de ESTA clínica. */
+  preparacionesCargadas: string[]
+}): GuardResult {
+  const afirma = AFIRMA_PREPARACION.some((re) => re.test(args.agentText))
+  if (!afirma) return { blocked: false }
+  if (estaAnclada(args.agentText, args.preparacionesCargadas)) return { blocked: false }
+
+  return {
+    blocked: true,
+    // No es un "no se puede" a secas: dice qué sigue y quién lo garantiza. El
+    // caller escala, así que la promesa tiene respaldo (ver guard 7).
+    replacement:
+      'Prefiero no darte una indicación de preparación de memoria, porque para ' +
+      'cada examen es distinta y no quiero que te prepares mal 🙏 Ya le pedí al ' +
+      'consultorio que te confirme exactamente qué debes tener en cuenta y te ' +
+      'escriben enseguida. ¿Te ayudo con algo más mientras tanto?',
+    reason: 'preparacion_inventada',
+    details: { preparaciones_cargadas: args.preparacionesCargadas.length },
+  }
+}

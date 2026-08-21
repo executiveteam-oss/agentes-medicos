@@ -229,7 +229,11 @@ export interface ConsultationType {
   name: string
   duration_minutes: number
   requires_preparation: boolean
+  /** @deprecated muerta desde 2026-08-21 — usar `preparacion`. */
   preparation_instructions: string | null
+  /** Indicaciones previas al examen. Vacío = NO hay preparación cargada, y el
+   *  agente no puede inventar una. Fuente única. */
+  preparacion?: string | null
   price: number | null            // COP
   is_active: boolean
   bookable_via_whatsapp: boolean  // Si el agente puede ofrecer este servicio (migración 00025)

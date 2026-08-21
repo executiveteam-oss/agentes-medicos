@@ -272,7 +272,7 @@ async function send24hReminders(
       patients(name, phone, proactive_contact_opt_in),
       doctors(name, gender),
       clinics(name, address, city),
-      consultation_types(name, preparation_instructions, requires_documents, required_documents_description)
+      consultation_types(name, preparacion, requires_documents, required_documents_description)
     `)
     // `blocked_external` VA en el filtro. No es un bloqueo de agenda: son citas
     // que iSalud puso en un cupo ya ocupado y el sync degradó para no perderlas
@@ -305,7 +305,7 @@ async function send24hReminders(
     const clinic = apt.clinics as unknown as { name: string; address: string; city: string | null } | null
     const ctData = apt.consultation_types as unknown as {
       name: string | null
-      preparation_instructions: string | null
+      preparacion: string | null
       requires_documents: boolean
       required_documents_description: string | null
     } | null

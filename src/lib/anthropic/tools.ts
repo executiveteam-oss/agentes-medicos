@@ -144,7 +144,8 @@ export const agentTools: Tool[] = [
     name: 'get_patient_appointments',
     description:
       'Obtiene las citas de un paciente: las FUTURAS en "appointments" y las de los ' +
-      'últimos 60 días en "citas_pasadas" (con médico y si se marcó asistencia). ' +
+      'últimos 60 días en "citas_pasadas". Las dos listas traen "doctor_name": ' +
+      'úsalo cuando pregunten con qué médico es la cita, nunca lo adivines. ' +
       'Úsala cuando el paciente pregunta por sus citas, quiere cancelar/reagendar, ' +
       'o menciona una cita a la que no pudo ir. Las de "citas_pasadas" ya ocurrieron: ' +
       'no se cancelan ni se reagendan, se ofrece agendar una nueva.',

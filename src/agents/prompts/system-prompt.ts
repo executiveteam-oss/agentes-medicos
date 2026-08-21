@@ -166,7 +166,16 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
         // B1 (2026-07-30): NINGÚN precio va al catálogo — ni particular ni convenio.
         // El único camino a un precio es el tool get_consultation_price (regla en código).
         const priceStr = ''
-        const prepStr = ct.requires_preparation ? ' ⚠️ requiere preparación' : ''
+        // LA PREPARACIÓN ENTRA COMO DATO, NO COMO BANDERA.
+        // Antes acá iba sólo "⚠️ requiere preparación", que le dice al modelo
+        // QUE hay preparación y no CUÁL — y el modelo la completaba de memoria.
+        // Ahora va el texto que cargó la clínica; si no cargó ninguno, va la
+        // marca de que no la sabemos. Ver patrón 7: el dato entra desde una
+        // fuente, no lo recita el modelo.
+        const prepTexto = (ct.preparacion ?? '').trim()
+        const prepStr = prepTexto
+          ? ` 🧾 PREPARACIÓN (dísela TEXTUAL): "${prepTexto}"`
+          : ' 🧾 SIN PREPARACIÓN CARGADA — no la sabemos'
         const docsStr = ct.requires_documents ? ' 📄 requiere documentos' : ''
         const reasonStr = ct.requires_free_text_reason ? ' ✏️ pedir motivo' : ''
         const modalStr = ct.modality === 'virtual' ? ' [Virtual]' : ct.modality === 'ambas' ? ' [Presencial/Virtual]' : ''

@@ -17,6 +17,7 @@ export interface ConsultationTypeInput {
   duration_minutes: number
   requires_preparation: boolean
   preparation_instructions: string | null
+  preparacion?: string | null
   price: number | null
   is_active: boolean
   bookable_via_whatsapp: boolean
@@ -151,6 +152,9 @@ export async function updateConsultationType(
     }
   }
   if (input.preparation_instructions !== undefined) updateData.preparation_instructions = input.preparation_instructions?.trim() || null
+  // Preparación: fuente única. Vacío se guarda como NULL — el agente distingue
+  // "no hay preparación cargada" de "la preparación es ninguna".
+  if (input.preparacion !== undefined) updateData.preparacion = input.preparacion?.trim() || null
   if (input.price !== undefined) updateData.price = input.price
   if (input.is_active !== undefined) updateData.is_active = input.is_active
   if (input.bookable_via_whatsapp !== undefined) {

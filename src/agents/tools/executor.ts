@@ -1868,21 +1868,38 @@ async function getPatientAppointments(
 
   const doctorIds = [...new Set((appointments ?? []).map((a) => a.doctor_id as string).filter(Boolean))]
   const nombres = new Map<string, string>()
+  const generos = new Map<string, string | null>()
   if (doctorIds.length > 0) {
-    const { data: meds } = await supabaseAdmin.from('doctors').select('id, name').in('id', doctorIds)
-    for (const m of (meds ?? []) as Array<{ id: string; name: string }>) nombres.set(m.id, m.name)
+    const { data: meds } = await supabaseAdmin.from('doctors').select('id, name, gender').in('id', doctorIds)
+    for (const m of (meds ?? []) as Array<{ id: string; name: string; gender: string | null }>) {
+      nombres.set(m.id, m.name)
+      generos.set(m.id, m.gender)
+    }
   }
 
   const futuras = (appointments ?? []).filter((a) => isFutureStart(a.starts_at as string, ahora))
   const pasadas = (appointments ?? []).filter((a) => !isFutureStart(a.starts_at as string, ahora))
 
   // Formatear para que Claude las muestre bonito
+  // 🔴 EL MÉDICO VA EN LAS FUTURAS TAMBIÉN (2026-08-21).
+  //
+  // Esto devolvía appointment_id/date/time/status/reason/modality y NADA del
+  // médico, así que "¿con qué médico es mi cita?" —la pregunta más básica que
+  // existe— era literalmente incontestable. Medido con la batería: el agente
+  // dijo "en el sistema no aparece el nombre del médico para ninguna de ellas"
+  // y escaló. Hizo lo correcto con lo que tenía; el campo faltaba.
+  //
+  // Ojo con el orden en que se arreglan las cosas: hoy más temprano se agregó
+  // doctor_name a las citas PASADAS y las futuras quedaron sin él. Cuando una
+  // tool devuelve dos listas de lo mismo, las dos llevan los mismos campos.
   const formatted = futuras
     .filter((apt) => ['confirmed', 'rescheduled', 'blocked_external'].includes(apt.status as string))
     .map((apt) => ({
       appointment_id: apt.id,
       date: formatForPatient(apt.starts_at),
       time: formatTimeForPatient(apt.starts_at),
+      doctor_id: apt.doctor_id,
+      doctor_name: nombreMedicoParaPaciente(nombres.get(apt.doctor_id as string) ?? '', generos.get(apt.doctor_id as string) ?? null) || null,
       status: apt.status,
       reason: apt.reason,
       modality: apt.modality ?? 'presencial',
@@ -1893,7 +1910,7 @@ async function getPatientAppointments(
     date: formatForPatient(apt.starts_at),
     time: formatTimeForPatient(apt.starts_at),
     doctor_id: apt.doctor_id,
-    doctor_name: nombres.get(apt.doctor_id as string) ?? null,
+    doctor_name: nombreMedicoParaPaciente(nombres.get(apt.doctor_id as string) ?? '', generos.get(apt.doctor_id as string) ?? null) || null,
     // Lo que sabemos y lo que NO: si nadie marcó la asistencia, es null y el
     // modelo NO puede decir que no fue. Decir "no la veo" es la verdad.
     asistencia: (apt.attendance_outcome as string | null) ?? 'sin_marcar',

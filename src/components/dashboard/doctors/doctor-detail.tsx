@@ -847,13 +847,16 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
   const [epsName, setEpsName] = useState(ct.eps_name ?? '')
   const [bookable, setBookable] = useState(ct.bookable_via_whatsapp)
   const [modality, setModality] = useState(ct.modality)
+  // Preparación: vacío significa "no hay ninguna cargada", y con eso el agente
+  // deja de responder de memoria y dice que la confirma el consultorio.
+  const [preparacion, setPreparacion] = useState(ct.preparacion ?? '')
   const [isPending, startTransition] = useTransition()
 
   function handleSave() {
     startTransition(async () => {
-      const r = await updateConsultationType(ct.id, { doctor_id: ct.doctor_id, name, duration_minutes: duration, price: price || null, eps_name: epsName || null, bookable_via_whatsapp: bookable, modality, requires_preparation: ct.requires_preparation, preparation_instructions: ct.preparation_instructions, is_active: ct.is_active, requires_documents: ct.requires_documents, required_documents_description: ct.required_documents_description })
+      const r = await updateConsultationType(ct.id, { doctor_id: ct.doctor_id, name, duration_minutes: duration, price: price || null, eps_name: epsName || null, bookable_via_whatsapp: bookable, modality, requires_preparation: ct.requires_preparation, preparation_instructions: ct.preparation_instructions, preparacion: preparacion.trim() || null, is_active: ct.is_active, requires_documents: ct.requires_documents, required_documents_description: ct.required_documents_description })
       if (r.ok) {
-        onUpdated({ id: ct.id, name, duration_minutes: duration, price: price || null, eps_name: epsName || null, bookable_via_whatsapp: bookable, modality })
+        onUpdated({ id: ct.id, name, duration_minutes: duration, price: price || null, eps_name: epsName || null, bookable_via_whatsapp: bookable, modality, preparacion: preparacion.trim() || null })
       } else onError(r.error ?? 'Error')
     })
   }
@@ -870,6 +873,24 @@ function TypeExpandedEditor({ ct, onUpdated, onDelete, onError }: { ct: Consulta
           <select className="input-v2" value={modality} onChange={(e) => setModality(e.target.value as typeof modality)} style={{ fontSize: '12px', marginTop: '2px' }}>
             <option value="presencial">Presencial</option><option value="virtual">Virtual</option><option value="ambas">Ambas</option>
           </select>
+        </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-text-subtle)' }}>
+            Preparación previa al examen
+          </label>
+          <textarea
+            className="input-v2"
+            value={preparacion}
+            onChange={(e) => setPreparacion(e.target.value)}
+            rows={3}
+            placeholder="Ej: No tener relaciones 24 horas antes. Traer la orden médica. No aplica si hay sangrado."
+            style={{ fontSize: '12px', marginTop: '2px', resize: 'vertical', width: '100%' }}
+          />
+          <p style={{ fontSize: '10.5px', color: 'var(--v2-text-muted)', margin: '4px 0 0', lineHeight: 1.5 }}>
+            Es lo que el agente le va a decir textual a la paciente cuando pregunte
+            qué preparación lleva. <strong>Si lo dejas vacío el agente no responde de
+            memoria</strong>: le dice que esa indicación la confirma el consultorio.
+          </p>
         </div>
         <div>
           <label style={{ fontSize: '11px', fontWeight: 600, color: 'var(--v2-text-subtle)' }}>Categoría Res-256 (reporte MinSalud)</label>

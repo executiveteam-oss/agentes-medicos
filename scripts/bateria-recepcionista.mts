@@ -87,8 +87,13 @@ const precioCOP = `$${precioServicio.toLocaleString('es-CO').replace(/,/g, '.')}
 const conveniosDB = [...new Set(activos.map((c) => c.eps_name).filter(Boolean).map(String))]
 const unConvenio = conveniosDB.find((e) => !/particular/i.test(e)) ?? conveniosDB[0] ?? 'Sunshine EPS'
 const sched = (clinic.whatsapp_config as Any)?.schedule as { start?: string; end?: string; days?: number[] } | undefined
+// El OTRO horario de la misma clínica, el que el prompt muestra primero.
+const wh = clinic.working_hours as Record<string, { active?: boolean; start?: string; end?: string }> | null
+const diaLaboral = wh ? Object.values(wh).find((d) => d?.active && d.start && d.end) : undefined
+const whRango = diaLaboral ? `${diaLaboral.start}–${diaLaboral.end}` : null
+const hayConflictoDeHorario = !!(whRango && sched?.start && (whRango !== `${sched.start}–${sched.end}`))
 const direccion = String(clinic.address ?? ''), ciudad = String(clinic.city ?? '')
-const hayPreparacionEnLaBase = activos.some((c) => c.requires_preparation === true || (c.preparation_instructions && String(c.preparation_instructions).trim()))
+const hayPreparacionEnLaBase = activos.some((c) => c.preparacion && String(c.preparacion).trim())
 const { puedeAtenderVirtual } = await import('@/lib/clinic/virtual-config')
 const virtualOn = puedeAtenderVirtual(clinic as never)
 const DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado']
@@ -140,16 +145,26 @@ const TAREAS: Tarea[] = [
       if (esc) return { v: 'ESCALÓ SIN NECESIDAD', nota: 'la dirección está en la base' }
       return { v: 'INCORRECTA', nota: 'no dio la dirección real' }
     } },
+  // 🔴 LA BASE TIENE DOS HORARIOS PARA ESTA PREGUNTA, y no coinciden:
+  //    clinics.working_hours            → el que el prompt llama "Horarios del consultorio"
+  //    whatsapp_config.schedule         → el que llama "HORARIO DE CITAS DISPONIBLES"
+  // Mientras discrepen, cualquiera de los dos que diga el agente es "correcto"
+  // contra una fuente e "incorrecto" contra la otra. Medirlo contra una sola
+  // sería inventar una verdad que la base no tiene — así que la batería reporta
+  // el conflicto, que es el hallazgo real.
   { id: 'horario_clinica', titulo: 'horario de atención', turnos: ['¿En qué horario atienden?', 'sí'],
-    verdad: sched ? `${sched.start}–${sched.end}, días ${JSON.stringify(sched.days)} (whatsapp_config.schedule)` : 'NO CONFIGURADO',
+    verdad: `working_hours=${whRango ?? 'sin configurar'}  ·  whatsapp_config.schedule=${sched ? `${sched.start}–${sched.end}` : 'sin configurar'}${hayConflictoDeHorario ? '  🔴 NO COINCIDEN' : ''}`,
     juzgar: (t, _to, esc) => {
-      if (!sched?.start) return { v: 'REVISAR', nota: 'la clínica no tiene horario configurado' }
-      const h = (s: string) => Number(s.split(':')[0])
-      const diceInicio = new RegExp(`\\b${h(sched.start)}\\b`).test(t)
-      const diceFin = new RegExp(`\\b${h(sched.end ?? '')}\\b`).test(t)
-      if (diceInicio && diceFin) return { v: 'CORRECTA', nota: `${sched.start}–${sched.end}` }
+      const h = (x: string) => Number(x.split(':')[0])
+      const dice = (x?: string) => !!x && new RegExp(`\\b${h(x)}\\b`).test(t)
+      const coincideCitas = sched?.start ? dice(sched.start) && dice(sched.end) : false
+      const coincideConsultorio = whRango ? dice(whRango.split('–')[0]) && dice(whRango.split('–')[1]) : false
+      if (hayConflictoDeHorario && (coincideCitas || coincideConsultorio)) {
+        return { v: 'REVISAR', nota: `dijo el de ${coincideConsultorio ? 'clinics.working_hours' : 'whatsapp_config.schedule'} — la base tiene DOS y no coinciden, arreglar el dato antes de juzgar al agente` }
+      }
+      if (coincideCitas || coincideConsultorio) return { v: 'CORRECTA', nota: 'coincide con la base' }
       if (esc) return { v: 'ESCALÓ SIN NECESIDAD', nota: 'el horario está en la config' }
-      return { v: 'INCORRECTA', nota: `la base dice ${sched.start}–${sched.end}` }
+      return { v: 'INCORRECTA', nota: `la base dice ${whRango ?? ''} / ${sched?.start}–${sched?.end}` }
     } },
   { id: 'cual_medico_mi_cita', titulo: '¿con qué médico es mi cita?', turnos: ['Con qué médico es mi cita?', 'sí'],
     verdad: `${medicoDeLaCita} (appointments → doctors.name)`,
@@ -169,7 +184,7 @@ const TAREAS: Tarea[] = [
       return { v: 'INCORRECTA', nota: `la base dice ${horaCita}` }
     } },
   { id: 'preparacion', titulo: 'qué preparación lleva mi examen', turnos: [`Qué preparación necesito para ${nombreServicio}?`, 'sí'],
-    verdad: hayPreparacionEnLaBase ? 'hay instrucciones en consultation_types' : '🔴 NO HAY NINGÚN DATO DE PREPARACIÓN EN LA BASE',
+    verdad: hayPreparacionEnLaBase ? 'hay preparación cargada en consultation_types.preparacion' : '🔴 consultation_types.preparacion está VACÍO en todos los servicios',
     juzgar: (t, _to, esc) => {
       const afirmaAlgo = /\b(ayun|vejiga llena|no tener relaciones|no usar [oó]vulos|abstinencia|traer|beber|tomar\s+\d|horas antes|d[ií]as antes)\b/i.test(t)
       if (!hayPreparacionEnLaBase && afirmaAlgo) return { v: 'INVENTÓ', nota: 'dio preparación concreta y la base no tiene ninguna' }

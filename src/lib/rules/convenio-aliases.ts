@@ -113,10 +113,21 @@ export function normalizarConvenio(s: string): string {
  * sí lo tiene la manda a colgar y no deja rastro.
  */
 export function convenioCoincide(dicho: string, cargado: string): boolean {
-  const d = (dicho ?? '').trim().toLowerCase()
-  const c = (cargado ?? '').toLowerCase()
+  // 🔴 NORMALIZAR TILDES EN LA COMPARACIÓN DIRECTA (2026-08-21).
+  //
+  // Antes acá se comparaba con `.toLowerCase()` a secas, mientras que la tabla
+  // de alias sí normalizaba tildes. Resultado: "Colmédica" bien escrito NO
+  // matcheaba "COLMEDICA" cargado, y la paciente recibía "no tengo registrado
+  // ese convenio" por una tilde. La misma pregunta tenía dos normalizaciones
+  // distintas según por qué rama pasara.
+  const d = normalizarConvenio(dicho ?? '')
+  const c = normalizarConvenio(cargado ?? '')
   if (!d || !c) return false
-  if (c.includes(d) || d.includes(c.replace(/[.\s]+/g, ''))) return true
+  // Lo cargado contiene lo dicho: "colmedica" dentro de "colmedica medicina
+  // prepagada sa".
+  if (c.includes(d)) return true
+  // Y al revés, con lo cargado pegado: cubre "S.O.S." cargado y "sos" dicho.
+  if (d.includes(c.replace(/\s+/g, ''))) return true
   return mismoConvenioPorAlias(dicho, cargado)
 }
 

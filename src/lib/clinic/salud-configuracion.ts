@@ -17,7 +17,25 @@
 // mueve a nadie a arreglarlo.
 //
 // Sirve para cualquier clínica: recibe clinicId y no asume nada de su catálogo.
-// ============================================================
+//
+// ─────────────────────────────────────────────────────────────
+// 🚨 REGLA DE ESTA PANTALLA: NO ACUSA A LA CLÍNICA DE ALGO QUE ES NUESTRO.
+//
+// Antes de listar un dato como "te falta configurar", hay que verificar que el
+// agente REALMENTE no puede llegar a él — contra la misma función que usa el
+// agente, no contra lo que uno supone que hace. Si el dato está y el agente no
+// lo ve, eso es un bug NUESTRO y va a nuestra lista, no a la de ellos.
+//
+// Ya pasó, y es la razón de que la regla exista: los 6 convenios "sin asociar"
+// de Algia incluían COLMÉDICA, que sí estaba cargado — el matcher del agente no
+// normalizaba tildes en la comparación directa. Le íbamos a pedir a la clínica
+// que arreglara nuestro bug. Se arregló el matcher y quedaron 5.
+//
+// Por eso `Hallazgo.verificadoContra` es OBLIGATORIO: no se puede agregar un
+// chequeo sin decir qué función del lado del agente se miró para confirmar que
+// el dato es de verdad inalcanzable. Si no hay una función que mirar, el
+// chequeo no está listo para acusar a nadie.
+// ─────────────────────────────────────────────────────────────
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { convenioCoincide } from '@/lib/rules/convenio-aliases'
@@ -39,8 +57,9 @@ export interface Hallazgo {
   href: string
   hrefLabel: string
   severidad: Severidad
-  /** El dato no se puede evaluar (la clínica no usa esa función todavía). */
-  noAplica?: boolean
+  /** OBLIGATORIO — qué se miró del lado del agente para confirmar que el dato
+   *  es realmente inalcanzable para él. Ver la regla del encabezado. */
+  verificadoContra: string
 }
 
 export interface SaludDeConfiguracion {
@@ -116,6 +135,7 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
     href: '/dashboard/doctors',
     hrefLabel: 'Médicos y servicios',
     severidad: 'alta',
+    verificadoContra: 'convenio-aliases.convenioCoincide — la MISMA función con la que check_eps_convenio decide si reconoce un convenio',
   })
 
   // ── 2. Servicios sin precio ───────────────────────────────────────
@@ -132,6 +152,7 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
     href: '/dashboard/doctors',
     hrefLabel: 'Médicos y servicios',
     severidad: 'alta',
+    verificadoContra: 'executor.getConsultationPrice — lee consultation_types.price y NO tiene fallback a clinics.consultation_price, así que sin ese campo no hay precio que dar',
   })
 
   // ── 3. Servicios sin preparación cargada ──────────────────────────
@@ -154,6 +175,7 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
     href: '/dashboard/doctors',
     hrefLabel: 'Médicos y servicios',
     severidad: 'alta',
+    verificadoContra: 'no hay ninguna tool que devuelva preparación: el agente no tiene de dónde sacarla, y por eso la inventa',
   })
 
   // ── 4. Médicos sin horario ────────────────────────────────────────
@@ -172,6 +194,7 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
     href: '/dashboard/doctors',
     hrefLabel: 'Médicos y servicios',
     severidad: 'alta',
+    verificadoContra: 'working-hours.normalizeWorkingDay — sin working_hours devuelve {active:false, blocks:[]}, no un horario por defecto, así que check_availability no encuentra ni un cupo',
   })
 
   // ── 5. Servicios sin médico asignado ──────────────────────────────
@@ -182,12 +205,13 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
     cuantos: sinMedico.length,
     deUnTotalDe: tipos.length,
     queImplica: sinMedico.length > 0
-      ? `El agente no sabe con quién agendar ${sinMedico.length === 1 ? 'este servicio' : `estos ${sinMedico.length} servicios`}, así que no puede ofrecerlos aunque la paciente los pida por su nombre.`
+      ? `El agente puede nombrar ${sinMedico.length === 1 ? 'este servicio' : `estos ${sinMedico.length} servicios`} pero no puede agendarlos: no sabe con qué médico. La paciente llega hasta el final y ahí se traba.`
       : 'Todos los servicios activos tienen un médico asignado.',
     ejemplos: ejemplosUnicos(sinMedico.map(nombre)),
     href: '/dashboard/doctors',
     hrefLabel: 'Médicos y servicios',
     severidad: 'alta',
+    verificadoContra: 'agent-context.findActiveConsultationTypes SÍ se lo pasa al agente, pero create_appointment necesita un doctor_id: puede nombrarlo y no puede agendarlo',
   })
 
   // ── 6. Agendas cerradas (informativo) ─────────────────────────────
@@ -204,6 +228,7 @@ export async function analizarSaludDeConfiguracion(clinicId: string): Promise<Sa
     href: '/dashboard/doctors',
     hrefLabel: 'Médicos y servicios',
     severidad: 'media',
+    verificadoContra: 'doctors.agenda_closed lo respeta el executor al validar la escritura (puedeEscribirseLaCita → traerDisponibilidadDia)',
   })
 
   return {

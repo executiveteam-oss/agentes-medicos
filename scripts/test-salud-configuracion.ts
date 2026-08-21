@@ -20,6 +20,13 @@ async function main() {
     // Sólo vale la pena mostrar clínicas con algo cargado, pero corremos TODAS
     // para verificar que no explota con catálogo vacío.
     const r = await analizarSaludDeConfiguracion(c.id)
+    // La regla de la pantalla: ningún hallazgo puede acusar sin decir contra qué
+    // función del agente se verificó que el dato es inalcanzable.
+    const sinVerificar = r.hallazgos.filter((h) => !h.verificadoContra?.trim())
+    if (sinVerificar.length > 0) {
+      console.error(`🔴 hallazgos sin verificadoContra: ${sinVerificar.map((h) => h.clave).join(', ')}`)
+      process.exitCode = 1
+    }
     const resumen = r.hallazgos.map((h) => `${h.clave.split('_').slice(-1)[0]}=${h.cuantos}/${h.deUnTotalDe}`).join(' · ')
     const marca = (cts ?? 0) + (docs ?? 0) === 0 ? '(vacía)' : ''
     console.log(`\n${c.name} ${marca}\n   ${resumen}`)

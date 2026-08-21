@@ -27,7 +27,7 @@ import type { Clinic, Doctor, WhatsAppConfig, VirtualConsultationConfig, Working
 import { parseISO, addMinutes, format, isValid } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { toZonedTime } from 'date-fns-tz'
-import { mismoConvenioPorAlias, dijoParticular } from '@/lib/rules/convenio-aliases'
+import { convenioCoincide, dijoParticular } from '@/lib/rules/convenio-aliases'
 import { mensajeFechaBloqueada } from '@/lib/calendar/blocked-date-message'
 import { resolverDisponibilidadDia } from '@/lib/calendar/day-availability'
 import { indiceDiaSemanaCOT, traerFestivos } from '@/lib/calendar/fetch-day-availability'
@@ -2500,13 +2500,10 @@ async function checkEpsConvenio(
   // Match flexible: partial match case-insensitive
   type Row = { eps_name: string; insurer_type: 'EPS' | 'Prepagada' | null }
   const rows = (matches ?? []) as Row[]
-  const porNombre = rows.filter((r) => {
-    const lower = r.eps_name.toLowerCase()
-    if (lower.includes(searchTerm) || searchTerm.includes(lower.replace(/[.\s]+/g, ''))) return true
-    // Alias: la paciente dice "SOS" y está cargado como la razón social completa,
-    // sin una letra en común. Sin esto el convenio existe y es inalcanzable.
-    return mismoConvenioPorAlias(epsName, r.eps_name)
-  })
+  // El criterio vive en convenio-aliases.convenioCoincide — misma función que
+  // usa la vista de salud de configuración para avisarle a la clínica qué
+  // convenios suyos NO se van a reconocer. Una sola respuesta a esa pregunta.
+  const porNombre = rows.filter((r) => convenioCoincide(epsName, r.eps_name))
 
   // Con varios homónimos (una aseguradora que opera EPS y prepagada a la vez,
   // como SURA), el tipo elige cuál. Si ninguno coincide, gana el primero igual:

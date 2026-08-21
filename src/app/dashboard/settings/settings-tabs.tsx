@@ -12,12 +12,14 @@ import {
   FileText,
   ServerCog,
   Zap,
+  Stethoscope,
 } from 'lucide-react'
 
 // "Médicos" se sacó de aquí el 2026-06-25 — ahora vive en /dashboard/doctors
 // como item top-level del sidebar ("Médicos y servicios"). Ver layout.tsx.
 const ALL_TABS = [
   { href: '/dashboard/settings/clinic', label: 'Consultorio', icon: Building2, doctorVisible: true, superAdminOnly: false, external: false },
+  { href: '/dashboard/settings/salud', label: 'Salud de la configuración', icon: Stethoscope, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/plan', label: 'Plan', icon: CreditCard, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/whatsapp', label: 'WhatsApp', icon: MessageSquare, doctorVisible: false, superAdminOnly: false, external: false },
   { href: '/dashboard/settings/automations', label: 'Automatizaciones', icon: Zap, doctorVisible: false, superAdminOnly: false, external: false },

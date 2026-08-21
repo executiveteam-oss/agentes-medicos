@@ -96,6 +96,30 @@ export function normalizarConvenio(s: string): string {
  * dicho como palabra), no una subcadena suelta: "sos" no puede matchear dentro
  * de "colsanitas" ni de "asociacion".
  */
+/**
+ * ¿UN CONVENIO DICHO POR LA PACIENTE ES ESTE CONVENIO CARGADO?
+ *
+ * Fuente ÚNICA del criterio. La usan dos lugares que no pueden divergir:
+ *   · el executor (check_eps_convenio) para contestarle a la paciente
+ *   · la vista de salud de configuración, para decirle a la clínica qué
+ *     convenios suyos el agente NO va a reconocer
+ *
+ * Si la vista reimplementara este matcheo, empezaría a mentir en cuanto alguien
+ * toque el del agente — y mentiría del lado peor: marcando como rotos convenios
+ * que funcionan, o dando por buenos los que no.
+ *
+ * El criterio es asimétrico a propósito (ver el comentario en checkEpsConvenio):
+ * ante la duda se reconoce, porque decirle "no tenemos convenio" a alguien que
+ * sí lo tiene la manda a colgar y no deja rastro.
+ */
+export function convenioCoincide(dicho: string, cargado: string): boolean {
+  const d = (dicho ?? '').trim().toLowerCase()
+  const c = (cargado ?? '').toLowerCase()
+  if (!d || !c) return false
+  if (c.includes(d) || d.includes(c.replace(/[.\s]+/g, ''))) return true
+  return mismoConvenioPorAlias(dicho, cargado)
+}
+
 export function mismoConvenioPorAlias(dicho: string, cargado: string): boolean {
   const d = normalizarConvenio(dicho)
   const c = normalizarConvenio(cargado)

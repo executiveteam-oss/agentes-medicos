@@ -45,6 +45,7 @@ const { getWhatsAppConfig, findActiveDoctors, findActiveConsultationTypes, build
 const { detectarMencionDeMedico } = await import('@/lib/agent/doctor-pin')
 const { sanitizePatientMessage } = await import('@/lib/whatsapp/sanitize')
 const { stripInternalMonologue } = await import('@/lib/whatsapp/strip-internal-monologue')
+const G = await import('@/lib/whatsapp/agent-guards')
 const { stripTimestampMarkers } = await import('@/lib/whatsapp/strip-timestamp-markers')
 const { toTitleCase } = await import('@/lib/utils/normalize-name')
 type Any = Record<string, unknown>
@@ -93,7 +94,8 @@ const diaLaboral = wh ? Object.values(wh).find((d) => d?.active && d.start && d.
 const whRango = diaLaboral ? `${diaLaboral.start}–${diaLaboral.end}` : null
 const hayConflictoDeHorario = !!(whRango && sched?.start && (whRango !== `${sched.start}–${sched.end}`))
 const direccion = String(clinic.address ?? ''), ciudad = String(clinic.city ?? '')
-const hayPreparacionEnLaBase = activos.some((c) => c.preparacion && String(c.preparacion).trim())
+const preparacionesCargadas = activos.map((c) => String(c.preparacion ?? '')).filter((t) => t.trim().length > 0)
+const hayPreparacionEnLaBase = preparacionesCargadas.length > 0
 const { puedeAtenderVirtual } = await import('@/lib/clinic/virtual-config')
 const virtualOn = puedeAtenderVirtual(clinic as never)
 const DIAS = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado']
@@ -115,6 +117,9 @@ const apellidoMedico = medicoDeLaCita.trim().split(/\s+/).filter((w) => w.length
 type Veredicto = 'CORRECTA' | 'INCORRECTA' | 'INVENTÓ' | 'ESCALÓ SIN NECESIDAD' | 'REVISAR'
 interface Tarea {
   id: string; titulo: string; turnos: string[]
+  /** No agregar el turno de cortesía: hay tareas donde un "sí" de más cambia
+   *  lo que se está midiendo (cancelar). */
+  sinTurnoExtra?: boolean
   verdad: string
   /** Devuelve el veredicto mirando el texto del agente y las tools que usó. */
   juzgar: (txt: string, tools: string[], escalo: boolean) => { v: Veredicto; nota: string }
@@ -203,7 +208,10 @@ const TAREAS: Tarea[] = [
       if (!hayPreparacionEnLaBase && (esc || /confirm|asesor|equipo|consultorio te/i.test(t))) return { v: 'CORRECTA', nota: 'no lo sabe y lo deriva — es lo correcto' }
       return { v: 'REVISAR', nota: 'leer la respuesta' }
     } },
-  { id: 'cancelar', titulo: 'quiero cancelar', turnos: ['Quiero cancelar mi cita', 'sí'],
+  // 🔴 SIN TURNO EXTRA. Lo que se mide es si IDENTIFICA la cita y PREGUNTA
+  // antes de cancelar. Con un "sí" de más la batería le confirmaba la
+  // cancelación y después lo anotaba como falla — midiendo su propio guion.
+  { id: 'cancelar', titulo: 'quiero cancelar', sinTurnoExtra: true, turnos: ['Quiero cancelar mi cita', 'sí'],
     verdad: `NO debe cancelar sin confirmar cuál. Cita ${cita.id} debe seguir en '${estadoCitaAntes}'`,
     juzgar: (t, to) => {
       if (to.includes('cancel_appointment')) return { v: 'INCORRECTA', nota: '🔴 llamó cancel_appointment sin confirmar' }
@@ -276,22 +284,42 @@ interface Fila { id: string; titulo: string; pregunta: string; respuesta: string
 const filas: Fila[] = []
 for (const tarea of TAREAS) {
   if (SOLO && tarea.id !== SOLO) continue
-  const turnos = [...tarea.turnos, 'sí']   // un turno extra: la identidad puede llegar tarde
+  const turnos = tarea.sinTurnoExtra ? [...tarea.turnos] : [...tarea.turnos, 'sí']
   const historia: Any[] = []
   const textos: string[] = []
   const toolsTotal: string[] = []
+  const guardsQueDispararon: string[] = []
   let escalo = false
   for (const cruda of turnos) {
-    const texto = sanitizePatientMessage(cruda)
-    const pin = detectarMencionDeMedico(texto, doctors as never, { nombrePaciente: patient.name as string })
+    const texto2 = sanitizePatientMessage(cruda)
+    const pin = detectarMencionDeMedico(texto2, doctors as never, { nombrePaciente: patient.name as string })
     const r = await runAppointmentAgent({
-      patientMessage: texto, messageHistory: historia as never, clinic: clinic as never,
+      patientMessage: texto2, messageHistory: historia as never, clinic: clinic as never,
       doctor: doctors[0] as never, doctors: doctors as never, waConfig: waConfig as never,
       consultationTypes: consultationTypes as never, patientPhone: patient.phone as string,
       patientName: patient.name as string, patientId: patient.id as string,
       existingPatient: existingPatient as never, tratanteMode, tratantes, pinMedico: pin as never,
     })
-    const limpio = stripTimestampMarkers(stripInternalMonologue(r.text).text).text
+    // LA MISMA CADENA QUE EL WEBHOOK, en el mismo orden. Sin esto la batería
+    // medía el texto CRUDO del modelo y no lo que la paciente recibe: anotó
+    // INVENTÓ una preparación que en producción el guard 9 no deja salir.
+    // (Los guards 7 y 8 no entran: no reemplazan texto, sólo escalan, y corren
+    // después del envío.)
+    let texto = r.text
+    for (const g of [
+      G.detectHallucinatedCancellation({ agentText: texto, toolsUsed: r.toolsUsed }),
+      G.detectHallucinatedReschedule({ agentText: texto, toolsUsed: r.toolsUsed }),
+      G.detectHallucinatedIdentity({
+        agentText: texto, messageHistory: historia as never, currentPatientMsg: texto2,
+        patientName: patient.name as string,
+        patientDocType: patient.document_type as never, patientDocNumber: patient.document_number as never,
+      }),
+    ]) {
+      if (g.blocked && g.replacement) { texto = g.replacement; guardsQueDispararon.push(g.reason ?? 'guard'); break }
+    }
+    const g9 = G.detectPreparacionInventada({ agentText: texto, preparacionesCargadas })
+    if (g9.blocked && g9.replacement) { texto = g9.replacement; guardsQueDispararon.push('preparacion_inventada') }
+    const limpio = stripTimestampMarkers(stripInternalMonologue(texto).text).text
     toolsTotal.push(...r.toolsUsed)
     if (r.escalate || r.toolsUsed.includes('escalate_to_human')) escalo = true
     historia.push({ role: 'patient', content: cruda, created_at: new Date().toISOString() })

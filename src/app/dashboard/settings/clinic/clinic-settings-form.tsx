@@ -429,7 +429,7 @@ export function ClinicSettingsForm({ initialData }: Props) {
         <textarea
           value={data.welcome_message}
           onChange={(e) => update('welcome_message', e.target.value)}
-          placeholder="Ej: ¡Hola! Soy el asistente virtual de Algia Clínica. Estoy aquí para ayudarte a agendar tu cita. ¿Con qué especialidad necesitas atención?"
+          placeholder="Ej: ¡Hola! Soy el asistente virtual de [tu consultorio]. Estoy aquí para ayudarte a agendar tu cita. ¿Con qué especialidad necesitas atención?"
           className="input-v2 w-full"
           rows={3}
         />

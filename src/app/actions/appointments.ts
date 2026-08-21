@@ -554,10 +554,34 @@ export async function updateAppointmentFromDashboard(
       if (clinicHoras) {
         const disp = await traerDisponibilidadDia(clinicId, input.doctor_id, fechaCot, clinicHoras)
         const estadoFranja = estadoDeFranja(disp, horaCot)
-        if (estadoFranja !== 'disponible' && !input.fuera_de_horario_confirmado) {
+        if (estadoFranja !== 'disponible') {
           const { data: doc } = await supabaseAdmin
             .from('doctors').select('name').eq('id', input.doctor_id).maybeSingle()
-          return { ok: false, error: `FUERA_DE_HORARIO: ${motivoParaConfirmar(disp, doc?.name ?? 'El médico')}` }
+          const motivoFueraUpd = motivoParaConfirmar(disp, doc?.name ?? 'El médico')
+          if (!input.fuera_de_horario_confirmado) {
+            return { ok: false, error: `FUERA_DE_HORARIO: ${motivoFueraUpd}` }
+          }
+          // Confirmado: queda el registro, igual que al crear. Mover una cita a
+          // un horario cerrado es la misma decisión que crearla ahí, y hasta
+          // ahora este camino no dejaba rastro de quién la tomó.
+          const sessionUpd = await getUserSession()
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinicId,
+            action: 'cita_fuera_de_horario_confirmada',
+            actor_type: 'staff',
+            target_type: 'appointment',
+            target_id: appointmentId,
+            details: {
+              doctor_id: input.doctor_id,
+              fecha: fechaCot,
+              hora: horaCot,
+              estado: estadoFranja,
+              motivo: motivoFueraUpd,
+              al_editar: true,
+              usuario_id: sessionUpd?.clinicUserId ?? null,
+              usuario_nombre: sessionUpd?.fullName ?? null,
+            },
+          })
         }
       }
     }

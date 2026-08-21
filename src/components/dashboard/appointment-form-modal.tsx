@@ -86,6 +86,17 @@ export function AppointmentFormModal({
   /** Mensaje del server cuando el cupo ya está ocupado: dice QUIÉN está ahí.
    *  Mientras esté seteado, el submit agenda como EXTRA. */
   const [confirmarExtra, setConfirmarExtra] = useState<string | null>(null)
+  /** Igual que confirmarExtra, para el horario fuera de franja.
+   *
+   *  🔴 POR QUÉ (2026-08-21): el override `fuera_de_horario_confirmado` existía
+   *  desde siempre, pero SOLO se podía activar haciendo clic en una celda
+   *  cerrada de la grilla semanal — antes de abrir el formulario. Quien abría
+   *  "Nueva cita" desde el botón, o cambiaba la hora acá adentro, se topaba con
+   *  un mensaje rojo sin salida. La capacidad estaba; faltaba la puerta.
+   *
+   *  Y como el override ahora se decide ACÁ, sirve para cualquier hora que ella
+   *  escriba, no sólo las HH:00 que prellenaba la grilla. */
+  const [confirmarFueraDeHorario, setConfirmarFueraDeHorario] = useState<string | null>(null)
   /** Avisarle a la paciente que le agendamos. Default SÍ; el silencio pide motivo. */
   const [avisarAlCrear, setAvisarAlCrear] = useState(true)
   const [motivoSinAviso, setMotivoSinAviso] = useState('')
@@ -132,7 +143,7 @@ export function AppointmentFormModal({
       // dice editar miente en las dos direcciones.
       setModality(initialData.modality ?? 'presencial')
       setVirtualLink(initialData.virtual_link ?? '')
-      setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno(''); setConfirmarExtra(null)
+      setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno(''); setConfirmarExtra(null); setConfirmarFueraDeHorario(null)
       setAvisarAlCrear(true); setMotivoSinAviso('')
     } else {
       // Reset para creación nueva (con paciente pre-seleccionada si viene)
@@ -216,7 +227,8 @@ export function AppointmentFormModal({
       modality,
       virtual_link: modality === 'virtual' ? virtualLink.trim() || null : null,
       desired_at: desiredAt || null,
-      fuera_de_horario_confirmado: fueraDeHorarioConfirmado ?? false,
+      // De la grilla (clic en celda cerrada) O de la confirmación de acá.
+      fuera_de_horario_confirmado: (fueraDeHorarioConfirmado ?? false) || confirmarFueraDeHorario !== null,
       // Sólo va en true después de que la secretaria vio contra quién agenda.
       extra_confirmado: confirmarExtra !== null,
       // Sólo aplica al CREAR: al editar, el aviso lo decide `avisarPaciente`.
@@ -243,10 +255,15 @@ export function AppointmentFormModal({
           setError('')
           return
         }
-        // El server marca el rechazo por horario con un prefijo para poder
-        // distinguirlo; a la secretaria le sirve el motivo, no el código.
-        const msg = (result.error ?? 'Error guardando la cita').replace(/^FUERA_DE_HORARIO:\s*/, '')
-        setError(msg)
+        // Fuera de horario: tampoco es un error, es una pregunta. El motivo ya
+        // trae la franja real del médico ("atiende 07:30–11:00"), así que ella
+        // decide con el dato delante. Mismo flujo que CUPO_OCUPADO.
+        if (result.error?.startsWith('FUERA_DE_HORARIO:')) {
+          setConfirmarFueraDeHorario(result.error.replace(/^FUERA_DE_HORARIO:\s*/, ''))
+          setError('')
+          return
+        }
+        setError(result.error ?? 'Error guardando la cita')
         return
       }
 
@@ -284,6 +301,51 @@ export function AppointmentFormModal({
         {error && (
           <div className="mb-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {/* Fuera de la franja del médico. Tampoco es un error: la clínica
+            atiende extras a horas que no están cargadas —Jorge tiene 19 citas
+            de iSalud antes de las 07:30— y el horario en pantalla puede estar
+            desactualizado. El motivo ya trae la franja real, así que ella
+            decide viendo el dato, no adivinando. */}
+        {confirmarFueraDeHorario && (
+          <div
+            style={{
+              marginBottom: '16px', padding: '14px', borderRadius: 'var(--v2-radius)',
+              background: 'var(--v2-amber-soft)', border: '1px solid rgba(255,184,69,0.45)',
+            }}
+          >
+            <p style={{ fontSize: '13px', fontWeight: 700, color: '#b07d00', marginBottom: '4px' }}>
+              Fuera del horario del médico
+            </p>
+            <p style={{ fontSize: '12px', color: 'var(--v2-text)', lineHeight: 1.45 }}>{confirmarFueraDeHorario}</p>
+            <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '6px' }}>
+              Si el médico lo autorizó, puedes agendarla igual. Queda registrado quién la confirmó.
+            </p>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setConfirmarFueraDeHorario(null)}
+                className="btn-v2-secondary"
+                style={{ fontSize: '12px', padding: '8px 14px' }}
+              >
+                Cambiar el horario
+              </button>
+              <button
+                type="submit"
+                form="form-cita"
+                disabled={isPending}
+                style={{
+                  fontSize: '12px', fontWeight: 700, padding: '8px 16px',
+                  borderRadius: 'var(--v2-radius)', border: 'none', cursor: 'pointer',
+                  background: '#b07d00', color: '#fff',
+                  fontFamily: 'var(--font-manrope), sans-serif',
+                }}
+              >
+                {isPending ? 'Agendando...' : 'Agendar fuera de horario'}
+              </button>
+            </div>
           </div>
         )}
 

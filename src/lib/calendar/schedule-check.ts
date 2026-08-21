@@ -109,36 +109,72 @@ const NOMBRE_DIA: Record<DayKey, string> = {
 /** Orden de lectura humano: lunes primero, domingo al final. */
 const ORDEN_SEMANA: DayKey[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
-export interface DiaAtendido { dia: string; desde: string; hasta: string }
+export interface BloqueDelDia { desde: string; hasta: string }
+export interface DiaAtendido { dia: string; bloques: BloqueDelDia[] }
 
-/** Los días con `active: true` y al menos un bloque, con su rango horario. */
+/**
+ * Los días con `active: true` y al menos un bloque, CON SUS BLOQUES.
+ *
+ * 🔴 ANTES ESTO APLASTABA LOS BLOQUES PARTIDOS (2026-08-21).
+ *
+ * Devolvía `desde` = el mínimo start y `hasta` = el máximo end, así que un
+ * médico que atiende martes de 10:00 a 11:00 y de 13:00 a 15:00 salía como
+ * "martes de 10:00 a 15:00". Eso es una afirmación FALSA que lee la paciente:
+ * le dice que la atienden a mediodía. Que el agendado real no se equivoque
+ * —resolverFranjas sí respeta los bloques— no la salva: ella pide las 12 y
+ * recibe un rechazo que no entiende.
+ *
+ * Los bloques van ordenados por hora de inicio: la frase se lee en el orden en
+ * que transcurre el día.
+ */
 export function diasQueAtiende(workingHours: unknown | null): DiaAtendido[] {
   const out: DiaAtendido[] = []
   for (const key of ORDEN_SEMANA) {
     const d = getDoctorDaySchedule(workingHours, key)
     if (!d.active || d.blocks.length === 0) continue
-    const desde = d.blocks.reduce((a, b) => (b.start < a ? b.start : a), d.blocks[0].start)
-    const hasta = d.blocks.reduce((a, b) => (b.end > a ? b.end : a), d.blocks[0].end)
-    out.push({ dia: NOMBRE_DIA[key], desde, hasta })
+    const bloques = [...d.blocks]
+      .map((b) => ({ desde: b.start, hasta: b.end }))
+      .sort((a, b) => a.desde.localeCompare(b.desde))
+    out.push({ dia: NOMBRE_DIA[key], bloques })
   }
   return out
 }
 
+/** "de 10:00 a 11:00 y de 13:00 a 15:00" — y con tres o más, coma y una sola
+ *  "y" al final, que es como se enumera en español. */
+function fraseDeBloques(bloques: BloqueDelDia[]): string {
+  const partes = bloques.map((b) => `de ${b.desde} a ${b.hasta}`)
+  if (partes.length === 1) return partes[0]
+  return `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}`
+}
+const mismosBloques = (a: DiaAtendido, b: DiaAtendido) =>
+  a.bloques.length === b.bloques.length &&
+  a.bloques.every((x, i) => x.desde === b.bloques[i].desde && x.hasta === b.bloques[i].hasta)
+
 /** Frase lista para que el modelo la lea, SIN que tenga que componerla:
- *  "lunes, miércoles y viernes de 07:30 a 11:00". Vacío si no atiende ninguno. */
+ *  "lunes, miércoles y viernes de 07:30 a 11:00", o
+ *  "martes de 10:00 a 11:00 y de 13:00 a 15:00".
+ *  Vacío si no atiende ningún día. */
 export function fraseDiasQueAtiende(workingHours: unknown | null): string {
   const dias = diasQueAtiende(workingHours)
   if (dias.length === 0) return ''
 
-  const nombres = dias.map((d) => d.dia)
-  const lista = nombres.length === 1
-    ? nombres[0]
-    : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`
+  // Si todos los días tienen exactamente los mismos bloques, se dicen una vez.
+  if (dias.every((d) => mismosBloques(d, dias[0]))) {
+    const nombres = dias.map((d) => d.dia)
+    const lista = nombres.length === 1
+      ? nombres[0]
+      : `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`
+    return `${lista} ${fraseDeBloques(dias[0].bloques)}`
+  }
 
-  // Si todos los días comparten el mismo rango, se dice una vez.
-  const mismoRango = dias.every((d) => d.desde === dias[0].desde && d.hasta === dias[0].hasta)
-  if (mismoRango) return `${lista} de ${dias[0].desde} a ${dias[0].hasta}`
-  return dias.map((d) => `${d.dia} de ${d.desde} a ${d.hasta}`).join(', ')
+  // Con horarios distintos por día, el separador entre DÍAS no puede ser " y ":
+  // ese " y " ya separa los bloques de un mismo día y la frase queda ambigua
+  // ("lunes de 8 a 11 y de 13 a 16 y martes de..."). Con punto y coma se lee
+  // sin dudar dónde termina un día.
+  const hayDiaPartido = dias.some((d) => d.bloques.length > 1)
+  const sep = hayDiaPartido ? '; ' : ', '
+  return dias.map((d) => `${d.dia} ${fraseDeBloques(d.bloques)}`).join(sep)
 }
 
 

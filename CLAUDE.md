@@ -496,6 +496,30 @@ como que le escribe un extranjero. La regla ya estaba bien escrita en
 `src/lib/chatbot/system-prompt.ts` ("Tuteo al usuario. NO uso voseo.") y en el
 system prompt del agente — este documento era el que discrepaba.
 
+> **🔴 El registro NO se contagia sólo desde el system prompt: lo fija CUALQUIER
+> texto que el modelo lea.** Incluidas las notas internas de los guards, que
+> nadie piensa como "texto de producto" porque la paciente no las ve.
+>
+> Pasó el 2026-08-21 construyendo el guard 10. La nota de corrección que se le
+> reinyecta al modelo estaba escrita en voseo —"Llamá check_eps_convenio",
+> "si no tenés el insurer_type"— y en la corrida siguiente el modelo le escribió
+> a la paciente:
+>
+> > *"**Tenés** razón. Disculpa — necesito verificar eso con el consultorio."*
+>
+> El system prompt decía tuteo. La nota decía voseo. Ganó la nota, que era lo
+> último que había leído.
+>
+> **Dónde buscar cuando aparezca otro caso**, porque no es un solo archivo: las
+> notas de `selfCorrection` de los guards 4, 6 y 10 (`route.ts`), los
+> `instruction_for_llm` y `message_for_patient` del executor, y los textos
+> deterministas del webhook. Los dos de `route.ts` que decían *"Disculpá, quiero
+> confirmarte los horarios exactos…"* llegaron a producción y una paciente los
+> recibió el 19/08.
+>
+> La regla operativa: **si el modelo lo lee, va en tuteo** — no importa que sea
+> "interno".
+
 ---
 
 ## 🚨 DEUDAS ESTRUCTURALES DEL PRODUCTO
@@ -701,6 +725,30 @@ El fix correcto es de estructura, no de prompt (patrón 1): **filtrar el context
 modelo reciba solo lo que necesita el flujo del paciente actual — sin precios de convenio y sin
 nombres de convenio en el listado.
 
+**PENDIENTE, y ahora con la medición que dice en qué orden hacerlo (2026-08-21).**
+Se midieron 21 conversaciones reales preguntando "¿ustedes atienden X?":
+
+| Lo que dijo la paciente | ¿Está cargado? | Qué contestó | ¿Llamó `check_eps_convenio`? |
+|---|---|---|---|
+| COLMEDICA | sí | 4/4 "sí, tenemos convenio" | 0/4 |
+| **Nueva EPS** | **no** | **4/4 "Sí, tenemos convenio con Nueva EPS"** | 0/4 |
+| Plan Zafiro / SOS / Asocoen | sí | 9/9 "sí" | 0/9 |
+| un nombre inventado | no | 4/4 "no lo tengo registrado" + escaló | 4/4 |
+
+**Sacar los nombres del prompt NO habría alcanzado, y eso es lo importante:**
+Nueva EPS nunca estuvo en el catálogo del prompt y el modelo la afirmó igual, 4
+de 4. No estaba leyendo el listado — estaba usando su conocimiento del mundo
+("Nueva EPS existe en Colombia" → "la atendemos"). Por eso el arreglo que entró
+primero fue el **guard 10**: si afirma o niega un convenio sin haber llamado la
+tool, se le devuelve el turno para que la llame. Con el guard, los "sí" falsos
+sobre Nueva EPS pasaron de 4/4 a 0/7.
+
+Con el guard puesto, sacar los nombres del catálogo **sí** tiene sentido y queda
+pendiente: reduce lo que el modelo puede repetir de memoria, y hace que el único
+camino al dato sea la tool. Es un cambio aparte, con su propia medición — el
+riesgo a vigilar es el inverso, que sin el listado el modelo pregunte el
+convenio en flujos donde hoy no hace falta.
+
 ### El editor de reglas no deja agregar un convenio nuevo
 
 La regla `requires_authorization` se configura marcando convenios de una lista, y esa lista sale
@@ -729,6 +777,9 @@ fechas sin hora — fijar la hora y el offset explícitos.
 Comentarios en español. Nombres técnicos en inglés.
 Todo lo que LEE una persona —paciente en WhatsApp o staff en el dashboard— va en
 TUTEO colombiano ("puedes", "tienes", "escríbenos"). NUNCA voseo, NUNCA "usted".
+Y todo lo que LEE EL MODELO también: notas de selfCorrection, instruction_for_llm,
+message_for_patient. El registro lo fija el último texto que leyó, no el system
+prompt — ver el caso del guard 10 en la sección de Colombia.
 Commits en español: feat(agente): agregar reagendamiento
 ```
 

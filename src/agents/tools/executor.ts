@@ -10,6 +10,7 @@
 // ============================================================
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { nombreMedicoParaPaciente } from '@/lib/utils/normalize-name'
 import { puedeAtenderVirtual, motivoSinVirtual } from '@/lib/clinic/virtual-config'
 import { formatForPatient, formatParaRegistro, formatTimeForPatient, normalizePhone, getDayOfWeek } from '@/lib/utils/dates'
 import { sendWhatsAppMessage, getClinicCreds } from '@/lib/whatsapp/client'
@@ -81,6 +82,10 @@ interface ToolResult {
   data?: unknown
   error?: string
 }
+
+/** Cuánto hacia atrás mira get_patient_appointments. 60 días cubre "el examen
+ *  del mes pasado" sin traerle al modelo el historial entero. */
+const VENTANA_CITAS_PASADAS_DIAS = 60
 
 /**
  * Ejecuta una tool por nombre y devuelve el resultado para Claude
@@ -704,16 +709,16 @@ async function conCuposDelMedico(
       : chequeo.outcome === 'blocked_date' ? 'dia_bloqueado' as const
       : 'fuera_de_horario' as const
     const { data: med } = await supabaseAdmin
-      .from('doctors').select('name').eq('id', doctorId).eq('clinic_id', clinicId).maybeSingle()
+      .from('doctors').select('name, gender').eq('id', doctorId).eq('clinic_id', clinicId).maybeSingle()
     const cupos = await proximosCuposLibres(clinicId, doctorId, 3)
-    const nombre = med?.name ?? 'el médico'
+    const nombre = med?.name ? nombreMedicoParaPaciente(med.name as string, med.gender as string | null) : 'el médico'
     return {
       message_for_patient: mensajeCuposAlternativos(cupos, nombre, motivoTexto),
       instruction_for_llm: cupos.length > 0
         ? `NO escales y NO llames check_availability: los cupos ya están en cupos_disponibles, son de ${nombre} ` +
           `(el médico de ESTA cita) y están libres. Ofrecele message_for_patient tal cual. Cuando elija un número, ` +
           `usá el starts_at de ESE elemento. NUNCA busques con otro médico.`
-        : `No hay cupos libres con ${nombre}. Enviá message_for_patient y llamá escalate_to_human.`,
+        : `No hay cupos libres con ${nombre}. Envía message_for_patient y llama escalate_to_human.`,
       cupos_disponibles: cupos.map((c) => ({ starts_at: c.startsAt, texto: c.texto })),
     }
   } catch (e) {
@@ -722,6 +727,60 @@ async function conCuposDelMedico(
     console.error('[conCuposDelMedico] no se pudieron buscar cupos:', e)
     return { message_for_patient: chequeo.messageForPatient, instruction_for_llm: chequeo.instructionForLlm }
   }
+}
+
+/**
+ * EL BLOQUEO DE CITA PASADA TRAE LA SALIDA (2026-08-21).
+ *
+ * Los dos textos que había —"no hay nada que cancelar", "no se puede
+ * reagendar"— decían lo que NO se puede y le dejaban al modelo la parte de qué
+ * sí. Es el patrón 1 aplicado a medias: el que bloquea tiene que traer la
+ * salida. Y encima ninguno decía CUÁNDO era la cita, que es justo lo que la
+ * paciente está preguntando.
+ *
+ * Caso que lo originó: preguntó qué pasaba con un examen del 10 de agosto al
+ * que no pudo ir. El agente nunca llegó acá —no veía la cita— pero cuando
+ * llegue, tiene que leer "Esa cita era el 10 de agosto y ya pasó" seguido de
+ * los cupos REALES del mismo médico.
+ */
+async function bloqueoCitaPasada(
+  clinicId: string,
+  doctorId: string | null,
+  startsAt: string,
+  outcome: 'in_the_past' | 'original_in_the_past',
+): Promise<ToolResult> {
+  // formatForPatient ya trae "lunes 10 de agosto, 9:00 AM"; le sacamos la coma
+  // para que se lea "el lunes 10 de agosto a las 9:00 AM".
+  const cuando = formatForPatient(startsAt).replace(/,\s*/, ' a las ')
+  const base = `Esa cita era el ${cuando} y ya pasó.`
+  let message_for_patient = `${base} ¿Quieres agendar una nueva?`
+  let cupos_disponibles: Array<{ starts_at: string; texto: string }> | undefined
+  let instruction_for_llm =
+    'La cita YA OCURRIÓ. No se cancela ni se reagenda algo que ya pasó: lo que corresponde es ' +
+    'agendar una NUEVA. Envía message_for_patient tal cual.'
+
+  if (doctorId) {
+    try {
+      const { proximosCuposLibres, mensajeCuposAlternativos } = await import('@/lib/calendar/proximos-cupos')
+      const { data: med } = await supabaseAdmin
+        .from('doctors').select('name, gender').eq('id', doctorId).eq('clinic_id', clinicId).maybeSingle()
+      // La ficha guarda "JORGE DARIO LOPEZ ISANOA": leído así grita.
+      const nombre = med?.name ? nombreMedicoParaPaciente(med.name as string, med.gender as string | null) : 'el médico'
+      const cupos = await proximosCuposLibres(clinicId, doctorId, 3)
+      message_for_patient = mensajeCuposAlternativos(cupos, nombre, 'ya_paso', `Esa cita era el ${cuando} y`)
+      cupos_disponibles = cupos.map((c) => ({ starts_at: c.startsAt, texto: c.texto }))
+      instruction_for_llm = cupos.length > 0
+        ? `La cita YA OCURRIÓ: no se cancela ni se reagenda. Los cupos ya están en cupos_disponibles, son de ` +
+          `${nombre} (el mismo médico) y están libres. NO llames check_availability. Ofrece message_for_patient ` +
+          `tal cual; cuando elija un número, usa el starts_at de ESE elemento con create_appointment.`
+        : `La cita YA OCURRIÓ y no hay cupos libres con ${nombre}. Envía message_for_patient y llama escalate_to_human.`
+    } catch (e) {
+      // Si falla la búsqueda queda el texto base, que ya dice la fecha y ofrece
+      // agendar. Lo que no puede pasar es que un error acá borre el bloqueo.
+      console.error('[bloqueoCitaPasada] no se pudieron buscar cupos:', e)
+    }
+  }
+  return { success: false, error: 'BLOCKED_PAST_APPOINTMENT', data: { outcome, message_for_patient, instruction_for_llm, cupos_disponibles } }
 }
 
 async function createAppointment(
@@ -1778,14 +1837,28 @@ async function getPatientAppointments(
     }
   }
 
-  // Buscar citas futuras confirmadas
+  // 🔴 TAMBIÉN LAS PASADAS RECIENTES (2026-08-21)
+  //
+  // Esto devolvía SOLO futuras, y una lista vacía sin ninguna señal de que
+  // estaba escondiendo algo. El 21/08 una paciente preguntó qué pasaba con un
+  // examen del 10 al que no pudo ir: la cita existía —confirmada, con médico,
+  // sin asistencia marcada— y el agente recibió [] y contestó "es posible que
+  // se haya cancelado automáticamente". Un no-encuentro convertido en certeza,
+  // que es el patrón 7 del CLAUDE.md, y encima disparó el guard de cancelación
+  // alucinada: ella terminó leyendo "tuve un problema procesando la
+  // cancelación" sin haber pedido cancelar nada.
+  //
+  // El arreglo no es de prompt: es que el dato ENTRE. Van en un campo aparte
+  // para que el modelo no pueda confundir una cita vieja con una vigente.
+  const ahora = new Date()
+  const desdeAtras = new Date(ahora.getTime() - VENTANA_CITAS_PASADAS_DIAS * 864e5)
   const { data: appointments, error } = await supabaseAdmin
     .from('appointments')
-    .select('id, starts_at, ends_at, status, reason, doctor_id, modality')
+    .select('id, starts_at, ends_at, status, reason, doctor_id, modality, attendance_outcome')
     .eq('clinic_id', clinicId)
     .eq('patient_id', patientId)
-    .in('status', ['confirmed', 'rescheduled', 'blocked_external'])
-    .gte('starts_at', new Date().toISOString())
+    .in('status', ['confirmed', 'rescheduled', 'blocked_external', 'completed', 'no_show'])
+    .gte('starts_at', desdeAtras.toISOString())
     .order('starts_at', { ascending: true })
 
   if (error) {
@@ -1793,14 +1866,39 @@ async function getPatientAppointments(
     return { success: false, error: 'Error consultando citas' }
   }
 
+  const doctorIds = [...new Set((appointments ?? []).map((a) => a.doctor_id as string).filter(Boolean))]
+  const nombres = new Map<string, string>()
+  if (doctorIds.length > 0) {
+    const { data: meds } = await supabaseAdmin.from('doctors').select('id, name').in('id', doctorIds)
+    for (const m of (meds ?? []) as Array<{ id: string; name: string }>) nombres.set(m.id, m.name)
+  }
+
+  const futuras = (appointments ?? []).filter((a) => isFutureStart(a.starts_at as string, ahora))
+  const pasadas = (appointments ?? []).filter((a) => !isFutureStart(a.starts_at as string, ahora))
+
   // Formatear para que Claude las muestre bonito
-  const formatted = (appointments ?? []).map((apt) => ({
+  const formatted = futuras
+    .filter((apt) => ['confirmed', 'rescheduled', 'blocked_external'].includes(apt.status as string))
+    .map((apt) => ({
+      appointment_id: apt.id,
+      date: formatForPatient(apt.starts_at),
+      time: formatTimeForPatient(apt.starts_at),
+      status: apt.status,
+      reason: apt.reason,
+      modality: apt.modality ?? 'presencial',
+    }))
+
+  const pasadasFmt = pasadas.map((apt) => ({
     appointment_id: apt.id,
     date: formatForPatient(apt.starts_at),
     time: formatTimeForPatient(apt.starts_at),
+    doctor_id: apt.doctor_id,
+    doctor_name: nombres.get(apt.doctor_id as string) ?? null,
+    // Lo que sabemos y lo que NO: si nadie marcó la asistencia, es null y el
+    // modelo NO puede decir que no fue. Decir "no la veo" es la verdad.
+    asistencia: (apt.attendance_outcome as string | null) ?? 'sin_marcar',
     status: apt.status,
     reason: apt.reason,
-    modality: apt.modality ?? 'presencial',
   }))
 
   return {
@@ -1808,6 +1906,15 @@ async function getPatientAppointments(
     data: {
       appointments: formatted,
       total: formatted.length,
+      citas_pasadas: pasadasFmt,
+      total_pasadas: pasadasFmt.length,
+      ventana_pasadas_dias: VENTANA_CITAS_PASADAS_DIAS,
+      nota_para_el_llm: pasadasFmt.length > 0
+        ? 'Las de "citas_pasadas" YA OCURRIERON: no se cancelan ni se reagendan. Si preguntan por una, ' +
+          'confirma la fecha y el médico y ofrece agendar una NUEVA con check_availability + create_appointment. ' +
+          'Si "asistencia" es "sin_marcar", NO afirmes si fue o no fue, y NUNCA digas que se canceló.'
+        : `No hay citas en los últimos ${VENTANA_CITAS_PASADAS_DIAS} días. Si la paciente menciona una cita más vieja, ` +
+          'di que no la ves en el sistema — NUNCA que fue cancelada, porque eso no lo sabes.',
     },
   }
 }
@@ -1850,15 +1957,7 @@ async function cancelAppointment(
       target_id: appointmentId,
       details: { starts_at: appointment.starts_at, llm_attempted_anyway: true },
     })
-    return {
-      success: false,
-      error: 'BLOCKED_PAST_APPOINTMENT',
-      data: {
-        outcome: 'in_the_past',
-        message_for_patient: 'Esa cita ya pasó, no hay nada que cancelar. ¿Quieres agendar una nueva?',
-        instruction_for_llm: 'La cita ya ocurrió (fecha pasada). NO la canceles. Si el paciente quiere, ofrecé agendar una nueva con check_availability.',
-      },
-    }
+    return await bloqueoCitaPasada(clinicId, (appointment.doctor_id as string) ?? null, appointment.starts_at as string, 'in_the_past')
   }
 
   // Increment calendar_sequence for .ics cancel
@@ -1988,15 +2087,7 @@ async function rescheduleAppointment(
         target_id: appointmentId,
         details: { which: 'original', original_starts_at: appointment.starts_at, llm_attempted_anyway: true },
       })
-      return {
-        success: false,
-        error: 'BLOCKED_PAST_APPOINTMENT',
-        data: {
-          outcome: 'original_in_the_past',
-          message_for_patient: 'Esa cita ya pasó, así que no se puede reagendar. ¿Quieres que agende una nueva?',
-          instruction_for_llm: 'La cita original ya ocurrió (fecha pasada). NO la reagendes. Ofrecé agendar una nueva con check_availability + create_appointment.',
-        },
-      }
+      return await bloqueoCitaPasada(clinicId, (appointment.doctor_id as string) ?? null, appointment.starts_at as string, 'original_in_the_past')
     }
     // El horario NUEVO lo valida puedeEscribirseLaCita más abajo, junto con los
     // otros cuatro chequeos. Acá sólo queda el de la cita ORIGINAL, que es

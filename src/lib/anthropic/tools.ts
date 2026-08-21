@@ -143,8 +143,11 @@ export const agentTools: Tool[] = [
   {
     name: 'get_patient_appointments',
     description:
-      'Obtiene las citas futuras (confirmadas) de un paciente. ' +
-      'Úsala cuando el paciente pregunta por sus citas o quiere cancelar/reagendar.',
+      'Obtiene las citas de un paciente: las FUTURAS en "appointments" y las de los ' +
+      'últimos 60 días en "citas_pasadas" (con médico y si se marcó asistencia). ' +
+      'Úsala cuando el paciente pregunta por sus citas, quiere cancelar/reagendar, ' +
+      'o menciona una cita a la que no pudo ir. Las de "citas_pasadas" ya ocurrieron: ' +
+      'no se cancelan ni se reagendan, se ofrece agendar una nueva.',
     input_schema: {
       type: 'object' as const,
       properties: {

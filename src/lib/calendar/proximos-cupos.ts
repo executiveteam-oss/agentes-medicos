@@ -96,7 +96,7 @@ export function mensajeConCupos(cupos: CupoLibre[], nombreMedico: string): strin
  * No explica POR QUÉ no se puede: "está fuera de la franja del médico" es
  * vocabulario nuestro, no de ella. Lo que necesita son las horas que sí existen.
  */
-export type MotivoSinCupo = 'fuera_de_horario' | 'ocupado' | 'dia_bloqueado'
+export type MotivoSinCupo = 'fuera_de_horario' | 'ocupado' | 'dia_bloqueado' | 'ya_paso'
 
 /** La primera línea cambia según POR QUÉ no se pudo. "No tiene agenda" y "ya
  *  está ocupada" son cosas distintas, y a la paciente le importan distinto: la
@@ -107,17 +107,24 @@ export function mensajeCuposAlternativos(
   cupos: CupoLibre[],
   nombreMedico: string,
   motivo: MotivoSinCupo = 'fuera_de_horario',
+  /** Encabezado a medida. Lo usa 'ya_paso' para nombrar la fecha real de la
+   *  cita: "Esa cita era el 10 de agosto" dice mucho más que "esa cita". */
+  detalle?: string,
 ): string {
   const encabezado =
     motivo === 'ocupado'      ? 'Esa hora ya está ocupada 🙏'
     : motivo === 'dia_bloqueado' ? 'Ese día no hay atención 🙏'
+    : motivo === 'ya_paso'    ? `${detalle ?? 'Esa cita'} ya pasó.`
     : `A esa hora ${nombreMedico} no tiene agenda 🙏`
 
   if (cupos.length === 0) {
-    return `${encabezado} Y ahora mismo no veo otros cupos libres con ${nombreMedico}, ` +
+    return `${encabezado} Y ahora mismo no veo cupos libres con ${nombreMedico}, ` +
       `así que le paso tu caso a una persona del consultorio para que te ofrezca opciones. Te escriben pronto.`
   }
   const lista = cupos.map((c, i) => `${i + 1}. ${c.texto}`).join('\n')
-  return `${encabezado} Estos son los próximos cupos con ${nombreMedico}:\n\n${lista}\n\n` +
+  const invitacion = motivo === 'ya_paso'
+    ? `¿Quieres agendar una nueva? Estos son los próximos cupos con ${nombreMedico}:`
+    : `Estos son los próximos cupos con ${nombreMedico}:`
+  return `${encabezado} ${invitacion}\n\n${lista}\n\n` +
     `Respóndeme con el número que prefieras, o dime otro día y lo reviso.`
 }

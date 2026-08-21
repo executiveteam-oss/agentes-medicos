@@ -605,3 +605,64 @@ export function detectPreparacionInventada(args: {
     details: { preparaciones_cargadas: args.preparacionesCargadas.length },
   }
 }
+
+// ============================================================
+// GUARD 10: afirmó un convenio sin consultarlo
+//
+// Medido el 2026-08-21 sobre 21 corridas contra el agente real:
+// `check_eps_convenio` se llamó 4 veces, y las 4 fueron con un convenio
+// INVENTADO. Con nombres que suenan a aseguradora de verdad, el modelo
+// contesta de memoria — y su memoria no es el catálogo de esta clínica:
+//
+//   "Nueva EPS"   NO está cargada en Algia   → 4 de 4: "Sí, tenemos convenio con Nueva EPS"
+//   "Plan Zafiro" sí está (dentro de un combo) → 3 de 3: "sí", también sin tool
+//   "COLMEDICA"   sí está                      → 4 de 4: "sí", también sin tool
+//
+// O sea: acierta cuando acierta por casualidad. El sesgo es hacia el "sí", y
+// un "sí" falso manda a la paciente a una clínica donde no la van a recibir
+// con ese convenio.
+//
+// Es el mismo caso que la disponibilidad y que las citas: si el dato tiene que
+// ser correcto, no puede salir de la memoria del modelo. Este guard NO le
+// corrige el texto a la paciente — devuelve el turno al modelo para que llame
+// la tool, igual que el guard 4 con create_appointment.
+// ============================================================
+
+/** Afirma o niega que ESTA clínica tenga convenio con alguien. */
+const AFIRMA_CONVENIO: RegExp[] = [
+  // "tenemos/manejamos/contamos con convenio (con X)"
+  /\b(no\s+)?(tenemos|manejamos|contamos con|hay|existe)\s+(un\s+)?convenio\b/i,
+  // "Sí, atendemos <Nombre>" / "Claro, aceptamos <Nombre>".
+  // Sin flag /i a propósito: el nombre propio en MAYÚSCULA inicial es lo que
+  // distingue "sí atendemos Nueva EPS" (afirmación sobre un convenio) de
+  // "sí atendemos ginecología" (una especialidad). Por eso el prefijo lleva
+  // sus dos cajas escritas a mano — con `s[ií]` a secas no matcheaba "Sí",
+  // que es justamente como el modelo empieza la frase.
+  /\b(?:[Ss][ií]|[Cc]laro|[Pp]or supuesto|[Ee]fectivamente)[\s,.!]{0,3}\b(?:atendemos|aceptamos|trabajamos con|recibimos|manejamos)\s+(?:pacientes\s+(?:con|de)\s+)?(?![Pp]articular)[A-ZÁÉÍÓÚÑ]/,
+  // "atendemos pacientes con X" / "atendemos con X"
+  /\b(?:atendemos|aceptamos|manejamos)\s+(?:pacientes\s+)?(?:con|de)\s+(?!particular|Particular)[A-ZÁÉÍÓÚÑ]/,
+  // "estamos afiliados a", "somos prestadores de"
+  /\b(estamos afiliados|somos prestadores|estamos adscritos)\b/i,
+]
+
+/** Frases donde "convenio" aparece SIN afirmar nada — no deben disparar. */
+const NO_ES_AFIRMACION = [
+  // El corte determinista de convenio no reconocido: ya escaló, está bien.
+  /no tengo registrado ese convenio/i,
+  // Preguntar no es afirmar.
+  /¿[^?]{0,80}\bconvenio\b[^?]{0,80}\?/i,
+]
+
+export function detectConvenioSinVerificar(args: {
+  agentText: string
+  toolsUsed: string[]
+}): GuardResult {
+  if (args.toolsUsed.includes('check_eps_convenio')) return { blocked: false }
+  if (NO_ES_AFIRMACION.some((re) => re.test(args.agentText))) return { blocked: false }
+  if (!AFIRMA_CONVENIO.some((re) => re.test(args.agentText))) return { blocked: false }
+  return {
+    blocked: true,
+    reason: 'convenio_sin_verificar',
+    details: { tools_used: args.toolsUsed },
+  }
+}

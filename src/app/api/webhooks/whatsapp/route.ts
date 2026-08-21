@@ -51,7 +51,7 @@ import {
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
-import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada } from '@/lib/whatsapp/agent-guards'
+import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada, detectConvenioSinVerificar } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 
@@ -951,7 +951,7 @@ async function processWebhook(body: unknown): Promise<void> {
                 priorAssistantText: textoMalo,
                 note: '[Corrección interna del sistema — la paciente NO ve este mensaje] En tu respuesta anterior afirmaste un día, una fecha o un horario que NO salió de ninguna tool en este turno: ' +
                   JSON.stringify(g6.details ?? {}) +
-                  '. Reescribí el mensaje usando ÚNICAMENTE los días, fechas y horarios que las tools devolvieron, copiados tal cual. Si no tenés el dato, NO lo inventes: pedí disculpas y ofrecé verificarlo.',
+                  '. Reescribe el mensaje usando ÚNICAMENTE los días, fechas y horarios que las tools devolvieron, copiados tal cual. Si no tienes el dato, NO lo inventes: pide disculpas y ofrece verificarlo.',
               },
             })
           } catch (e) {
@@ -964,7 +964,7 @@ async function processWebhook(body: unknown): Promise<void> {
             await auditar(2, true)
             agentResponse = {
               ...agentResponse,
-              text: 'Disculpá, quiero confirmarte los horarios exactos antes de decirte algo equivocado. Ya le pasé tu caso a una persona del consultorio y te escriben enseguida 🙏',
+              text: 'Disculpa, quiero confirmarte los horarios exactos antes de decirte algo equivocado. Ya le pasé tu caso a una persona del consultorio y te escriben enseguida 🙏',
             }
             await supabaseAdmin.from('conversations')
               .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE, `datos_sin_respaldo:${g6.reason}`) })
@@ -1008,7 +1008,7 @@ async function processWebhook(body: unknown): Promise<void> {
           // que repita nada: el error es nuestro.
           agentResponse = {
             ...agentResponse,
-            text: `Disculpá, tuve un cruce con el médico de tu cita y no quiero confirmarte algo equivocado. ` +
+            text: `Disculpa, tuve un cruce con el médico de tu cita y no quiero confirmarte algo equivocado. ` +
                   `Ya le pasé tu caso a una persona del consultorio para que lo revise y te confirme bien. Te escriben enseguida 🙏`,
             appointmentData: undefined,
           }
@@ -1095,6 +1095,60 @@ async function processWebhook(body: unknown): Promise<void> {
       // Otros guards defensivos (cancelación, reagendamiento, identidad): estos SÍ
       // reemplazan el texto (no re-corren) — el re-run correctivo fue solo para la
       // confirmación de cita.
+      // ── GUARD 10 — afirmó un convenio sin consultarlo ──────────────
+      //
+      // Medido: con nombres que suenan a aseguradora el modelo contesta de
+      // memoria y no llama check_eps_convenio. Dijo "Sí, tenemos convenio con
+      // Nueva EPS" 4 de 4 veces, y Nueva EPS no está cargada en esta clínica.
+      //
+      // Mismo tratamiento que el guard 4 y el 6: se le devuelve el turno al
+      // modelo para que llame la tool. No se le corrige el texto a la paciente
+      // por un error nuestro; se corrige al modelo.
+      let g10 = detectConvenioSinVerificar({ agentText: agentResponse.text, toolsUsed: agentResponse.toolsUsed })
+      if (g10.blocked) {
+        console.error('[Webhook] 🚨 GUARD 10: afirmó un convenio sin check_eps_convenio — re-corriendo al modelo')
+        const textoSinVerificar = agentResponse.text
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id, action: 'convenio_sin_verificar_bloqueado', actor_type: 'system',
+            target_type: 'conversation', target_id: conversation.id,
+            details: { intento: 1, escalado: false, texto: textoSinVerificar.slice(0, 300), tools_usadas: agentResponse.toolsUsed },
+          })
+        } catch { /* no crítico */ }
+        try {
+          agentResponse = await runAppointmentAgent({
+            ...agentParams,
+            selfCorrection: {
+              priorAssistantText: textoSinVerificar,
+              note: '[Corrección interna del sistema — la paciente NO ve este mensaje] Afirmaste algo sobre un convenio ' +
+                'sin haber llamado check_eps_convenio en este turno. El catálogo que ves NO alcanza para responder eso, y tu ' +
+                'memoria tampoco: los convenios de esta clínica son sólo los que devuelve esa tool. Llama a check_eps_convenio ' +
+                'con el nombre que dijo la paciente y solo con su resultado responde. Si no tienes el insurer_type y la marca ' +
+                'es ambigua, pregúntaselo primero.',
+            },
+          })
+        } catch (e) {
+          console.error('[Webhook] Re-run guard 10 falló:', e instanceof Error ? e.message : e)
+        }
+        g10 = detectConvenioSinVerificar({ agentText: agentResponse.text, toolsUsed: agentResponse.toolsUsed })
+        if (g10.blocked) {
+          console.error('[Webhook] 🚨 GUARD 10 persistió tras el re-run — escalando')
+          try {
+            await supabaseAdmin.from('audit_log').insert({
+              clinic_id: clinic.id, action: 'convenio_sin_verificar_bloqueado', actor_type: 'system',
+              target_type: 'conversation', target_id: conversation.id,
+              details: { intento: 2, escalado: true, texto: agentResponse.text.slice(0, 300) },
+            })
+          } catch { /* no crítico */ }
+          agentResponse = {
+            ...agentResponse,
+            text: 'Prefiero confirmarte lo del convenio con el consultorio antes de decirte algo equivocado 🙏 ' +
+              'Ya les pedí que lo revisen y te escriben enseguida.',
+            escalate: { reason: 'convenio_no_reconocido', code: 'CONVENIO_SIN_VERIFICAR' },
+          }
+        }
+      }
+
       const guardResults = [
         detectHallucinatedCancellation({
           agentText: agentResponse.text,

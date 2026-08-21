@@ -14,6 +14,10 @@ import {
 } from '@/app/actions/appointments'
 import type { AppointmentInput } from '@/app/actions/appointments'
 import type { PaymentType, AppointmentModality } from '@/types/database'
+import {
+  agruparPorMedico, filtrarGrupos, rangoDePrecios, precioCorto, CONVENIO_NO_LISTADO,
+  type OpcionServicio,
+} from '@/lib/consultation-types/opciones-agendamiento'
 
 interface DoctorOption {
   id: string
@@ -41,6 +45,10 @@ interface AppointmentFormModalProps {
   isOpen: boolean
   onClose: () => void
   doctors: DoctorOption[]
+  /** El catálogo de servicios. OPCIONAL a propósito: el modal se usa en tres
+   *  pantallas y sólo la agenda lo pasa por ahora. Sin esto, el formulario se
+   *  comporta como siempre (Motivo en texto libre). */
+  consultationTypes?: OpcionServicio[]
   initialData?: InitialData
   /** Pre-selecciona la paciente en una cita NUEVA (ej. aprobar autorización). */
   prefillPatient?: { id: string; name: string }
@@ -59,6 +67,7 @@ export function AppointmentFormModal({
   isOpen,
   onClose,
   doctors,
+  consultationTypes,
   initialData,
   prefillPatient,
   minBookingAdvanceHours,
@@ -75,6 +84,12 @@ export function AppointmentFormModal({
   const [time, setTime] = useState('')
   const [durationMinutes, setDurationMinutes] = useState(30)
   const [reason, setReason] = useState('')
+  /** Servicio elegido (clave del grupo) + búsqueda + convenio. */
+  const [servicioKey, setServicioKey] = useState('')
+  const [busquedaServicio, setBusquedaServicio] = useState('')
+  /** id del consultation_type, o CONVENIO_NO_LISTADO. */
+  const [convenioSel, setConvenioSel] = useState('')
+  const [convenioLibre, setConvenioLibre] = useState('')
   const [paymentType, setPaymentType] = useState<PaymentType>('Particular')
   const [epsName, setEpsName] = useState('')
   const [modality, setModality] = useState<AppointmentModality>('presencial')
@@ -145,6 +160,7 @@ export function AppointmentFormModal({
       setVirtualLink(initialData.virtual_link ?? '')
       setAvisarPaciente(true); setMotivoPaciente(''); setMotivoInterno(''); setConfirmarExtra(null); setConfirmarFueraDeHorario(null)
       setAvisarAlCrear(true); setMotivoSinAviso('')
+      setServicioKey(''); setBusquedaServicio(''); setConvenioSel(''); setConvenioLibre('')
     } else {
       // Reset para creación nueva (con paciente pre-seleccionada si viene)
       setPatientId(prefillPatient?.id ?? '')
@@ -207,6 +223,37 @@ export function AppointmentFormModal({
     (date !== initialData.date || time !== initialData.time || doctorId !== initialData.doctor_id),
   )
 
+  // ── SERVICIO → CONVENIO, en ese orden ───────────────────────────────
+  //
+  // El médico ya está elegido arriba, así que el catálogo se filtra por él: de
+  // 33 nombres, Jorge tiene 11 y Juan Diego 17. Ofrecerle los 33 sería ofrecerle
+  // servicios que ese médico no hace — lo mismo que el executor rechaza con
+  // BLOCKED_BY_DOCTOR_PIN_SERVICE.
+  const gruposDelMedico = consultationTypes && doctorId
+    ? agruparPorMedico(consultationTypes, doctorId)
+    : []
+  const gruposVisibles = filtrarGrupos(gruposDelMedico, busquedaServicio)
+  const grupoSel = gruposDelMedico.find((g) => g.key === servicioKey) ?? null
+  const usaCatalogo = (consultationTypes?.length ?? 0) > 0
+
+  /** La fila concreta: el grupo elegido + el convenio elegido. */
+  const varianteSel: OpcionServicio | null =
+    grupoSel && convenioSel && convenioSel !== CONVENIO_NO_LISTADO
+      ? grupoSel.variantes.find((v) => v.id === convenioSel) ?? null
+      : null
+
+  /** Al cambiar de servicio: la duración sale del catálogo y el convenio se
+   *  reinicia (los convenios son del servicio, no globales). */
+  function elegirServicio(key: string) {
+    setServicioKey(key)
+    setConvenioSel(''); setConvenioLibre('')
+    const g = gruposDelMedico.find((x) => x.key === key)
+    if (g) {
+      setDurationMinutes(g.durationMinutes)
+      setReason(g.label)   // el motivo en texto sigue existiendo, ahora derivado
+    }
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -222,6 +269,14 @@ export function AppointmentFormModal({
       starts_at: startsAt,
       duration_minutes: durationMinutes,
       reason,
+      // La fila del catálogo. Con "Otro convenio" no hay fila que corresponda,
+      // así que se manda la PARTICULAR del mismo servicio: el precio real es
+      // ése hasta que la clínica cargue el convenio.
+      consultation_type_id: varianteSel?.id
+        ?? (convenioSel === CONVENIO_NO_LISTADO
+            ? (grupoSel?.variantes.find((v) => v.epsName === null)?.id ?? grupoSel?.variantes[0]?.id ?? null)
+            : null),
+      convenio_no_listado: convenioSel === CONVENIO_NO_LISTADO ? convenioLibre.trim() || null : null,
       payment_type: paymentType,
       eps_name: paymentType === 'EPS' ? epsName : '',
       modality,
@@ -512,14 +567,101 @@ export function AppointmentFormModal({
 
           {/* Motivo */}
           <div>
-            <label className="label">Motivo</label>
-            <input
-              type="text"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Consulta general, control, etc."
-              className="input-v2 w-full"
-            />
+            {/* SERVICIO — desplegable con buscador, filtrado por médico.
+                Reemplaza al Motivo en texto libre: la cita necesita
+                consultation_type_id para tener precio, duración y reglas, igual
+                que una del agente (invariante 5). Antes el panel guardaba texto
+                y las 10 citas que creó quedaron sin tipo. */}
+            {usaCatalogo ? (
+              <>
+                <label className="label">Servicio</label>
+                {!doctorId ? (
+                  <p style={{ fontSize: '12px', color: 'var(--v2-text-subtle)', padding: '8px 0' }}>
+                    Elige primero el médico.
+                  </p>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={busquedaServicio}
+                      onChange={(e) => setBusquedaServicio(e.target.value)}
+                      placeholder="🔍 Escribe para buscar entre los servicios…"
+                      className="input-v2 w-full"
+                      style={{ marginBottom: '6px' }}
+                    />
+                    <select
+                      value={servicioKey}
+                      onChange={(e) => elegirServicio(e.target.value)}
+                      className="input-v2 w-full"
+                      size={gruposVisibles.length > 6 ? 7 : undefined}
+                    >
+                      <option value="">— Elige el servicio —</option>
+                      {gruposVisibles.map((g) => (
+                        <option key={g.key} value={g.key}>
+                          {g.label} · {g.durationMinutes} min · {rangoDePrecios(g)}
+                        </option>
+                      ))}
+                    </select>
+                    {busquedaServicio && gruposVisibles.length === 0 && (
+                      <p style={{ fontSize: '12px', color: 'var(--v2-red)', marginTop: '4px' }}>
+                        Ese médico no tiene ningún servicio que coincida con &quot;{busquedaServicio}&quot;.
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {/* CONVENIO — sale de las variantes del servicio ELEGIDO, no de
+                    una lista global: un convenio que no tiene ese servicio no
+                    puede ofrecerse. La opción "Otro" es la salida honesta para
+                    lo que la clínica todavía no cargó. */}
+                {grupoSel && (
+                  <div style={{ marginTop: '10px' }}>
+                    <label className="label">Quién paga</label>
+                    <select
+                      value={convenioSel}
+                      onChange={(e) => setConvenioSel(e.target.value)}
+                      className="input-v2 w-full"
+                    >
+                      <option value="">— Elige —</option>
+                      {grupoSel.variantes.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.epsLabel ?? 'Particular'} · {precioCorto(v.price)}
+                        </option>
+                      ))}
+                      <option value={CONVENIO_NO_LISTADO}>Otro convenio (no listado)…</option>
+                    </select>
+
+                    {convenioSel === CONVENIO_NO_LISTADO && (
+                      <div style={{ marginTop: '6px' }}>
+                        <input
+                          type="text"
+                          value={convenioLibre}
+                          onChange={(e) => setConvenioLibre(e.target.value)}
+                          placeholder="Ej: Nueva EPS"
+                          className="input-v2 w-full"
+                        />
+                        <p style={{ fontSize: '11px', color: 'var(--v2-text-muted)', marginTop: '4px', lineHeight: 1.45 }}>
+                          La clínica no tiene ese convenio cargado en este servicio, así que la cita
+                          queda con el <strong>precio particular</strong>. Va a aparecer en{' '}
+                          <strong>Conversaciones → Servicios</strong> para que lo carguen.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <label className="label">Motivo</label>
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Consulta general, control, etc."
+                  className="input-v2 w-full"
+                />
+              </>
+            )}
           </div>
 
           {/* Aviso a la paciente — sólo cuando la cita se MUEVE.

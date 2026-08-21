@@ -14,6 +14,7 @@ import { WeekView } from './calendar/week-view'
 import { MonthView } from './calendar/month-view'
 import { DoctorSelector, getStoredDoctorId, storeDoctorId } from './calendar/doctor-selector'
 import { getAppointmentForCalendar } from '@/app/actions/appointments'
+import type { OpcionServicio } from '@/lib/consultation-types/opciones-agendamiento'
 import { AppointmentFormModal } from './appointment-form-modal'
 import type { CalendarAppointment, CalendarDoctor, ViewMode } from './calendar/types'
 import { parseLocalDate, toDateStr, getColombiaDateStr, getColombiaHour, getColombiaMinutes, DAYS_FULL_ES, MONTHS_ES, getMonday, DOCTOR_COLORS, CONFIRMO, NO_CONFIRMO } from './calendar/types'
@@ -38,13 +39,15 @@ interface Props {
   initialDate: string
   clinicName: string
   doctors: CalendarDoctor[]
+  /** El catálogo de servicios, para el desplegable de "Nueva cita". */
+  consultationTypes?: OpcionServicio[]
   restrictDoctorId?: string | null
   userRole: string
   clinicId: string
   surveyConfig?: SurveyConfigForCalendar
 }
 
-export function CalendarView({ appointments: initialAppointments, initialDate, clinicName, doctors, restrictDoctorId, userRole, clinicId, surveyConfig }: Props) {
+export function CalendarView({ appointments: initialAppointments, initialDate, clinicName, doctors, restrictDoctorId, userRole, clinicId, surveyConfig, consultationTypes }: Props) {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -554,6 +557,7 @@ export function CalendarView({ appointments: initialAppointments, initialDate, c
         isOpen={showNewAptModal}
         onClose={() => { setShowNewAptModal(false); setNewAptPrefill(null); setEditApt(null) }}
         doctors={doctors as { id: string; name: string; specialty: string | null }[]}
+        consultationTypes={consultationTypes}
         initialData={editApt ? {
           // Con `id` real el modal entra en modo edición y llama a
           // updateAppointmentFromDashboard. La hora va en COT: la cita se

@@ -86,7 +86,10 @@ function bucketOf(e: ConversationEntry): FilterKey {
   // Nadie espera respuesta, pero queda un servicio por gestionar. NO es una
   // conversación en curso: es una TAREA, y va a su propia pestaña. Mezclarlas
   // era lo que hacía que "Atención" significara dos cosas distintas.
-  if (e.pendientes.some((p) => p.tipo === 'servicio')) return 'servicios'
+  // 'servicio' (Capa 0 marcó un servicio ruleado) y 'convenio' (la secretaria
+  // agendó con un convenio que la clínica no tiene cargado). Los dos son TAREAS
+  // que alguien tiene que gestionar, no conversaciones esperando respuesta.
+  if (e.pendientes.some((p) => p.tipo === 'servicio' || p.tipo === 'convenio')) return 'servicios'
 
   if (e.status === 'resolved') return 'resuelta'
   if (e.triage_state === 'pendiente') return 'pendiente'

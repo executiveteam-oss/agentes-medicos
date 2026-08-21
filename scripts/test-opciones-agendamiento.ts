@@ -59,6 +59,20 @@ async function main(): Promise<void> {
   const azul = todas.filter((o)=>o.epsName==='AZUL-ROBLE-DIAMANTE-ZAFIRO-OCEANO')
   ok('y la de planes dice Colsanitas', azul.every((o)=>/Colsanitas/.test(o.epsLabel ?? '')), azul[0]?.epsLabel ?? '')
 
+  console.log('\n5. EL CASO DE CAROLINA — "colposcopia con Nueva EPS"')
+  const {CONVENIO_NO_LISTADO}=await import('../src/lib/consultation-types/opciones-agendamiento')
+  const ADRIANA='2b0e5172-97ae-43a2-a1be-b266880191a5'
+  const deAdriana=agruparPorMedico(todas,ADRIANA)
+  const colpo=filtrarGrupos(deAdriana,'colpo')
+  ok('"colpo" encuentra sus colposcopias', colpo.length>0, `${colpo.length} opciones`)
+  for (const g of colpo) console.log(`     · ${g.label} · ${g.durationMinutes}min · ${rangoDePrecios(g)} (${g.variantes.map((v)=>v.epsLabel ?? 'Particular').join(', ')})`)
+  const tieneNuevaEps = colpo.some((g)=>g.variantes.some((v)=>/nueva eps/i.test(v.epsLabel ?? '')))
+  ok('Nueva EPS NO aparece (la clínica no la cargó)', !tieneNuevaEps)
+  ok('pero SIEMPRE hay una salida: CONVENIO_NO_LISTADO', CONVENIO_NO_LISTADO==='__otro__')
+  const particular = colpo[0]?.variantes.find((v)=>v.epsName===null)
+  ok('y el fallback es la fila PARTICULAR, con su precio real',
+    particular!==undefined, particular?precioCorto(particular.price):'no hay particular')
+
   console.log(fallos===0?'\n══ OK ══\n':`\n══ 🔴 ${fallos} fallo(s) ══\n`)
   process.exit(fallos===0?0:1)
 }

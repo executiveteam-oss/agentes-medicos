@@ -19,7 +19,7 @@
 // más tiempo sin resolverse manda, sin importar de qué tipo sea.
 // ============================================================
 
-export type TipoPendiente = 'servicio' | 'orden_medica' | 'contacto'
+export type TipoPendiente = 'servicio' | 'orden_medica' | 'contacto' | 'convenio'
 
 export interface Pendiente {
   tipo: TipoPendiente
@@ -52,6 +52,11 @@ export interface ContextPendientes {
   servicios_resueltos_por?: string | null
   orden_medica_pedida_at?: string | null
   contacto_enviado_at?: string | null
+  /** Convenio que la secretaria escribió al agendar porque no estaba en la
+   *  lista. La clínica tiene que cargarlo como servicio para que el agente
+   *  pueda ofrecerlo — mientras tanto la cita quedó como particular. */
+  convenio_no_listado?: string | null
+  convenio_no_listado_at?: string | null
 }
 
 // ============================================================
@@ -106,6 +111,13 @@ export function pendientesDe(ctx: ContextPendientes | null | undefined): Pendien
   }
   if (c.contacto_enviado_at) {
     out.push({ tipo: 'contacto', desde: c.contacto_enviado_at, etiqueta: '💬 Contacto enviado' })
+  }
+  if (c.convenio_no_listado && c.convenio_no_listado_at) {
+    out.push({
+      tipo: 'convenio',
+      desde: c.convenio_no_listado_at,
+      etiqueta: `🏥 Convenio sin cargar: ${c.convenio_no_listado}`,
+    })
   }
 
   return out.sort((a, b) => new Date(a.desde).getTime() - new Date(b.desde).getTime())

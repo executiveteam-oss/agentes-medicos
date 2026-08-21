@@ -7,6 +7,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getUserSession } from '@/lib/session'
 import { getRestrictedDoctorId } from '@/lib/doctor-filter'
 import { nowColombia } from '@/lib/utils/dates'
+import { opcionesDeAgendamiento } from '@/lib/consultation-types/opciones-agendamiento'
 import { CalendarView } from '@/components/dashboard/calendar-view'
 import type { CalendarAppointment, CalendarDoctor } from '@/components/dashboard/calendar-view'
 import { getSurveyConfig } from '@/app/actions/survey-config'
@@ -147,9 +148,14 @@ export default async function AgendaPage({ searchParams }: { searchParams: Promi
     malformed: surveyRaw.malformed,
   }
 
+  // El catálogo para el desplegable de "Nueva cita". Misma fuente que usa el
+  // formulario: mismo agrupado, mismas etiquetas, mismos precios.
+  const tiposDeConsulta = await opcionesDeAgendamiento(clinic.id)
+
   return (
     <div className="space-y-6">
       <CalendarView
+        consultationTypes={tiposDeConsulta}
         appointments={appointments}
         initialDate={today}
         clinicName={clinic.name ?? ''}

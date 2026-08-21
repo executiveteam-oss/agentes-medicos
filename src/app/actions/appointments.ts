@@ -239,6 +239,21 @@ export interface AppointmentInput {
    *  cliente sola no es una garantía —un submit directo la saltea— y acá el
    *  costo de saltearla es una paciente que llega a un consultorio vacío. */
   fuera_de_horario_confirmado?: boolean
+  /** La fila del catálogo. Es lo que le da a la cita precio, duración y reglas
+   *  —lo mismo que una del agente— en vez de un `reason` en texto libre.
+   *
+   *  Hasta el 2026-08-21 el panel NO lo guardaba: de las 10 citas que creó, las
+   *  10 quedaron sin tipo. Una cita sin `consultation_type_id` no tiene precio,
+   *  ni duración real, ni reglas aplicables, ni dato reportable. */
+  consultation_type_id?: string | null
+  /** Convenio que la clínica todavía no tiene cargado en ningún servicio.
+   *
+   *  El desplegable sale de los `eps_name` que YA existen, así que un convenio
+   *  nuevo no aparece en ninguna lista. Antes de esto la secretaria no tenía
+   *  salida: o elegía uno que no era —fabricando un precio— o dejaba la cita sin
+   *  tipo. Ahora se guarda con el tipo PARTICULAR, el convenio queda escrito, y
+   *  la clínica se entera de lo que le falta cargar. */
+  convenio_no_listado?: string | null
 }
 
 /** Crear cita desde el dashboard */
@@ -261,7 +276,34 @@ export async function createAppointment(
     if (!input.starts_at) return { ok: false, error: 'Selecciona fecha y hora' }
 
     const startsAt = new Date(input.starts_at)
-    const endsAt = new Date(startsAt.getTime() + (input.duration_minutes || 30) * 60 * 1000)
+    // ── EL TIPO DE CONSULTA MANDA SOBRE LA DURACIÓN ──────────────────
+    //
+    // Si vino un tipo, su duración es la buena: es la que el catálogo dice que
+    // ocupa ese servicio, y la misma que usa el agente. `duration_minutes` del
+    // formulario queda como OVERRIDE explícito —la secretaria puede necesitar
+    // 60 para algo que el catálogo cree de 30— pero sólo si difiere del tipo.
+    let duracionFinal = input.duration_minutes || 30
+    if (input.consultation_type_id) {
+      const { data: ct } = await supabaseAdmin
+        .from('consultation_types')
+        .select('id, duration_minutes, doctor_id, name')
+        .eq('id', input.consultation_type_id)
+        .eq('clinic_id', clinicId)
+        .maybeSingle()
+
+      if (!ct) return { ok: false, error: 'Ese servicio no existe en el catálogo de la clínica' }
+
+      // El servicio tiene que ser DE ESE MÉDICO. Mismo backstop que el executor
+      // (BLOCKED_BY_DOCTOR_PIN_SERVICE): un servicio de otro médico deja la cita
+      // con un precio y unas reglas que no le corresponden.
+      if (ct.doctor_id && ct.doctor_id !== input.doctor_id) {
+        return { ok: false, error: `"${ct.name}" no es un servicio de ese médico. Elige otro servicio o cambia el médico.` }
+      }
+      // Sin override explícito, manda el catálogo.
+      if (!input.duration_minutes) duracionFinal = ct.duration_minutes
+    }
+
+    const endsAt = new Date(startsAt.getTime() + duracionFinal * 60 * 1000)
 
     // ── ¿Cae fuera de la franja del médico? ────────────────────────────
     // Se resuelve con la MISMA fuente que pinta la grilla y que usa el agente,
@@ -352,8 +394,12 @@ export async function createAppointment(
         ends_at: endsAt.toISOString(),
         status: esExtra ? 'blocked_external' : 'confirmed',
         reason: input.reason.trim() || null,
+        consultation_type_id: input.consultation_type_id || null,
         payment_type: input.payment_type || null,
-        eps_name: input.payment_type === 'EPS' ? (input.eps_name || null) : null,
+        // El convenio no listado también va acá: es el dato real de quién paga,
+        // aunque no exista como fila del catálogo.
+        eps_name: input.convenio_no_listado?.trim()
+          || (input.payment_type === 'EPS' ? (input.eps_name || null) : null),
         source: 'dashboard',
         modality: input.modality ?? 'presencial',
         virtual_link: input.virtual_link ?? null,
@@ -403,6 +449,57 @@ export async function createAppointment(
         .eq('clinic_id', clinicId)
     }
 
+    // ── EL CONVENIO QUE LA CLÍNICA NO TIENE CARGADO ─────────────────
+    //
+    // Se marca en la CONVERSACIÓN de la paciente, para que aparezca en la
+    // pestaña Servicios — que es donde ellas ya miran lo que falta gestionar.
+    //
+    // ⚠️ Si la paciente no tiene conversación, el pendiente no tiene dónde
+    // vivir: la marca es por conversación, no por cita. Medido: 9 de las 10
+    // citas del panel tienen conversación, 1 no. En ese caso queda el
+    // audit_log y el convenio escrito en la cita, y el caller avisa.
+    let convenioSinLugar = false
+    if (input.convenio_no_listado?.trim()) {
+      const convenio = input.convenio_no_listado.trim()
+      const { data: conv } = await supabaseAdmin
+        .from('conversations')
+        .select('id, context')
+        .eq('clinic_id', clinicId)
+        .eq('patient_id', input.patient_id)
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (conv) {
+        const ctx = (conv.context ?? {}) as Record<string, unknown>
+        await supabaseAdmin.from('conversations').update({
+          context: {
+            ...ctx,
+            convenio_no_listado: convenio,
+            // Nunca se pisa: el reloj de la cola cuenta desde el PRIMER aviso.
+            convenio_no_listado_at: (ctx.convenio_no_listado_at as string | undefined) ?? new Date().toISOString(),
+          },
+        }).eq('id', conv.id).eq('clinic_id', clinicId)
+      } else {
+        convenioSinLugar = true
+      }
+
+      const sessionConv = await getUserSession()
+      await supabaseAdmin.from('audit_log').insert({
+        clinic_id: clinicId,
+        action: 'convenio_no_listado_registrado',
+        actor_type: 'staff',
+        target_type: 'appointment',
+        target_id: data.id,
+        details: {
+          convenio,
+          en_conversacion: !convenioSinLugar,
+          usuario_id: sessionConv?.clinicUserId ?? null,
+          usuario_nombre: sessionConv?.fullName ?? null,
+        },
+      })
+    }
+
     // Queda registro de QUIÉN forzó una cita fuera de franja y por qué estaba
     // cerrado. Es lo que después contesta "¿esto fue un error o una decisión?".
     if (estadoFranja !== 'disponible') {
@@ -429,6 +526,9 @@ export async function createAppointment(
     // igual quedó y el fallo queda registrado en Pendientes.
     let whatsappSent = false
     let warning: string | undefined
+    if (convenioSinLugar) {
+      warning = `Registramos el convenio "${input.convenio_no_listado?.trim()}" en la cita, pero esta paciente no tiene conversación abierta, así que no va a aparecer en la pestaña Servicios. Avísale a quien carga el catálogo.`
+    }
     if (notificar) {
       const r = await notifyAppointmentCreated(data.id, clinicId, {
         motivoParaPaciente: input.motivo_para_paciente ?? null,

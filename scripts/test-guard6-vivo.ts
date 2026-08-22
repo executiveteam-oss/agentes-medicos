@@ -57,7 +57,7 @@ async function main() {
       patientMessage: GUION[i], messageHistory: historia as never, pinMedico: pin,
     })
 
-    const g = detectDatosSinRespaldo({ agentText: r.text, hechos: r.hechosDeTools, anioRef })
+    const g = detectDatosSinRespaldo({ agentText: r.text, hechos: r.hechosDeTools, hoyCOT: '2026-08-22' })
     console.log(`\n${'─'.repeat(70)}\n👤 ${GUION[i]}\n🤖 ${r.text.slice(0, 400)}`)
     if (r.hechosDeTools?.diasQueAtiende.length || r.hechosDeTools?.huboSlots) {
       console.log(`   📊 tool dijo → días: ${JSON.stringify(r.hechosDeTools.diasQueAtiende)} · slots: ${r.hechosDeTools.minutosDeSlots.length}`)

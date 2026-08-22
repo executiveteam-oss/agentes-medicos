@@ -106,13 +106,13 @@ const pruebas: Prueba[] = [
   // VIERNES, así que las dos frases mienten y tienen que bloquear.
   { guard: '6 · datos sin respaldo', caso: 'dice "miércoles 25 de agosto" y el 25 cae martes (día CON tilde)',
     texto: '¿Te agendo el miércoles 25 de agosto a las 9:00 AM?', esperado: true,
-    corre: () => G.detectDatosSinRespaldo({ agentText: '¿Te agendo el miércoles 25 de agosto a las 9:00 AM?', hechos: undefined, anioRef }).blocked },
+    corre: () => G.detectDatosSinRespaldo({ agentText: '¿Te agendo el miércoles 25 de agosto a las 9:00 AM?', hechos: undefined, hoyCOT: HOY }).blocked },
   { guard: '6 · datos sin respaldo', caso: 'dice "sábado 28 de agosto" y el 28 cae viernes (día CON tilde)',
     texto: '¿Te agendo el sábado 28 de agosto?', esperado: true,
-    corre: () => G.detectDatosSinRespaldo({ agentText: '¿Te agendo el sábado 28 de agosto?', hechos: undefined, anioRef }).blocked },
+    corre: () => G.detectDatosSinRespaldo({ agentText: '¿Te agendo el sábado 28 de agosto?', hechos: undefined, hoyCOT: HOY }).blocked },
   { guard: '6 · datos sin respaldo', caso: 'CONTROL — "miércoles 26 de agosto" es correcto y NO debe bloquear',
     texto: '¿Te agendo el miércoles 26 de agosto?', esperado: false,
-    corre: () => G.detectDatosSinRespaldo({ agentText: '¿Te agendo el miércoles 26 de agosto?', hechos: undefined, anioRef }).blocked },
+    corre: () => G.detectDatosSinRespaldo({ agentText: '¿Te agendo el miércoles 26 de agosto?', hechos: undefined, hoyCOT: HOY }).blocked },
 
   // GUARD 7 — promesa de humano, redactada con tilde
   { guard: '7 · promesa sin escalar', caso: '"ya le pasé tu caso a una persona" (pasé con tilde)',

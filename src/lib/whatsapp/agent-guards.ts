@@ -43,7 +43,12 @@ export function patientMsgMatchesName(msg: string, patientName: string): boolean
 // Mensaje del PACIENTE que cuenta como afirmación explícita
 // (mensaje entero o que empieza con sí + puntuación)
 export const PATIENT_AFFIRMATION = /^\s*(s[ií]|si|yes|correcto|exacto|exactamente|dale|claro|ok(?:ey)?|listo|sip|confirmo|af[ií]rmativo|as[ií]\s+es|esa\s+soy|ese\s+soy|soy\s+yo|todo\s+correcto|conforme|de\s+acuerdo)\s*[!.,]?\s*$/i
-export const PATIENT_AFFIRMATION_PREFIX = /^\s*(s[ií]|si)\b[\s,.!]/i
+// 🔴 SIN `\b`. La rama `sí` termina en `í`, que NO es carácter de palabra para
+// JS, así que el límite nunca matchea y "Sí, correcto" —escrito bien, con
+// tilde— no contaba como afirmación: el guard 1 le pedía la identidad a una
+// paciente que la acababa de confirmar. El `[\s,.!]` ya hacía todo el trabajo
+// que se le atribuía al `\b` (es lo que impide que "Sinceramente" cuente).
+export const PATIENT_AFFIRMATION_PREFIX = /^\s*s[ií][\s,.!]/i
 
 // Frases que CLAIMAN cancelación
 export const CANCELLATION_CLAIM = /\bcita\b[^.!?]{0,40}\b(cancelad[ao]|anulad[ao])\b|\bcancel[ée]\s+tu\s+cita\b|\bcita\s+(qued[ao]|est[áa])\s+cancelad/i
@@ -259,7 +264,11 @@ export function detectPromesaDeHumanoSinEscalar(args: {
 
 /** El agente afirma que no hay citas. Excluye el convenio, que usa las mismas
  *  palabras ("no tengo registrado ese convenio") y es otra cosa. */
-const NIEGA_CITA = /no (veo|tienes|tiene|hay|encuentro|aparece|figura|tengo)[^.]{0,30}(cita|programad|agendad|registrad)/i
+// El pasado faltaba y es la forma más natural: "no encontré ninguna cita a tu
+// nombre". Con sólo `encuentro`, la mitad de las negaciones reales pasaban de
+// largo — y no era el agujero de la tilde: "no encontre" sin tilde fallaba
+// igual. Es conjugación, no ortografía.
+const NIEGA_CITA = /no (veo|tienes|tiene|hay|encuentro|encontr[éeoó]|encontramos|hall[éeoó]|logr[éeoó] (encontrar|ubicar)|aparece|figura|tengo)[^.]{0,30}(cita|programad|agendad|registrad)/i
 const ES_SOBRE_CONVENIO = /convenio/i
 
 /** Ella sostiene que la tiene. "Quiero agendar" NO entra: no afirma nada. */
@@ -462,30 +471,68 @@ export interface Guard6Args {
     minutosDeSlots: number[]
     huboSlots: boolean
   } | null | undefined
-  /** Año de referencia para resolver "19 de agosto" (hoy, en COT). */
-  anioRef: number
+  /**
+   * HOY en Bogotá, `'YYYY-MM-DD'`. Reemplazó a `anioRef: number` el 2026-08-22.
+   *
+   * 🔴 ES UNA FECHA COMPLETA Y ES COT, no un año y no UTC. Las dos cosas por el
+   * mismo motivo: este guard existe para que no se corra un día, y las dos
+   * formas anteriores lo corrían. Con sólo el año no se puede saber si "5 de
+   * enero" ya pasó; y con un `Date` de UTC, a partir de las 7:00 PM de Bogotá
+   * el día UTC ya es el siguiente — el guard que atrapa días corridos estaría
+   * corriendo el suyo.
+   *
+   * El caller la saca de `toLocaleDateString('en-CA', { timeZone:
+   * 'America/Bogota' })`, que es la misma fuente que usa el resto del sistema.
+   */
+  hoyCOT: string
+}
+
+/**
+ * "5 de enero" no dice el año. Esta función elige UNO, el único que tiene
+ * sentido: **el más cercano a hoy** entre el año pasado, este y el que viene.
+ *
+ * 🔴 La versión anterior no elegía: probaba dos años y le alcanzaba con que
+ * UNO cuadrara. Eso convertía el chequeo en un colador, y de la peor forma —
+ * de un año al siguiente el día de la semana corre exactamente +1, así que la
+ * afirmación equivocada por UN DÍA HACIA ADELANTE (el error más típico del
+ * modelo, y el que produjo el caso que originó este guard) coincidía con el
+ * año que viene y pasaba sin bloquearse. Medido el 2026-08-22 sobre 2.190
+ * afirmaciones equivocadas: se escapaban 365, una de cada seis.
+ *
+ * Elegir el más cercano resuelve los dos extremos con la misma regla y sin
+ * umbrales: "5 de enero" dicho en diciembre cae en enero del año que viene
+ * (21 días adelante gana contra 344 atrás), y "12 de agosto" dicho el 22 de
+ * agosto cae en este año (10 días atrás gana contra 358 adelante).
+ */
+function fechaMasCercana(anioRef: number, mes: number, dia: number, hoyMs: number): Date {
+  const candidatos = [anioRef - 1, anioRef, anioRef + 1].map((y) => new Date(Date.UTC(y, mes, dia, 12)))
+  return candidatos.reduce((mejor, dt) =>
+    Math.abs(dt.getTime() - hoyMs) < Math.abs(mejor.getTime() - hoyMs) ? dt : mejor)
 }
 
 export function detectDatosSinRespaldo(args: Guard6Args): GuardResult {
-  const { agentText, hechos, anioRef } = args
+  const { agentText, hechos, hoyCOT } = args
   if (!agentText.trim()) return { blocked: false }
+
+  // El "hoy" de Bogotá, anclado al mediodía UTC igual que los candidatos, para
+  // que la comparación sea entre dos cosas de la misma naturaleza.
+  const anioRef = Number(hoyCOT.slice(0, 4))
+  const hoyMs = Date.UTC(anioRef, Number(hoyCOT.slice(5, 7)) - 1, Number(hoyCOT.slice(8, 10)), 12)
 
   // ── 1. Fecha ↔ día de la semana. No necesita tool: es aritmética. ──
   for (const f of fechasConDiaEnTexto(agentText)) {
-    // Se prueba el año de referencia y el siguiente: "5 de enero" dicho en
-    // diciembre cae en el año que viene y es legítimo.
-    const candidatos = [anioRef, anioRef + 1].map((y) => new Date(Date.UTC(y, f.mes, f.d, 12)))
-    const alguno = candidatos.some((dt) =>
-      dt.getUTCMonth() === f.mes && dt.getUTCDate() === f.d && dt.getUTCDay() === DIA_A_INDICE[f.dia])
-    if (!alguno) {
-      const real = candidatos[0]
+    // UNA sola interpretación, la más cercana a hoy. Ver fechaMasCercana.
+    const real = fechaMasCercana(anioRef, f.mes, f.d, hoyMs)
+    const existe = real.getUTCMonth() === f.mes && real.getUTCDate() === f.d
+    if (!existe || real.getUTCDay() !== DIA_A_INDICE[f.dia]) {
       return {
         blocked: true,
         reason: 'fecha_no_cae_en_ese_dia',
         details: {
           chequeo: 1,
           dicho: f.crudo,
-          dia_real: real.getUTCMonth() === f.mes && real.getUTCDate() === f.d
+          anio_resuelto: real.getUTCFullYear(),
+          dia_real: existe
             ? DIAS_ES[real.getUTCDay() === 0 ? 0 : real.getUTCDay() >= 3 ? real.getUTCDay() + 1 : real.getUTCDay()]
             : 'fecha inexistente',
         },

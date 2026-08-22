@@ -5,7 +5,7 @@ let ok = 0, fail = 0
 const H = (p: Partial<Parameters<typeof detectDatosSinRespaldo>[0]['hechos']> = {}) =>
   ({ diasQueAtiende: [], fechasDeTools: [], minutosDeSlots: [], huboSlots: false, ...p })
 const t = (l: string, texto: string, hechos: ReturnType<typeof H> | null, debeBloquear: boolean) => {
-  const r = detectDatosSinRespaldo({ agentText: texto, hechos, anioRef: 2026 })
+  const r = detectDatosSinRespaldo({ agentText: texto, hechos, hoyCOT: '2026-08-22' })
   if (r.blocked === debeBloquear) { console.log(`  ✅ ${l}${r.blocked ? ` → ${r.reason}` : ''}`); ok++ }
   else { console.log(`  ❌ ${l} — esperaba blocked=${debeBloquear}, dio ${r.blocked} ${JSON.stringify(r.details ?? {})}`); fail++ }
 }
@@ -17,7 +17,14 @@ t('el caso real: "lunes 19, miércoles 21 o viernes 22"',
 t('fecha correcta pasa', 'Tu cita es el miércoles 19 de agosto a las 8:30.', H(), false)
 t('fecha inexistente (31 de febrero)', 'Te espero el lunes 31 de febrero.', H(), true)
 t('sin día nombrado → no se valida', 'Tu cita es el 19 de agosto.', H(), false)
-t('año que viene: "5 de enero" es lunes en 2026', 'Nos vemos el lunes 5 de enero.', H(), false)
+// ⚠️ ESTA EXPECTATIVA CAMBIÓ el 2026-08-22, y el cambio es el arreglo.
+// Antes el guard probaba DOS años y le bastaba con que uno cuadrara, así que
+// "lunes 5 de enero" pasaba porque el 05/01/2026 fue lunes — aunque, dicho un
+// 22 de agosto, el 5 de enero que viene es el de 2027 y cae MARTES. Esa manga
+// ancha dejaba escapar una de cada seis afirmaciones de día equivocadas.
+// Ahora se resuelve UNA sola fecha, la más cercana a hoy, y esto bloquea.
+t('"lunes 5 de enero" dicho en agosto: el enero más cercano es 2027 y cae martes', 'Nos vemos el lunes 5 de enero.', H(), true)
+t('"martes 5 de enero" dicho en agosto: 05/01/2027 ES martes → pasa', 'Nos vemos el martes 5 de enero.', H(), false)
 
 console.log('\nCHEQUEO 2 — días afirmados (duro, solo positivos):')
 t('el caso real: inventa martes y sábado',

@@ -55,7 +55,7 @@ async function main() {
   ] as const
 
   for (const [label, texto, debeBloquear] of CASOS) {
-    const g = detectDatosSinRespaldo({ agentText: texto, hechos, anioRef: 2026 })
+    const g = detectDatosSinRespaldo({ agentText: texto, hechos, hoyCOT: '2026-08-22' })
     const bien = g.blocked === debeBloquear
     console.log(`${bien ? '✅' : '❌'} ${label}`)
     console.log(`   ${g.blocked ? `🛑 BLOQUEA — ${g.reason} · ${JSON.stringify(g.details)}` : 'pasa'}\n`)

@@ -1006,8 +1006,11 @@ async function processWebhook(body: unknown): Promise<void> {
       // frenó y qué decía la tool. Sin eso, un guard que corta de más se
       // descubre por una paciente sin respuesta, no por una query.
       {
-        const anioRef = Number(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 4))
-        let g6 = detectDatosSinRespaldo({ agentText: agentResponse.text, hechos: agentResponse.hechosDeTools, anioRef })
+        // Fecha COMPLETA y en Bogotá — ver Guard6Args.hoyCOT: con sólo el año no
+        // se puede saber si una fecha ya pasó, y con UTC el día se corre a partir
+        // de las 7 PM, que es justo lo que este guard existe para atrapar.
+        const hoyCOT = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' })
+        let g6 = detectDatosSinRespaldo({ agentText: agentResponse.text, hechos: agentResponse.hechosDeTools, hoyCOT })
         if (g6.blocked) {
           const auditar = async (intento: number, escalado: boolean) => {
             try {
@@ -1044,7 +1047,7 @@ async function processWebhook(body: unknown): Promise<void> {
             console.error('[Webhook] Re-run guard 6 falló:', e instanceof Error ? e.message : e)
           }
 
-          g6 = detectDatosSinRespaldo({ agentText: agentResponse.text, hechos: agentResponse.hechosDeTools, anioRef })
+          g6 = detectDatosSinRespaldo({ agentText: agentResponse.text, hechos: agentResponse.hechosDeTools, hoyCOT })
           if (g6.blocked) {
             console.error('[Webhook] 🚨 GUARD 6 persistió tras re-run — escalando')
             await auditar(2, true)

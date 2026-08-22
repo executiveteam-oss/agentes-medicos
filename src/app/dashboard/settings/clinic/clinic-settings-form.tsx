@@ -420,6 +420,45 @@ export function ClinicSettingsForm({ initialData }: Props) {
         />
       </div>
 
+      {/* --- Horario de la bandeja --- */}
+      <div className="card-v2 p-5">
+        <h3 className="text-sm font-semibold text-slate-900 mb-1">
+          Horario de respuesta del equipo
+        </h3>
+        <p className="text-xs text-slate-400 mb-4">
+          Cuándo hay alguien del equipo respondiendo el WhatsApp. <strong>No es el horario
+          del consultorio</strong>: es el de la bandeja. Cuando el agente le dice a una
+          paciente que una persona la va a contactar, usa esto para decirle
+          <em> cuándo</em> — fuera de este horario deja de prometer &quot;pronto&quot;.
+        </p>
+        <div className="space-y-2">
+          {([
+            ['monday', 'Lunes'], ['tuesday', 'Martes'], ['wednesday', 'Miércoles'],
+            ['thursday', 'Jueves'], ['friday', 'Viernes'], ['saturday', 'Sábado'], ['sunday', 'Domingo'],
+          ] as const).map(([clave, etiqueta]) => {
+            const dia = data.inbox_hours?.[clave] ?? { start: '08:00', end: '17:00', active: false }
+            const setDia = (parcial: Partial<typeof dia>) =>
+              update('inbox_hours', { ...(data.inbox_hours ?? {}), [clave]: { ...dia, ...parcial } })
+            return (
+              <div key={clave} className="flex items-center gap-3">
+                <label className="flex items-center gap-2 w-32 shrink-0 text-xs text-slate-700">
+                  <input type="checkbox" checked={dia.active}
+                    onChange={(e) => setDia({ active: e.target.checked })} />
+                  {etiqueta}
+                </label>
+                <input type="time" value={dia.start} disabled={!dia.active}
+                  onChange={(e) => setDia({ start: e.target.value })}
+                  className="input-v2 w-28 text-xs disabled:opacity-40" />
+                <span className="text-xs text-slate-400">a</span>
+                <input type="time" value={dia.end} disabled={!dia.active}
+                  onChange={(e) => setDia({ end: e.target.value })}
+                  className="input-v2 w-28 text-xs disabled:opacity-40" />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
       {/* --- Mensaje de bienvenida --- */}
       <div className="card-v2 p-5">
         <h3 className="text-sm font-semibold text-slate-900 mb-1">Mensaje de bienvenida</h3>

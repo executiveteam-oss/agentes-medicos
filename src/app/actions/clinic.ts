@@ -37,6 +37,8 @@ export interface ClinicSettingsData {
   logo_url: string
   virtual_config: VirtualConsultationConfig
   cancellation_policy: string
+  /** Horario de la BANDEJA: cuándo hay alguien del equipo respondiendo. */
+  inbox_hours: Record<string, { start: string; end: string; active: boolean }> | null
   welcome_message: string
   clinic_info: string
 }
@@ -55,7 +57,7 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
         consultation_price,
         min_booking_advance_hours, max_booking_advance_days,
         address, city, department, building, floor, office, logo_url,
-        virtual_config, cancellation_policy, welcome_message, clinic_info
+        virtual_config, cancellation_policy, welcome_message, clinic_info, inbox_hours
       `)
       .eq('id', clinicId)
       .single()
@@ -81,6 +83,7 @@ export async function getClinicSettings(): Promise<ClinicSettingsData | null> {
       logo_url: data.logo_url ?? '',
       virtual_config: { ...DEFAULT_VIRTUAL_CONFIG, ...((data.virtual_config as Partial<VirtualConsultationConfig>) ?? {}) },
       cancellation_policy: (data as Record<string, unknown>).cancellation_policy as string ?? '',
+      inbox_hours: ((data as Record<string, unknown>).inbox_hours as ClinicSettingsData['inbox_hours']) ?? null,
       welcome_message: (data as Record<string, unknown>).welcome_message as string ?? '',
       clinic_info: (data as Record<string, unknown>).clinic_info as string ?? '',
     }
@@ -124,6 +127,8 @@ export async function saveClinicSettings(
         logo_url: input.logo_url.trim() || null,
         virtual_config: input.virtual_config as unknown as Record<string, unknown>,
         cancellation_policy: input.cancellation_policy.trim() || null,
+        // El horario de la bandeja. Distinto de working_hours: ver inbox-hours.ts
+        inbox_hours: input.inbox_hours as unknown as Record<string, unknown> | null,
         welcome_message: input.welcome_message.trim() || null,
         clinic_info: input.clinic_info.trim() || null,
         updated_at: new Date().toISOString(),

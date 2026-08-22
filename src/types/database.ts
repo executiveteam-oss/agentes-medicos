@@ -136,6 +136,10 @@ export interface Clinic {
   consultation_price: number | null        // COP sin decimales
   consultation_duration_minutes: number
   working_hours: WorkingHours
+  /** Cuándo hay alguien del EQUIPO respondiendo el WhatsApp.
+   *  NO es `working_hours` (¿el consultorio está abierto?) ni el horario de un
+   *  médico (¿cuándo atiende?). Ver src/lib/clinic/inbox-hours.ts */
+  inbox_hours?: WorkingHours | null
   faq: FaqItem[]
   agent_name: string
   agent_personality: string

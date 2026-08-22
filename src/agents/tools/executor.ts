@@ -502,7 +502,6 @@ async function checkAvailability(
     // de siempre en un día que la clínica cambió a mano.
     excepcion: excepcionDelDia,
     configWhatsApp: docConfig ? { days: docConfig.days, start: docConfig.start, end: docConfig.end } : null,
-    horarioClinica: clinic.working_hours,
   })
   const dayBlocks: WorkingBlock[] = dispDia.franjas
 

@@ -215,7 +215,6 @@ function armarDatos(
       : null,
     fechaBloqueada: fechaBloqueada ? { doctor_id: fechaBloqueada.doctor_id, reason: fechaBloqueada.reason } : null,
     configWhatsApp: cfg ? { days: cfg.days, start: cfg.start, end: cfg.end } : null,
-    horarioClinica: clinic.working_hours,
     festivo,
     // Sin franjas no es una excepción (lo garantiza también el CHECK de la
     // tabla): sería "no atiende" dicho en el lugar equivocado.

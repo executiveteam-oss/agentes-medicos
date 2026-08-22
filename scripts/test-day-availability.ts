@@ -48,19 +48,14 @@ const ANGELICA = {
   agenda_closed: false, agenda_closed_reason: null, agenda_closed_until: null,
   schedule_type: 'fixed', manual_availability_message: null,
 }
-// El horario de la CLÍNICA: amplio y todos los días. Es el que se filtraba
-// cuando el médico tenía el día inactivo.
-const HORARIO_CLINICA = {
-  monday: { active: true, blocks: [{ start: '08:00', end: '18:00' }] },
-  thursday: { active: true, blocks: [{ start: '08:00', end: '18:00' }] },
-  friday: { active: true, blocks: [{ start: '08:00', end: '18:00' }] },
-}
-
+// 🪦 HORARIO_CLINICA se fue (2026-08-22). resolverFranjas ya no acepta un
+// horario de clínica: dejó de ser fallback. Un médico sin horario propio no
+// ofrece cupos, en vez de heredar los del consultorio.
 function datos(over: Partial<DatosDelDia>): DatosDelDia {
   return {
     fecha: '2026-08-17', diaSemana: 'lunes', indiceDiaSemana: 1,
     medico: ADRIANA, fechaBloqueada: null, configWhatsApp: null,
-    horarioClinica: HORARIO_CLINICA, festivo: null, estadoClinica: null,
+    festivo: null, estadoClinica: null,
     excepcion: null,
     ...over,
   }
@@ -77,9 +72,19 @@ for (const h of ['08:00', '10:00', '13:00', '17:00']) {
 ok('el motivo dice que no atiende los lunes',
   /no atiende los lunes/i.test(motivoParaConfirmar(c1, ADRIANA.nombre)))
 
-console.log('\n🔴 …Y NO HEREDA EL HORARIO DE LA CLÍNICA (el bug de los 08–18)')
-ok('la clínica abre 08–18 ese lunes pero Adriana sigue sin atender',
+console.log('\n🔴 …Y UN MÉDICO SIN HORARIO PROPIO NO OFRECE NADA')
+ok('Adriana un lunes: sin franjas, sin heredar nada',
   estadoDeFranja(c1, '09:00') === 'fuera_de_horario')
+// El caso nuevo: un médico SIN working_hours (no "con el día apagado").
+// Antes heredaba el horario del consultorio; ahora no tiene de dónde.
+const sinHorario = resolverDisponibilidadDia(datos({
+  medico: { nombre: 'Dr. Sin Horario', working_hours: null, agenda_closed: false,
+    agenda_closed_reason: null, agenda_closed_until: null, schedule_type: null,
+    manual_availability_message: null },
+}))
+ok('médico sin working_hours → no atiende', sinHorario.atiende === false)
+ok('médico sin working_hours → cero franjas', sinHorario.franjas.length === 0)
+ok('y NO es un bloqueo: es que no sabemos su horario', sinHorario.bloqueo === null)
 
 console.log('\n🔴 CASO 2 — ADRIANA un JUEVES → DISPONIBLE 08:00–11:00')
 const c2 = resolverDisponibilidadDia(datos({ fecha: '2026-08-20', diaSemana: 'jueves', indiceDiaSemana: 4 }))
@@ -145,7 +150,11 @@ console.log('\nPRECEDENCIA')
 const soloClinica = resolverDisponibilidadDia(datos({
   medico: { ...ADRIANA, working_hours: null }, diaSemana: 'lunes', indiceDiaSemana: 1,
 }))
-ok('sin working_hours del médico → hereda el de la clínica', soloClinica.atiende === true)
+// 🔴 ESTE CASO SE DIO VUELTA (2026-08-22). Antes: "hereda el de la clínica".
+// Heredar convertía "no sabemos su horario" en cupos concretos con el horario
+// del consultorio detrás — el agente ofrecía una hora que nadie había cargado.
+ok('sin working_hours del médico → NO hereda nada, no atiende', soloClinica.atiende === false)
+ok('   y sin franjas', soloClinica.franjas.length === 0)
 
 const conWhatsApp = resolverDisponibilidadDia(datos({
   medico: { ...ADRIANA, working_hours: {} }, diaSemana: 'lunes', indiceDiaSemana: 1,

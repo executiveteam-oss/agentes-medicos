@@ -54,6 +54,7 @@ import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doc
 import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada, detectConvenioSinVerificar } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
+import { coletillaDeContacto } from '@/lib/clinic/inbox-hours'
 
 // Máximo tiempo de ejecución en Vercel (en segundos)
 // El plan gratuito de Vercel permite hasta 60s para serverless functions
@@ -964,7 +965,7 @@ async function processWebhook(body: unknown): Promise<void> {
             await auditar(2, true)
             agentResponse = {
               ...agentResponse,
-              text: 'Disculpa, quiero confirmarte los horarios exactos antes de decirte algo equivocado. Ya le pasé tu caso a una persona del consultorio y te escriben enseguida 🙏',
+              text: 'Disculpa, quiero confirmarte los horarios exactos antes de decirte algo equivocado. Ya le pasé tu caso a una persona del consultorio.' + (coletillaDeContacto(clinic.inbox_hours, new Date()) || ' Te escriben enseguida 🙏'),
             }
             await supabaseAdmin.from('conversations')
               .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE, `datos_sin_respaldo:${g6.reason}`) })
@@ -1142,8 +1143,8 @@ async function processWebhook(body: unknown): Promise<void> {
           } catch { /* no crítico */ }
           agentResponse = {
             ...agentResponse,
-            text: 'Prefiero confirmarte lo del convenio con el consultorio antes de decirte algo equivocado 🙏 ' +
-              'Ya les pedí que lo revisen y te escriben enseguida.',
+            text: 'Prefiero confirmarte lo del convenio con el consultorio antes de decirte algo equivocado 🙏 Ya les pedí que lo revisen.' +
+              (coletillaDeContacto(clinic.inbox_hours, new Date()) || ' Te escriben enseguida.'),
             escalate: { reason: 'convenio_no_reconocido', code: 'CONVENIO_SIN_VERIFICAR' },
           }
         }
@@ -1297,7 +1298,7 @@ async function processWebhook(body: unknown): Promise<void> {
             },
           })
         } catch { /* no crítico */ }
-        sendText = g9.replacement
+        sendText = g9.replacement + coletillaDeContacto(clinic.inbox_hours, new Date())
         await supabaseAdmin
           .from('conversations')
           .update({
@@ -1832,9 +1833,15 @@ async function handleEscalateService(
 
   // Si insiste, NO repetir el mismo mensaje ni quedarse mudo: reconocer que ya
   // quedó marcado y seguir disponible para lo demás.
+  // "PRONTO" UN SÁBADO A LAS 8 DE LA MAÑANA SIGNIFICA EL LUNES.
+  // Dentro del horario de la bandeja la coletilla es vacía y el mensaje sale
+  // igual que siempre; fuera, dice cuándo va a pasar de verdad. El horario sale
+  // de clinics.inbox_hours, que es OTRO campo que working_hours: uno dice si el
+  // consultorio está abierto, este dice si hay alguien leyendo el chat.
+  const cuando = coletillaDeContacto(clinic.inbox_hours, new Date())
   const msg = yaMarcado
-    ? `Ya le pasé tu solicitud de ${serviceLabel} al equipo, te contactan pronto. 🙂 Mientras tanto, ¿te ayudo con algo más?`
-    : `Para ${serviceLabel}, un asesor del consultorio confirma los detalles contigo antes de agendar. Ya les avisé y te contactan pronto. 🙂`
+    ? `Ya le pasé tu solicitud de ${serviceLabel} al equipo.${cuando || ' Te contactan pronto. 🙂'} Mientras tanto, ¿te ayudo con algo más?`
+    : `Para ${serviceLabel}, un asesor del consultorio confirma los detalles contigo antes de agendar. Ya les avisé.${cuando || ' Te contactan pronto. 🙂'}`
   await saveMessage(conversation.id, 'agent', msg)
   await sendWhatsAppMessage(patientPhone, msg, clinicCreds)
 
@@ -1984,7 +1991,8 @@ async function handleHumanRequest(
   }
 
   const textoHumano = escalacionOk
-    ? crisisCfg.human_handoff_message
+    // Mismo criterio: si no hay nadie en la bandeja, se dice cuándo lo habrá.
+    ? crisisCfg.human_handoff_message + coletillaDeContacto(clinic.inbox_hours, new Date())
     : mensajeEscalacionFallida(clinic.phone)
   await saveMessage(conversation.id, 'agent', textoHumano)
   await sendWhatsAppMessage(patientPhone, textoHumano, clinicCreds)

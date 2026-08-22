@@ -68,7 +68,6 @@ export interface DatosDelDia {
   /** whatsapp_config.doctors[doctorId], si existe. */
   configWhatsApp: { days: number[]; start: string; end: string } | null
   /** clinic.working_hours, el último fallback. */
-  horarioClinica: unknown | null
   /** Estado operativo de la clínica HOY. `null` = operando normal.
    *
    *  Es un hecho del día, no configuración: `working_hours` dice a qué hora
@@ -260,14 +259,22 @@ export function franjasDelHorarioBase(d: DatosDelDia): WorkingBlock[] {
     franjas = [{ start: d.configWhatsApp.start, end: d.configWhatsApp.end }]
   }
 
-  if (!activo && !inactivoExplicito && d.horarioClinica) {
-    const norm = normalizeWorkingHours(d.horarioClinica as Record<string, unknown>)[clave]
-    if (norm.active && norm.blocks.length > 0) {
-      activo = true
-      franjas = norm.blocks
-    }
-  }
-
+  // 🔴 EL HORARIO DE LA CLÍNICA YA NO ES UN FALLBACK (2026-08-22).
+  //
+  // Acá había un tercer eslabón: si el médico no tenía horario propio ni config
+  // de WhatsApp, heredaba `clinics.working_hours`. Eso convertía "no sabemos
+  // cuándo atiende este médico" en cupos concretos: el agente ofrecía "martes
+  // 10:00 con el Dr. X" porque el CONSULTORIO abre a las 10, no porque él
+  // atienda. Un dato inventado con cara de dato — el patrón 7.
+  //
+  // Un médico sin horario cargado ahora no ofrece nada, y cae por el camino que
+  // ya existe: check_availability devuelve available:false con dias_que_atiende
+  // y proximas_fechas. El bloqueo trae la salida.
+  //
+  // Medido antes de sacarlo: en Algia los 8 médicos activos tienen horario
+  // propio, así que este eslabón no se ejercitaba. Sí lo hacía en Los Puchis
+  // (2 de 3) y en Dental Sonrisa (1 de 1), donde estaba prestándoles un horario
+  // que no es de nadie.
   return activo ? franjas : []
 }
 

@@ -121,6 +121,7 @@ export function buildSystemPrompt({ clinic, doctor, doctors, waConfig, consultat
 
   // Formatear horarios para que Claude los entienda
   const workingHoursText = formatWorkingHours(clinic)
+  const conveniosText = formatConveniosDeLaClinica(consultationTypes)
 
   // Formatear FAQ para el prompt
   const faqText = formatFaq(clinic.faq)
@@ -856,9 +857,12 @@ DESPUÉS del tool NO emitas otro mensaje (mismo patrón que bloques 1-3).
 
 REGLA CRÍTICA — TRES CATEGORÍAS DE PAGO:
 Existen 3 modalidades de pago:
-1. EPS — régimen contributivo Ley 100 (ej. Nueva EPS, Compensar, Sura EPS, Sanitas EPS)
-2. Prepagada — medicina prepagada voluntaria (ej. Colsanitas, Coomeva Prepagada, Sura Prepagada, Colmédica, Allianz Salud)
+1. EPS — régimen contributivo Ley 100
+2. Prepagada — medicina prepagada voluntaria
 3. Particular — paga directamente
+Los nombres concretos NO se recitan de memoria: los de esta clínica están en el
+bloque CONVENIOS DE ESTA CLÍNICA. Si nombra una marca que no está ahí, puede
+existir igual — llama la tool y que ella decida el tipo si es ambigua.
 
 REGLA CRÍTICA — PRECIOS: SIEMPRE A TRAVÉS DEL TOOL:
 Para decir CUALQUIER valor o precio de consulta, llama SIEMPRE
@@ -881,8 +885,10 @@ REGLA CRÍTICA — DISAMBIGUACIÓN EPS vs PREPAGADA:
 Algunas aseguradoras tienen AMBOS productos (EPS y Prepagada) con tarifas y convenios diferentes:
 - Sura → puede ser Sura EPS O Sura Prepagada. PREGUNTAR: "Sura puede ser EPS o medicina prepagada. ¿Cuál tienes?"
 - Sanitas → puede ser EPS Sanitas O Colsanitas (prepagada). PREGUNTAR: "¿Es Sanitas EPS o Colsanitas prepagada?"
-Solo prepagada (NO preguntar, es claro): Coomeva (la EPS fue liquidada en 2022), Colsanitas, Colmédica, MediPlus, AXA Colpatria, Allianz Salud.
-Solo EPS: Nueva EPS, Compensar, Salud Total, Famisanar, Eres, Coosalud, Mutual Ser, Comfenalco, Aliansalud.
+Coomeva es solo prepagada (su EPS fue liquidada en 2022).
+El tipo de CADA convenio sale del bloque de abajo, que se arma de la base — no de memoria.
+
+${conveniosText}
 
 REGLA — CUÁNDO PEDIR EL PRECIO AL TOOL:
 NUNCA incluyas un precio en la lista inicial de tipos de consulta — ni de
@@ -964,8 +970,8 @@ Paso 3 — Validar aseguradora (si aplica):
 A. Si dijo "particular": saltar validación, ir al paso 4.
 B. Si dijo EPS o prepagada: identificar la categoría primero.
    - Si la marca es AMBIGUA (Sura, Sanitas): preguntar "¿Es [marca] EPS o medicina prepagada?" antes de llamar el tool. NO llames check_eps_convenio sin esta confirmación.
-   - Si la marca es SOLO prepagada (Coomeva, Colsanitas, Colmédica, MediPlus, AXA Colpatria, Allianz): asumir Prepagada sin preguntar.
-   - Si la marca es SOLO EPS (Nueva EPS, Compensar, Salud Total, Famisanar, Eres, Coosalud, Mutual Ser, Comfenalco, Aliansalud): asumir EPS sin preguntar.
+   - Si la marca aparece en el bloque CONVENIOS DE ESTA CLÍNICA bajo "Prepagada" o bajo "EPS": asumir ese tipo sin preguntar.
+   - Si aparece bajo "Sin clasificar", o no aparece: preguntarle a ella de qué tipo es antes de llamar el tool.
 C. Llama check_eps_convenio con eps_name + insurer_type confirmados.
    - Si hasConvenio=true: seguir sin mencionar precio (cubierto por convenio).
    - Si hasConvenio=false: "Con [nombre] no tenemos convenio [tipo] activo en este momento. Puedes agendar como particular. ¿Te interesa?" — si el paciente pregunta el valor, llama get_consultation_price(consultation_type_id, 'particular') y relata su mensaje.
@@ -1237,6 +1243,56 @@ REGLAS:
  * Formatea los horarios de trabajo para el prompt
  * Ejemplo: "  Lunes a Viernes: 8:00 AM - 6:00 PM"
  */
+/**
+ * LOS CONVENIOS DE ESTA CLÍNICA, LEÍDOS DE LA BASE.
+ *
+ * Reemplaza dos listas que estaban escritas a mano en el prompt — y que tenían
+ * un typo: decían "MediPlus" con i, mientras el catálogo dice "MEDPLUS". El
+ * 2026-08-22 eso le costó una cita a un paciente: el agente le ofreció
+ * "MediPlus", él contestó "Medplus", y el modelo le pasó a check_eps_convenio
+ * el nombre de la LISTA en vez del que él escribió. Reproducido: con "Medplus"
+ * la tool devuelve hasConvenio:true; con "MediPlus", CONVENIO_NO_RECONOCIDO.
+ *
+ * Se muestra `eps_display_name` con fallback a `eps_name`: sin eso el agente le
+ * ofrecería a la paciente "ENTIDAD PROMOTORA DE SALUD SERVICIO OCCIDENTAL DE
+ * SALUD S.A" en vez de "SOS". La columna existe desde la migración 00111
+ * exactamente para esto.
+ *
+ * La última línea es la más importante del bloque: aunque la lista sea
+ * correcta, si el modelo le pasa a la tool el nombre de la lista en vez del que
+ * dijo la paciente, cualquier diferencia de escritura vuelve a romper.
+ */
+function formatConveniosDeLaClinica(consultationTypes?: ConsultationType[]): string {
+  const vistos = new Map<string, { mostrar: string; tipo: string | null }>()
+  for (const ct of consultationTypes ?? []) {
+    if (ct.is_active === false) continue
+    const crudo = (ct.eps_name ?? '').trim()
+    if (!crudo) continue
+    const mostrar = ((ct as { eps_display_name?: string | null }).eps_display_name ?? '').trim() || crudo
+    if (!vistos.has(crudo)) vistos.set(crudo, { mostrar, tipo: (ct as { insurer_type?: string | null }).insurer_type ?? null })
+  }
+  if (vistos.size === 0) return ''
+
+  const todos = [...vistos.values()]
+  const orden = (a: { mostrar: string }, b: { mostrar: string }) => a.mostrar.localeCompare(b.mostrar, 'es')
+  const prep = todos.filter((x) => x.tipo === 'Prepagada').sort(orden).map((x) => x.mostrar)
+  const eps  = todos.filter((x) => x.tipo === 'EPS').sort(orden).map((x) => x.mostrar)
+  const sinC = todos.filter((x) => !x.tipo).sort(orden).map((x) => x.mostrar)
+
+  const l: string[] = []
+  l.push('CONVENIOS DE ESTA CLÍNICA — los únicos que existen. No nombres otros.')
+  if (prep.length) l.push(`  Prepagada: ${prep.join(' · ')}`)
+  if (eps.length)  l.push(`  EPS: ${eps.join(' · ')}`)
+  if (sinC.length) l.push(`  Sin clasificar (pregúntale si es EPS o prepagada): ${sinC.join(' · ')}`)
+  l.push('')
+  l.push('🚨 Cuando le preguntes cuál es su aseguradora, ofrécele estos nombres TAL CUAL están escritos acá.')
+  l.push('Y pásale a check_eps_convenio LO QUE ESCRIBIÓ ELLA, nunca el nombre de esta lista.')
+  l.push('Una sola letra de diferencia entre lo que ella escribió y lo que tú mandas hace que la tool')
+  l.push('no reconozca el convenio, y la paciente se queda sin cita.')
+  l.push('Si nombra una aseguradora que no está acá, igual llama la tool — puede existir y no estar cargada.')
+  return l.join('\n')
+}
+
 function formatWorkingHours(clinic: Clinic): string {
   const dayNames: Record<string, string> = {
     monday: 'Lunes',

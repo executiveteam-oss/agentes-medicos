@@ -777,6 +777,9 @@ async function processWebhook(body: unknown): Promise<void> {
         tratanteMode,
         tratantes: resolvedTratantes,
         pinMedico,
+        // Para no preguntarle a un hombre si está embarazado. El executor aplica
+        // la MISMA regla (condicion-por-genero), no una copia.
+        patientGender: patient.gender ?? null,
       }
       try {
         agentResponse = await runAppointmentAgent(agentParams)
@@ -871,7 +874,22 @@ async function processWebhook(body: unknown): Promise<void> {
           target_id: conversation.id,
           // El teléfono NO va completo: el CLAUDE.md lo prohíbe y el target_id ya
           // identifica la conversación para cualquier traza.
-          details: { code: agentResponse.escalate.code, reason: agentResponse.escalate.reason },
+          //
+          // 🔴 LOS TOOL_CALLS VAN ACÁ (2026-08-22). Este bloque hace `return`, así
+          // que nunca llega al audit `message_processed` del paso 21 — y ese es el
+          // único lugar donde se registran los argumentos. Consecuencia medida: el
+          // caso del papá que dijo "Medplus" y recibió CONVENIO_NO_RECONOCIDO dejó
+          // ocho filas con `tool_calls: []` y CERO rastro de la llamada que lo
+          // causó. Hubo que reproducirla a mano contra la base para saber que el
+          // modelo había mandado "MediPlus", el nombre con typo del prompt.
+          // Un corte determinista es JUSTO el caso donde más falta hace la traza:
+          // es el que le corta la conversación a la paciente.
+          details: {
+            code: agentResponse.escalate.code,
+            reason: agentResponse.escalate.reason,
+            tools_used: agentResponse.toolsUsed,
+            tool_calls: agentResponse.toolCalls,
+          },
         })
         // El texto del agente promete una persona. Sólo sale si la hay.
         const textoEsc = escalacion.ok

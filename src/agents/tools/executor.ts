@@ -32,6 +32,7 @@ import { mensajeFechaBloqueada } from '@/lib/calendar/blocked-date-message'
 import { resolverDisponibilidadDia } from '@/lib/calendar/day-availability'
 import { indiceDiaSemanaCOT, traerFestivos } from '@/lib/calendar/fetch-day-availability'
 import type { DoctorPin } from '@/lib/agent/doctor-pin'
+import { omitirCondicionPorGenero } from '@/lib/rules/condicion-por-genero'
 
 const TIMEZONE = 'America/Bogota'
 const SPANISH_DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
@@ -1158,12 +1159,24 @@ async function createAppointment(
       const { PatientConditionConfigSchema, evaluatePatientCondition } = await import('@/lib/rules/patient-condition-config')
       const { classifyYesNo, classifyChoice } = await import('@/lib/rules/patient-answer-classifier')
 
+      // El género de la ficha decide si alguna pregunta NO le aplica. Se lee
+      // acá, del lado del backstop, con la MISMA función que usa el prompt: si
+      // sólo filtrara el prompt, este check exigiría la respuesta de una
+      // pregunta que nadie hizo y bloquearía con BLOCKED_CONDITION_NOT_ASKED.
+      // Se resuelve por teléfono, que es como createAppointment identifica a la
+      // paciente en este punto (el mismo criterio del chequeo de edad de arriba).
+      const { data: pg } = await supabaseAdmin
+        .from('patients').select('gender')
+        .eq('clinic_id', clinicId).eq('phone', patientPhone).maybeSingle()
+      const generoDelPaciente = (pg as { gender: string | null } | null)?.gender ?? null
+
       // Check 1: ¿Faltan respuestas?
       const missing: Array<{ ruleId: string; question: string }> = []
       for (const row of conditionRules) {
         const r = row as { id: string; condition_config: unknown }
         const parsed = PatientConditionConfigSchema.safeParse(r.condition_config)
         if (!parsed.success) continue // config corrupto, skip (no debería pasar — Zod en write)
+        if (omitirCondicionPorGenero(parsed.data.question, generoDelPaciente)) continue
         if (!(r.id in patientConditionAnswers)) {
           missing.push({ ruleId: r.id, question: parsed.data.question })
         }

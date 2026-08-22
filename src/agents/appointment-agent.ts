@@ -82,6 +82,10 @@ interface AgentParams {
   /** El médico que la paciente nombró (pineado en la conversación). Restringe
    *  las tools de forma determinista — ver executor.bloqueoPorPinDeMedico. */
   pinMedico?: DoctorPin | null
+  /** El género de la ficha, para no preguntarle a un hombre si está embarazado.
+   *  Ver src/lib/rules/condicion-por-genero.ts — la MISMA regla la aplica el
+   *  executor, o el backstop exigiría una respuesta que nadie preguntó. */
+  patientGender?: string | null
 }
 
 export interface AppointmentData {
@@ -141,7 +145,7 @@ export async function runAppointmentAgent(params: AgentParams): Promise<AgentRes
   // chequea la regla y rechaza el insert si está activa (capa B).
   const escalateHumanByCt = await loadActiveEscalateHumanRules(consultationTypes)
   const ageLimitsByCt = await loadActiveAgeLimitRules(consultationTypes)
-  const patientConditionsByCt = await loadActivePatientConditions(consultationTypes)
+  const patientConditionsByCt = await loadActivePatientConditions(consultationTypes, params.patientGender)
   const authConveniosByCt = await loadActiveAuthConvenios(consultationTypes)
 
   const systemPrompt = buildSystemPrompt({ clinic, doctor, doctors: allDoctors, waConfig, consultationTypes, patientPhone, patientName, existingPatient, tratanteMode, tratantes, escalateHumanByCt, ageLimitsByCt, patientConditionsByCt, authConveniosByCt })
@@ -597,6 +601,7 @@ import type { PatientConditionRuleInfo } from '@/agents/prompts/system-prompt'
 
 async function loadActivePatientConditions(
   consultationTypes?: ConsultationType[],
+  patientGender?: string | null,
 ): Promise<Map<string, PatientConditionRuleInfo[]>> {
   const result = new Map<string, PatientConditionRuleInfo[]>()
   if (!consultationTypes || consultationTypes.length === 0) return result
@@ -605,7 +610,11 @@ async function loadActivePatientConditions(
   try {
     const { getActivePatientConditionRulesForCts } = await import('@/app/actions/consultation-type-rules')
     const rules = await getActivePatientConditionRulesForCts(ctIds)
+    const { omitirCondicionPorGenero } = await import('@/lib/rules/condicion-por-genero')
     for (const r of rules) {
+      // No se le pregunta a un hombre si está embarazado. Con género femenino,
+      // otro o vacío se pregunta igual — el default es preguntar.
+      if (omitirCondicionPorGenero(r.config.question, patientGender)) continue
       const existing = result.get(r.consultation_type_id) ?? []
       if (r.config.question_type === 'yes_no') {
         existing.push({

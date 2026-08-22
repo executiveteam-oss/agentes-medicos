@@ -53,7 +53,7 @@ import { ESCALATION_REASONS, escalationContext, escalationContextSinPisar, type 
 import { decidirCorteDeEscalada } from '@/lib/conversations/corte-por-escalada'
 import { consultarIntervencionHumana } from '@/lib/conversations/intervencion-humana'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
-import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada, detectConvenioSinVerificar } from '@/lib/whatsapp/agent-guards'
+import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada, detectConvenioSinVerificar, detectInterpretacionClinica } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
 import { stripInternalMonologue } from '@/lib/whatsapp/strip-internal-monologue'
 import { coletillaDeContacto } from '@/lib/clinic/inbox-hours'
@@ -1355,6 +1355,47 @@ async function processWebhook(body: unknown): Promise<void> {
       // 18.1. Registrar uso de tokens
       if (agentResponse.tokenUsage) {
         await trackTokenUsage(clinic.id, agentResponse.tokenUsage.input, agentResponse.tokenUsage.output)
+      }
+
+      // 18.85 GUARD 11 — interpretó contenido clínico.
+      //
+      // Va ANTES del guard 9 a propósito: si un mensaje inventa una preparación
+      // Y ADEMÁS lee un resultado, lo grave es lo segundo, y el texto que sale
+      // tiene que ser el que dice "eso lo revisa tu médico".
+      //
+      // Nació con el destrabe del corte por escalada (2026-08-22): desde que
+      // `archivo_recibido` deja pasar al agente, una paciente con sus exámenes
+      // de laboratorio subidos y la pregunta "¿tengo anemia?" encima recibe
+      // respuesta — y hasta hoy lo único que se lo impedía era una línea del
+      // prompt. Patrón 1: lo que TIENE que pasar no depende del modelo.
+      const g11 = detectInterpretacionClinica({ agentText: sendText })
+      if (g11.blocked && g11.replacement) {
+        console.warn(`[Webhook] 🚨 Guard 11: interpretación clínica (${(g11.details as { familia?: string })?.familia}) → reemplazar y escalar`)
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'interpretacion_clinica_bloqueada',
+            actor_type: 'system',
+            target_type: 'conversation',
+            target_id: conversation.id,
+            details: {
+              texto_que_lo_activo: sendText.slice(0, 600),
+              familia: (g11.details as { familia?: string })?.familia ?? null,
+              patron: (g11.details as { patron?: string })?.patron ?? null,
+            },
+          })
+        } catch { /* no crítico */ }
+        sendText = g11.replacement + coletillaDeContacto(clinic.inbox_hours, new Date())
+        await supabaseAdmin
+          .from('conversations')
+          .update(parcheDeEscalacion(ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION, 'interpretacion_clinica'))
+          .eq('id', conversation.id)
+        await notifyStaffOfEscalation({
+          clinicId: clinic.id,
+          conversationId: conversation.id,
+          patientName: patient.name,
+          reason: 'Preguntó por resultados, valores de laboratorio o síntomas — eso lo tiene que responder un médico',
+        })
       }
 
       // 18.9 GUARD 9 — afirmó una preparación que nadie cargó.

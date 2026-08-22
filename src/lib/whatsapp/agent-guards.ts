@@ -666,3 +666,129 @@ export function detectConvenioSinVerificar(args: {
     details: { tools_used: args.toolsUsed },
   }
 }
+
+// ============================================================
+// GUARD 11: interpretó contenido clínico
+//
+// Apareció el 2026-08-22, horas después de destrabar el corte por escalada.
+// `archivo_recibido` es uno de los motivos que se destraban, y una paciente
+// tenía subidos sus exámenes de laboratorio con una pregunta encima: si tenía
+// anemia. Antes del destrabe esa conversación quedaba muda; desde el destrabe
+// el agente contesta, y NADA en el código se lo impedía — sólo una línea del
+// prompt. Es exactamente el patrón 1: si algo TIENE que pasar, no puede
+// depender de que el modelo lea una instrucción.
+//
+// Leer un resultado, decir si un valor está alto, nombrar un diagnóstico o
+// decidir si un síntoma es grave lo hace un médico con la historia clínica
+// delante. Un modelo que lo hace con un PDF y buena voluntad se equivoca en la
+// dirección más cara: tranquilizando.
+//
+// NO es negarle información. Es no opinar sobre lo que sólo un médico puede
+// leer — y decirle qué sigue, que es lo que le falta a un "no puedo".
+//
+// EL CRITERIO son dos familias, no una lista suelta de palabras:
+//
+//   FUERTES  — la frase YA contiene la interpretación completa ("el hemograma
+//              indica…", "tienes anemia", "la hemoglobina está baja"). Disparan
+//              solas porque no hay lectura inocente de esa construcción.
+//   DÉBILES  — evaluaciones que sólo son clínicas por su objeto ("es normal
+//              que…", "no te preocupes"). Exigen ADEMÁS un sustantivo clínico
+//              en la misma oración, o "es normal que la cita demore" bloquearía
+//              una respuesta perfectamente buena.
+//
+// Lo que NO dispara, a propósito: "trae tus resultados a la cita", "el examen
+// requiere ayuno", "los resultados salen en 3 días". Hablar DE un examen no es
+// interpretarlo, y confundir las dos cosas dejaría muda a la recepcionista.
+// ============================================================
+
+/** Sustantivos que hacen clínica a una oración. */
+const SUSTANTIVO_CLINICO = /\b(resultados?|ex[áa]menes?|examen|hemograma|biopsia|citolog[íi]a|ecograf[íi]a|laboratorio|hemoglobina|hematocrito|ferritina|leucocitos|plaquetas|glicemia|glucosa|creatinina|anemia|infecci[óo]n|quiste|mioma|tumor|c[áa]ncer|endometriosis|vph|s[íi]ntomas?|dolor|sangrado|flujo|ardor|c[óo]lico|diagn[óo]stico|patolog[íi]a)\b/i
+
+/**
+ * Palabras que convierten un verbo en un HALLAZGO. Sin una de estas, "el
+ * examen confirma…" puede terminar en "…los detalles contigo", que es
+ * logística, no medicina. Ese matiz no es teórico: la primera versión de este
+ * guard bloqueó 30 de 32 mensajes reales, y los 30 eran la MISMA frase
+ * determinista de la Capa 0 — "un asesor del consultorio confirma los detalles
+ * contigo". Un guard que bloquea el texto que escribe el propio sistema no
+ * protege a nadie: deja muda a la recepcionista.
+ */
+const HALLAZGO = 'normal\\w*|alterad\\w*|baj[oa]s?|alt[oa]s?|elevad[oa]s?|anemia|infecci[óo]n|quiste|mioma|tumor|c[áa]ncer|malign\\w*|benign\\w*|endometriosis|vph|inflamaci[óo]n|lesi[óo]n|c[ée]lulas|positiv[oa]s?|negativ[oa]s?|bien|mal\\b'
+
+/** FUERTES: la construcción ya ES una interpretación. Disparan solas. */
+const INTERPRETA_FUERTE: RegExp[] = [
+  // "el hemograma indica QUE SÍ TIENES ANEMIA" — el verbo interpretativo tiene
+  // que desembocar en un hallazgo, no en cualquier cosa.
+  new RegExp(
+    '\\b(resultados?|ex[áa]menes?|examen|hemograma|biopsia|citolog[íi]a|ecograf[íi]a|laboratorio|informe)\\b' +
+    '[^.!?]{0,60}\\b(indica|indican|significa|significan|sugiere|sugieren|muestra|muestran|confirma|confirman|revela|revelan|arroja|arrojan|refleja|reflejan)\\b' +
+    `[^.!?]{0,40}(${HALLAZGO})`, 'i'),
+  // "…está normal / está baja / salió alto".
+  // 🔴 SIN `\\b` después del verbo: `está` termina en `á`, que NO es carácter de
+  // palabra para JS, así que `\\b` ahí NUNCA matchea. Con el `\\b` puesto, esta
+  // línea daba falso NEGATIVO sobre "Tu hemoglobina está baja" — el caso más
+  // obvio del guard. Lo encontró el test de señuelos, no producción.
+  new RegExp(
+    '\\b(resultados?|ex[áa]menes?|examen|hemograma|biopsia|citolog[íi]a|ecograf[íi]a|hemoglobina|hematocrito|ferritina|leucocitos|plaquetas|glicemia|glucosa|creatinina)\\b' +
+    '[^.!?]{0,40}\\b(est[áa]n?|sali[óo]|salieron|se ve[n]?|parece[n]?|dan?|vienen?)' +
+    `[^.!?]{0,20}(${HALLAZGO})`, 'i'),
+  // valor de laboratorio con unidad: citarlo ya es leerlo
+  /\b\d{1,3}([.,]\d{1,2})?\s*(mg\s*\/\s*dl|g\s*\/\s*dl|ui\s*\/\s*l|mmol|mm3|meq)\b/i,
+  // "tienes / presentas / padeces <diagnóstico>"
+  /\b(tienes|ten[ée]s|presentas|padeces|sufres|est[áa]s\s+con)\b[^.!?]{0,25}\b(anemia|infecci[óo]n|quiste|mioma|c[áa]ncer|tumor|endometriosis|vph|vaginosis|candidiasis|ov[áa]rico\s+poliqu[íi]stico|sop)\b/i,
+  // "puede ser / parece ser <diagnóstico>"
+  /\b(puede\s+ser|podr[íi]a\s+ser|parece\s+ser|se\s+trata\s+de|suena\s+a)\b[^.!?]{0,20}\b(anemia|infecci[óo]n|quiste|mioma|c[áa]ncer|tumor|endometriosis|vph|vaginosis|candidiasis)\b/i,
+  // recomendación de tratamiento
+  /\b(deber[íi]as|debes|te\s+recomiendo|te\s+sugiero|te\s+conviene)\b[^.!?]{0,30}\b(tomar|suplement\w*|hierro|antibi[óo]tic\w*|medicament\w*|tratamiento|pastilla|[óo]vulos?)\b/i,
+]
+
+/** DÉBILES: sólo cuentan si la oración además habla de algo clínico. */
+const EVALUA_DEBIL: RegExp[] = [
+  /\bno\s+(es|parece|se\s+ve|suena)\s+(grave|preocupante|de\s+cuidado|nada\s+malo)\b/i,
+  /\b(es|ser[íi]a|resulta)\s+(grave|preocupante|urgente|de\s+cuidado|benign[oa]|malign[oa])\b/i,
+  /\b(no\s+te\s+preocupes|tranquila|no\s+hay\s+de\s+qu[ée]\s+preocupar\w*)\b/i,
+  /\b(es|resulta)\s+(normal|com[úu]n|habitual|esperable)\s+(que|tener|sentir|presentar)\b/i,
+  /\b(dentro\s+de\s+lo\s+normal|dentro\s+del\s+rango)\b/i,
+]
+
+/** Corta en oraciones para que "débil + clínico" sea en la MISMA frase. */
+function oraciones(texto: string): string[] {
+  return texto.split(/(?<=[.!?\n])\s+/).filter((s) => s.trim().length > 0)
+}
+
+export function detectInterpretacionClinica(args: {
+  agentText: string
+}): GuardResult {
+  const fuerte = INTERPRETA_FUERTE.find((re) => re.test(args.agentText))
+  if (fuerte) {
+    return {
+      blocked: true,
+      replacement: RESPUESTA_INTERPRETACION_CLINICA,
+      reason: 'interpretacion_clinica',
+      details: { familia: 'fuerte', patron: fuerte.source.slice(0, 80) },
+    }
+  }
+
+  for (const o of oraciones(args.agentText)) {
+    const debil = EVALUA_DEBIL.find((re) => re.test(o))
+    if (debil && SUSTANTIVO_CLINICO.test(o)) {
+      return {
+        blocked: true,
+        replacement: RESPUESTA_INTERPRETACION_CLINICA,
+        reason: 'interpretacion_clinica',
+        details: { familia: 'debil', patron: debil.source.slice(0, 80) },
+      }
+    }
+  }
+
+  return { blocked: false }
+}
+
+/**
+ * El texto determinista. Lo emite el CÓDIGO, no el modelo — y dice las dos
+ * mitades: qué no se puede y qué sigue. El caller mantiene la escalación, así
+ * que la segunda mitad tiene respaldo (patrón 1, corolario del guard 7).
+ */
+export const RESPUESTA_INTERPRETACION_CLINICA =
+  'Eso lo tiene que revisar tu médico — ya le pasé tu consulta al equipo del ' +
+  'consultorio para que te respondan. 🙏'

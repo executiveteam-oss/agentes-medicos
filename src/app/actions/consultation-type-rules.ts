@@ -53,6 +53,10 @@ export interface ConsultationTypeRule {
   condition_config: Record<string, unknown>
   action: RuleAction
   message: string | null
+  /** POR QUÉ existe esta regla. Nota INTERNA del equipo de la clínica: se ve
+   *  sólo en el editor y NUNCA se le muestra a la paciente ni se le pasa al
+   *  modelo. Vacío = nadie escribió el motivo todavía. */
+  motivo_interno: string | null
   active: boolean
   created_at: string
   updated_at: string
@@ -193,6 +197,45 @@ export async function disableEscalateHumanRule(
  * Devuelve todas las reglas (activas e inactivas) de un consultation_type.
  * Útil para la UI: muestra el estado actual del toggle.
  */
+/**
+ * Guarda el motivo INTERNO de una regla — por qué existe.
+ *
+ * No toca `active`, ni `action`, ni `condition_config`: el agente se comporta
+ * exactamente igual antes y después de escribir esto. Es una nota del equipo
+ * para el equipo, y el executor ni siquiera selecciona esta columna.
+ */
+export async function setMotivoInternoRegla(
+  consultationTypeId: string,
+  ruleType: RuleType,
+  motivo: string,
+): Promise<{ ok: boolean; error?: string }> {
+  let clinicId: string
+  try { clinicId = await checkWritePermission('whatsapp') }
+  catch (err) { return { ok: false, error: extractActionError(err) } }
+
+  const texto = motivo.trim().slice(0, 1000) || null
+
+  const { data, error } = await supabaseAdmin
+    .from('consultation_type_rules')
+    .update({ motivo_interno: texto, updated_at: new Date().toISOString() })
+    .eq('consultation_type_id', consultationTypeId)
+    .eq('rule_type', ruleType)
+    .eq('clinic_id', clinicId)   // el tenant SIEMPRE, aunque el id ya acote
+    .select('id')
+
+  if (error) return { ok: false, error: 'No se pudo guardar el motivo' }
+  // Un UPDATE que no tocó ninguna fila devuelve error null: hay que mirar el
+  // conteo o la pantalla dice "guardado" sobre nada.
+  if (!data || data.length === 0) return { ok: false, error: 'La regla no existe en esta clínica' }
+
+  await supabaseAdmin.from('audit_log').insert({
+    clinic_id: clinicId, action: 'regla_motivo_interno_editado', actor_type: 'user',
+    target_type: 'consultation_type', target_id: consultationTypeId,
+    details: { rule_type: ruleType, tiene_motivo: texto !== null },
+  })
+  return { ok: true }
+}
+
 export async function getRulesForConsultationType(
   consultationTypeId: string,
 ): Promise<ConsultationTypeRule[]> {

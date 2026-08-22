@@ -31,6 +31,7 @@ import {
   enableEscalateHumanRule,
   disableEscalateHumanRule,
   getRulesForConsultationType,
+  setMotivoInternoRegla,
   upsertAgeLimitRule,
   disableAgeLimitRule,
   createPatientConditionRule,
@@ -1211,6 +1212,10 @@ function EscalateHumanRuleToggle({
 }): React.JSX.Element {
   const [active, setActive] = useState<boolean | null>(null) // null = cargando
   const [isPending, startTransition] = useTransition()
+  // El POR QUÉ de la regla. Nota interna: no la ve la paciente ni el modelo.
+  const [motivo, setMotivo] = useState('')
+  const [motivoGuardado, setMotivoGuardado] = useState('')
+  const [guardando, setGuardando] = useState<'idle'|'guardando'|'ok'>('idle')
 
   useEffect(() => {
     let mounted = true
@@ -1218,11 +1223,23 @@ function EscalateHumanRuleToggle({
       if (!mounted) return
       const escalateRule = rules.find((r) => r.rule_type === 'escalate_human')
       setActive(!!escalateRule?.active)
+      const m = escalateRule?.motivo_interno ?? ''
+      setMotivo(m); setMotivoGuardado(m)
     }).catch(() => {
       if (mounted) setActive(false)
     })
     return () => { mounted = false }
   }, [ctId])
+
+  function guardarMotivo(): void {
+    if (motivo === motivoGuardado) return
+    setGuardando('guardando')
+    startTransition(async () => {
+      const r = await setMotivoInternoRegla(ctId, 'escalate_human', motivo)
+      if (r.ok) { setMotivoGuardado(motivo); setGuardando('ok'); setTimeout(() => setGuardando('idle'), 2000) }
+      else { setGuardando('idle'); onError(r.error ?? 'No se pudo guardar el motivo') }
+    })
+  }
 
   function handleToggle(): void {
     if (active === null) return
@@ -1284,6 +1301,32 @@ function EscalateHumanRuleToggle({
           Lo deriva al staff para validar. Usado para servicios complejos
           (procedimientos con sedación, biopsias, histeroscopias).
         </div>
+
+        {isActive && (
+          <div style={{ marginTop: '10px' }}>
+            <label style={{ fontSize: '10.5px', fontWeight: 700, color: '#7a5500', display: 'block', marginBottom: '3px' }}>
+              ¿Por qué escala? — nota interna
+            </label>
+            <textarea
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              onBlur={guardarMotivo}
+              rows={2}
+              maxLength={1000}
+              placeholder="Ej: solo hay una auxiliar y tiene que estar presente. O: requiere valoración previa del médico."
+              className="input-v2"
+              style={{ fontSize: '11.5px', width: '100%', resize: 'vertical' }}
+            />
+            <p style={{ fontSize: '10px', color: '#7a5500', margin: '3px 0 0', lineHeight: 1.45 }}>
+              Solo la ve tu equipo acá. <strong>No se le muestra a la paciente</strong> ni
+              cambia lo que hace el agente — es para que dentro de seis meses se sepa
+              por qué quedó activada.
+              {guardando === 'guardando' && <span> · guardando…</span>}
+              {guardando === 'ok' && <span> · ✓ guardado</span>}
+              {motivo !== motivoGuardado && guardando === 'idle' && <span> · sin guardar</span>}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   )

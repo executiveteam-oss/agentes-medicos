@@ -33,6 +33,7 @@ let bloqueadas = 0
 }
 
 const { decidirCorteDeEscalada } = await import('@/lib/conversations/corte-por-escalada')
+const { huboIntervencionHumana } = await import('@/lib/conversations/intervencion-humana')
 const { ESCALATION_LABEL, isKnownReason } = await import('@/lib/conversations/escalation-reasons')
 const { runAppointmentAgent } = await import('@/agents/appointment-agent')
 const { getWhatsAppConfig, findActiveDoctors, findActiveConsultationTypes, buildExistingPatient, resolveTratantesForClinic } = await import('@/lib/agent/agent-context')
@@ -48,18 +49,27 @@ const { data: escaladas } = await supabaseAdmin
   .select('id, context, escalated_at, triage_state, status')
   .eq('clinic_id', CLINIC).eq('status', 'escalated')
 
-const filas: Array<{ id: string; motivo: string; humano: boolean; atiende: boolean; porque: string; bloq: boolean; horas: number | null }> = []
+const filas: Array<{ id: string; motivo: string; humano: boolean; atiende: boolean; porque: string; bloq: boolean; horas: number | null; cambia: boolean; staffTot: number; ultimoStaff: string | null }> = []
 for (const c of (escaladas ?? []) as Any[]) {
-  const { count } = await supabaseAdmin.from('messages')
-    .select('id', { count: 'exact', head: true }).eq('conversation_id', c.id as string).eq('role', 'staff')
-  const humano = (count ?? 0) > 0
+  const { data: staffMsgs } = await supabaseAdmin.from('messages')
+    .select('role, created_at').eq('conversation_id', c.id as string).eq('role', 'staff')
+    .order('created_at', { ascending: false }).limit(50)
+  const msgs = (staffMsgs ?? []) as Array<{ role: string; created_at: string }>
+  // El criterio VIEJO (cualquier mensaje de staff) contra el NUEVO (posterior a
+  // escalated_at), para poder mirar una por una las que cambian de lado.
+  const humanoViejo = msgs.length > 0
+  const humano = huboIntervencionHumana(msgs, c.escalated_at as string | null)
   const razon = (c.context as Any | null)?.escalation_reason
   const d = decidirCorteDeEscalada({ status: 'escalated', escalationReason: razon, huboRespuestaHumana: humano })
+  const dViejo = decidirCorteDeEscalada({ status: 'escalated', escalationReason: razon, huboRespuestaHumana: humanoViejo })
   filas.push({
     id: c.id as string,
     motivo: isKnownReason(razon) ? razon : '(desconocido)',
     humano, atiende: d.atiende, porque: d.porque ?? '—', bloq: d.accionBloqueada,
     horas: c.escalated_at ? Math.round((Date.now() - new Date(c.escalated_at as string).getTime()) / 36e5) : null,
+    cambia: d.atiende !== dViejo.atiende,
+    staffTot: msgs.length,
+    ultimoStaff: msgs[0]?.created_at ?? null,
   })
 }
 
@@ -82,6 +92,27 @@ console.log('─'.repeat(92))
 console.log(`TOTAL ${filas.length}   ·   destrabadas: ${atiende.length}   ·   calladas por humano adentro: ${callaHumano.length}   ·   calladas por motivo: ${callaMotivo.length}`)
 const esperaMax = Math.max(...atiende.map((f) => f.horas ?? 0))
 console.log(`\nDe las ${atiende.length} destrabadas, la que más lleva esperando sin que nadie escriba: ${esperaMax} horas (${Math.round(esperaMax / 24)} días).`)
+
+// ── LAS QUE CAMBIAN DE LADO con el criterio de la bandeja ───────────────────
+const cambian = filas.filter((f) => f.cambia)
+console.log(`\n\n═══ LAS ${cambian.length} QUE CAMBIAN DE LADO (staff SÓLO antes de escalar) ═══\n`)
+console.log('Se revisan una por una: si el staff está trabajando el caso por otro canal, destrabarlas sería pisarlo.\n')
+for (const f of cambian) {
+  const { data: conv } = await supabaseAdmin.from('conversations')
+    .select('escalated_at, last_message_at, triage_state, patients(name)').eq('id', f.id).single()
+  const { data: ult } = await supabaseAdmin.from('messages')
+    .select('role, content, created_at').eq('conversation_id', f.id).order('created_at', { ascending: false }).limit(3)
+  const hoy = (iso: string | null) => iso ? new Date(iso).toLocaleString('es-CO', { timeZone: 'America/Bogota', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+  const esc = (conv as Any)?.escalated_at as string | null
+  const horasDesdeUltimoStaff = f.ultimoStaff ? Math.round((Date.now() - new Date(f.ultimoStaff).getTime()) / 36e5) : null
+  console.log(`  · ${((conv as Any)?.patients as Any)?.name ?? '?'}  —  ${f.motivo}`)
+  console.log(`      escaló ${hoy(esc)}  ·  ${f.staffTot} mensaje(s) de staff, el último ${hoy(f.ultimoStaff)} (${horasDesdeUltimoStaff} h atrás, ANTES de escalar)`)
+  console.log(`      lleva ${f.horas} h esperando  ·  triage=${(conv as Any)?.triage_state ?? 'null'}`)
+  for (const m of ((ult ?? []) as Any[]).reverse()) {
+    console.log(`      [${hoy(m.created_at as string)}] ${String(m.role).padEnd(7)} ${String(m.content).replace(/\s+/g, ' ').slice(0, 95)}`)
+  }
+  console.log('')
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // PARTE 2 — Tres simulaciones contra el agente REAL.

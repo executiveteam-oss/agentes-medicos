@@ -4,6 +4,7 @@
 // ============================================================
 
 import { getUserSession } from '@/lib/session'
+import { huboIntervencionHumana } from '@/lib/conversations/intervencion-humana'
 import { isDoctorRole } from '@/lib/doctor-filter'
 import { redirect } from 'next/navigation'
 import { supabaseAdmin } from '@/lib/supabase/admin'
@@ -200,10 +201,11 @@ export default async function ConversationsPage() {
       // escalada espera hasta que un humano escribe, no hasta que alguien la
       // marca. Se calcula del historial que ya vino en el join — no hay una
       // consulta más ni un campo que mantener sincronizado.
-      respondida_por_humano: (msgs ?? []).some(
-        (m) => m.role === 'staff' &&
-          (!conv.escalated_at || new Date(m.created_at) > new Date(conv.escalated_at as string)),
-      ),
+      //
+      // El criterio NO se escribe acá: es el mismo que usa el corte por
+      // escalada del webhook para decidir si el agente se calla. Dos lugares
+      // contestando la misma pregunta ya habían divergido en 9 conversaciones.
+      respondida_por_humano: huboIntervencionHumana(msgs, conv.escalated_at as string | null),
       message_count: msgCount,
       claimed_active_label,
       is_mine: claimed_active_label === 'tú',

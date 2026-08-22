@@ -51,6 +51,7 @@ import {
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
 import { ESCALATION_REASONS, escalationContext, escalationContextSinPisar, type EscalationReason } from '@/lib/conversations/escalation-reasons'
 import { decidirCorteDeEscalada } from '@/lib/conversations/corte-por-escalada'
+import { consultarIntervencionHumana } from '@/lib/conversations/intervencion-humana'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
 import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada, detectConvenioSinVerificar } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
@@ -657,21 +658,18 @@ async function processWebhook(body: unknown): Promise<void> {
         })
 
         // ¿Hay una persona adentro? Es un hecho consultable, no una lectura del
-        // estado: existe (o no) un mensaje con role='staff'. `head: true` trae
-        // sólo el conteo — no hace falta el contenido para saber si hay alguien.
-        let huboRespuestaHumana = true   // ante un fallo de la query: callarse
-        {
-          const { count, error } = await supabaseAdmin
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('conversation_id', conversation.id)
-            .eq('role', 'staff')
-          if (error) {
-            console.error(`[Webhook] No se pudo saber si hubo respuesta humana (${error.message}) — se calla, que es el default seguro`)
-          } else {
-            huboRespuestaHumana = (count ?? 0) > 0
-          }
+        // estado — y lo contesta la MISMA función que usa la bandeja para
+        // mostrar "nadie respondió" (src/lib/conversations/intervencion-humana.ts).
+        // Cuenta el staff que escribió DESPUÉS de escalar: uno anterior es
+        // historia, no alguien atendiendo esto.
+        const intervencion = await consultarIntervencionHumana(
+          conversation.id,
+          (conversation as { escalated_at?: string | null }).escalated_at,
+        )
+        if (intervencion.error) {
+          console.error(`[Webhook] No se pudo saber si hubo respuesta humana (${intervencion.error}) — se calla, que es el default seguro`)
         }
+        const huboRespuestaHumana = intervencion.hubo
 
         const corte = decidirCorteDeEscalada({
           status: conversation.status,

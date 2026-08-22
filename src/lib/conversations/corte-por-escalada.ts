@@ -106,20 +106,14 @@ export interface EntradaDelCorte {
   /** `conversations.context.escalation_reason` tal cual (puede ser cualquier cosa). */
   escalationReason: unknown
   /**
-   * ¿Existe algún mensaje `role='staff'` en esta conversación? EN CUALQUIER
-   * MOMENTO — no sólo después de escalar.
+   * ¿Hay una persona atendiendo esta conversación?
    *
-   * ⚠️ OJO: la bandeja (conversations-panel → `respondida_por_humano`) NO usa
-   * este mismo criterio. Ella exige que el mensaje del staff sea POSTERIOR a
-   * `escalated_at`, y por eso muestra en Atención conversaciones que este
-   * corte considera "con humano adentro". Medido el 2026-08-22 sobre las 72
-   * escaladas de Algia: 16 tienen algún mensaje de staff, pero sólo 7 lo
-   * tienen después de escalar — las otras 9 divergen.
-   *
-   * Se dejó el criterio amplio a propósito: es el que produce MÁS silencio,
-   * y ante la duda de si hay una persona adentro, el sesgo seguro es no
-   * pisarla. Pero es una fuente duplicada (patrón 2) y hay que unificarla:
-   * la pregunta "¿respondió un humano?" tiene que tener UNA sola respuesta.
+   * 🔴 NO se calcula acá y NO se calcula a mano en el call site: sale de
+   * `huboIntervencionHumana` (src/lib/conversations/intervencion-humana.ts),
+   * que es la MISMA función con la que la bandeja decide mostrar "nadie
+   * respondió". Mientras fueron dos criterios divergían en 9 de 72
+   * conversaciones — la pantalla decía que nadie había contestado y el corte
+   * las trataba como atendidas, dejándolas en silencio.
    */
   huboRespuestaHumana: boolean
 }

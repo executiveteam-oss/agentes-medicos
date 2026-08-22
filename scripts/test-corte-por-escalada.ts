@@ -2,6 +2,7 @@
 // Recorre los 20 motivos del conjunto cerrado × (con humano / sin humano).
 import { decidirCorteDeEscalada, MOTIVOS_RESERVADOS_A_HUMANO, MOTIVOS_CON_ACCION_BLOQUEADA } from '../src/lib/conversations/corte-por-escalada'
 import { ESCALATION_REASONS, type EscalationReason } from '../src/lib/conversations/escalation-reasons'
+import { huboIntervencionHumana, type MensajeParaIntervencion } from '../src/lib/conversations/intervencion-humana'
 
 let fallos = 0
 const ok = (cond: boolean, etiqueta: string) => {
@@ -56,6 +57,26 @@ console.log('  ✅ servicio_escalate_human sin humano → CONVERSA, acción bloq
 const crisis = decidirCorteDeEscalada({ status: 'escalated', escalationReason: ESCALATION_REASONS.CRISIS, huboRespuestaHumana: false })
 ok(!crisis.atiende, 'crisis NO se destraba')
 console.log('  ✅ crisis sin humano → CALLA')
+
+// ── la fuente única de "¿hay una persona adentro?" ──────────────────────────
+console.log('\n═══ ¿HUBO INTERVENCIÓN HUMANA? — misma función que usa la bandeja ═══\n')
+const ESC = '2026-08-15T12:00:00Z'
+const casos: Array<[string, MensajeParaIntervencion[], string | null, boolean]> = [
+  ['sin mensajes',                        [],                                                              ESC,  false],
+  ['sólo la paciente',                    [{ role: 'patient', created_at: '2026-08-16T12:00:00Z' }],       ESC,  false],
+  ['sólo el agente',                      [{ role: 'agent',   created_at: '2026-08-16T12:00:00Z' }],       ESC,  false],
+  ['staff ANTES de escalar (historia)',   [{ role: 'staff',   created_at: '2026-08-14T12:00:00Z' }],       ESC,  false],
+  ['staff DESPUÉS de escalar',            [{ role: 'staff',   created_at: '2026-08-16T12:00:00Z' }],       ESC,  true],
+  ['staff exactamente en escalated_at',   [{ role: 'staff',   created_at: ESC }],                          ESC,  false],
+  ['staff antes Y después',               [{ role: 'staff',   created_at: '2026-08-14T12:00:00Z' },
+                                           { role: 'staff',   created_at: '2026-08-16T12:00:00Z' }],       ESC,  true],
+  ['sin escalated_at → cualquier staff',  [{ role: 'staff',   created_at: '2026-08-14T12:00:00Z' }],       null, true],
+]
+for (const [etiqueta, msgs, esc, esperado] of casos) {
+  const r = huboIntervencionHumana(msgs, esc)
+  ok(r === esperado, `${etiqueta}: esperaba ${esperado}, dio ${r}`)
+  console.log(`  ${r === esperado ? '✅' : '❌'} ${etiqueta.padEnd(36)} → ${r ? 'hay humano adentro' : 'nadie respondió'}`)
+}
 
 console.log(fallos === 0 ? '\n✅ TODO OK\n' : `\n❌ ${fallos} FALLOS\n`)
 process.exit(fallos === 0 ? 0 : 1)

@@ -224,3 +224,35 @@ export function historyOnReturn(
     ].slice(-20),   // techo: no dejamos crecer el JSONB sin límite
   }
 }
+
+/**
+ * Escala PRESERVANDO la causa original cuando ya había una.
+ *
+ * Existe por un efecto del destrabe del corte (2026-08-22): desde que el
+ * agente atiende conversaciones escaladas sin humano, los guards que escalan
+ * —4, 5, 6, 9— pueden dispararse sobre una conversación QUE YA ESTABA
+ * escalada. `escalationContext` pisa `escalation_reason` sin preguntar, así
+ * que una escalación por `autorizacion_recibida` que después toca un guard
+ * quedaría registrada como `falla_agendamiento`: la causa por la que la
+ * paciente está esperando desaparece del informe, y con ella la única forma
+ * de contar por qué escalan las conversaciones.
+ *
+ * La regla es la misma que ya aplica `staffEscalationContext`: la primera
+ * causa manda. La nueva no se pierde — se anota en `escalation_detail`, que
+ * es texto libre y se lee, no se agrupa.
+ */
+export function escalationContextSinPisar(
+  prev: Record<string, unknown> | null | undefined,
+  reason: EscalationReason,
+  detail?: string | null,
+): Record<string, unknown> {
+  const p = prev ?? {}
+  if (!p.escalation_reason) return escalationContext(prev, reason, detail)
+
+  const nuevo = detail ? `${reason}:${detail}` : reason
+  const previo = typeof p.escalation_detail === 'string' && p.escalation_detail ? p.escalation_detail : null
+  return {
+    ...p,
+    escalation_detail: previo ? `${previo} | +${nuevo}` : `+${nuevo}`,
+  }
+}

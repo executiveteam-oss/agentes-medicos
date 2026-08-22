@@ -49,7 +49,8 @@ import {
   detectHallucinatedReschedule,
 } from '@/lib/whatsapp/agent-guards'
 import type { Clinic, ConsultationType, Doctor, Conversation, Patient, Message, WhatsAppConfig } from '@/types/database'
-import { ESCALATION_REASONS, escalationContext } from '@/lib/conversations/escalation-reasons'
+import { ESCALATION_REASONS, escalationContext, escalationContextSinPisar, type EscalationReason } from '@/lib/conversations/escalation-reasons'
+import { decidirCorteDeEscalada } from '@/lib/conversations/corte-por-escalada'
 import { detectarMencionDeMedico, leerPin, contextConPin } from '@/lib/agent/doctor-pin'
 import { detectDoctorNameMismatch, detectDatosSinRespaldo, detectPromesaDeHumanoSinEscalar, detectCitaNegadaQueEllaAfirma, detectPreparacionInventada, detectConvenioSinVerificar } from '@/lib/whatsapp/agent-guards'
 import type { ToolCallAudit } from '@/lib/safety/tool-input-audit'
@@ -611,8 +612,32 @@ async function processWebhook(body: unknown): Promise<void> {
         return
       }
 
-      // 15. Si la conversación está escalada → no responder (un humano se encarga)
-      if (conversation.status === 'escalated') {
+      // 15. CORTE POR CONVERSACIÓN ESCALADA — ya no es un `if (status)` suelto.
+      //
+      // La decisión de si el agente habla vive en decidirCorteDeEscalada
+      // (src/lib/conversations/corte-por-escalada.ts), que es pura y testeable.
+      // Acá sólo se ejecuta: lo que pasa en las DOS ramas —subir a Atención y
+      // refrescar la alerta— pasa igual, así que va ANTES de decidir. La
+      // conversación NO sale de la bandeja en ningún caso: nada de esto toca
+      // `status`, que sigue 'escalated'.
+      const yaEstabaEscalada = conversation.status === 'escalated'
+
+      // Parche de escalación para TODO lo que escala más abajo (keyword, guards
+      // 4/5/6/7/8/9, escalate_to_human). Dos cuidados que sólo hacen falta desde
+      // que el agente atiende conversaciones ya escaladas:
+      //
+      //  · `escalated_at` NO se pisa si ya estaba escalada. Ese campo es el reloj
+      //    de espera de la bandeja: refrescarlo mandaría al fondo de la cola a la
+      //    que más tiempo lleva esperando, justo la que hay que atender primero
+      //    (patrón 8 — el dato que se muestra sale del mismo lugar que ordena).
+      //  · el motivo original no se pisa (escalationContextSinPisar).
+      const parcheDeEscalacion = (motivo: EscalationReason, detalle?: string) => ({
+        status: 'escalated' as const,
+        ...(yaEstabaEscalada ? {} : { escalated_at: new Date().toISOString() }),
+        context: escalationContextSinPisar(conversation.context, motivo, detalle ?? null),
+      })
+
+      if (yaEstabaEscalada) {
         // Mensaje nuevo sobre una PENDIENTE = la paciente insiste → vuelve a
         // Atención en el momento. El reloj de re-surface (etapa 3) es para el
         // SILENCIO, no para la insistencia: escribir de nuevo es la señal más
@@ -630,8 +655,58 @@ async function processWebhook(body: unknown): Promise<void> {
           patientName: patient.name,
           latestMessage: sanitizedText,
         })
-        console.log(`[Webhook] Conversación escalada, no responder (alerta refrescada). ID: ${conversation.id}`)
-        return
+
+        // ¿Hay una persona adentro? Es un hecho consultable, no una lectura del
+        // estado: existe (o no) un mensaje con role='staff'. `head: true` trae
+        // sólo el conteo — no hace falta el contenido para saber si hay alguien.
+        let huboRespuestaHumana = true   // ante un fallo de la query: callarse
+        {
+          const { count, error } = await supabaseAdmin
+            .from('messages')
+            .select('id', { count: 'exact', head: true })
+            .eq('conversation_id', conversation.id)
+            .eq('role', 'staff')
+          if (error) {
+            console.error(`[Webhook] No se pudo saber si hubo respuesta humana (${error.message}) — se calla, que es el default seguro`)
+          } else {
+            huboRespuestaHumana = (count ?? 0) > 0
+          }
+        }
+
+        const corte = decidirCorteDeEscalada({
+          status: conversation.status,
+          escalationReason: (conversation.context as Record<string, unknown> | null)?.escalation_reason,
+          huboRespuestaHumana,
+        })
+
+        if (!corte.atiende) {
+          console.log(`[Webhook] Conversación escalada — el agente se calla (${corte.porque}, motivo=${corte.motivo ?? 'n/d'}). ID: ${conversation.id}`)
+          return
+        }
+
+        // 🔴 EL CONTADOR. Sin esto el arreglo le ESCONDE el problema a la
+        // clínica en vez de mostrárselo: las conversaciones que nadie abrió
+        // dejarían de doler y nadie se enteraría de cuántas son. Una fila por
+        // turno cubierto; el número semanal sale de agrupar esta acción.
+        try {
+          await supabaseAdmin.from('audit_log').insert({
+            clinic_id: clinic.id,
+            action: 'agente_cubrio_escalada_sin_humano',
+            actor_type: 'system',
+            target_type: 'conversation',
+            target_id: conversation.id,
+            details: {
+              motivo_escalacion: corte.motivo,
+              accion_bloqueada: corte.accionBloqueada,
+              escalada_desde: (conversation as { escalated_at?: string | null }).escalated_at ?? null,
+              horas_sin_humano: (conversation as { escalated_at?: string | null }).escalated_at
+                ? Math.round((Date.now() - new Date((conversation as { escalated_at: string }).escalated_at).getTime()) / 36e5)
+                : null,
+            },
+          })
+        } catch { /* no crítico: el registro no puede impedir la respuesta */ }
+        console.log(`[Webhook] Escalada SIN humano (${corte.motivo}) → el agente atiende. ID: ${conversation.id}`)
+        // Sin `return`: el mensaje sigue el flujo normal.
       }
 
       // 15.4. GATE DE CONSENTIMIENTO — manda el aviso y SIGUE.
@@ -675,17 +750,11 @@ async function processWebhook(body: unknown): Promise<void> {
         await supabaseAdmin
           .from('conversations')
           .update({
-            status: 'escalated',
-            escalated_at: new Date().toISOString(),
             // Antes este camino NO estampaba motivo: quedaba indistinguible de
             // una conversación sin causa registrada. Y es el que más falsos
             // positivos produce, porque la lista la escribe la clínica y ahí
             // entran palabras de uso diario ("médico" ya disparó una).
-            context: escalationContext(
-              conversation.context,
-              ESCALATION_REASONS.KEYWORD,
-              escalationMatch,
-            ),
+            ...parcheDeEscalacion(ESCALATION_REASONS.KEYWORD, escalationMatch),
           })
           .eq('id', conversation.id)
         try {
@@ -986,7 +1055,7 @@ async function processWebhook(body: unknown): Promise<void> {
               text: 'Disculpa, quiero confirmarte los horarios exactos antes de decirte algo equivocado. Ya le pasé tu caso a una persona del consultorio.' + (coletillaDeContacto(clinic.inbox_hours, new Date()) || ' Te escriben enseguida 🙏'),
             }
             await supabaseAdmin.from('conversations')
-              .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE, `datos_sin_respaldo:${g6.reason}`) })
+              .update(parcheDeEscalacion(ESCALATION_REASONS.BOOKING_FAILURE, `datos_sin_respaldo:${g6.reason}`))
               .eq('id', conversation.id)
             await refreshEscalationNotifications({
               conversationId: conversation.id, clinicId: clinic.id, patientName: patient.name,
@@ -1032,7 +1101,7 @@ async function processWebhook(body: unknown): Promise<void> {
             appointmentData: undefined,
           }
           await supabaseAdmin.from('conversations')
-            .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE, `medico_prometido=${d.prometido} agendado=${d.agendado}`) })
+            .update(parcheDeEscalacion(ESCALATION_REASONS.BOOKING_FAILURE, `medico_prometido=${d.prometido} agendado=${d.agendado}`))
             .eq('id', conversation.id)
           await refreshEscalationNotifications({
             conversationId: conversation.id,
@@ -1092,7 +1161,7 @@ async function processWebhook(body: unknown): Promise<void> {
               })
             } catch { /* non-critical */ }
             await supabaseAdmin.from('conversations')
-              .update({ status: 'escalated', escalated_at: new Date().toISOString(), context: escalationContext(conversation.context, ESCALATION_REASONS.BOOKING_FAILURE) })
+              .update(parcheDeEscalacion(ESCALATION_REASONS.BOOKING_FAILURE))
               .eq('id', conversation.id)
             await refreshEscalationNotifications({
               conversationId: conversation.id,
@@ -1320,9 +1389,7 @@ async function processWebhook(body: unknown): Promise<void> {
         await supabaseAdmin
           .from('conversations')
           .update({
-            status: 'escalated',
-            escalated_at: new Date().toISOString(),
-            context: escalationContext(conversation.context, ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION),
+            ...parcheDeEscalacion(ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION),
           })
           .eq('id', conversation.id)
         await notifyStaffOfEscalation({
@@ -1411,9 +1478,7 @@ async function processWebhook(body: unknown): Promise<void> {
         await supabaseAdmin
           .from('conversations')
           .update({
-            status: 'escalated',
-            escalated_at: new Date().toISOString(),
-            context: escalationContext(conversation.context, ESCALATION_REASONS.AGENT_TOOL),
+            ...parcheDeEscalacion(ESCALATION_REASONS.AGENT_TOOL),
           })
           .eq('id', conversation.id)
 
@@ -1436,7 +1501,13 @@ async function processWebhook(body: unknown): Promise<void> {
         agentText: sendText,
         toolsUsed: agentResponse.toolsUsed,
         // Los DOS caminos de escalación: la tool y el corte determinista.
-        yaVaAEscalar: agentResponse.toolsUsed.includes('escalate_to_human') || Boolean(agentResponse.escalate),
+        //
+        // Y un tercero desde el destrabe del corte (2026-08-22): si la
+        // conversación YA venía escalada, la promesa tiene respaldo — está en
+        // la bandeja esperando a alguien. Sin esto el guard re-escalaba en cada
+        // turno una conversación ya escalada: alerta nueva, motivo pisado y el
+        // reloj de espera reiniciado, todo por cumplir una promesa ya cumplida.
+        yaVaAEscalar: agentResponse.toolsUsed.includes('escalate_to_human') || Boolean(agentResponse.escalate) || yaEstabaEscalada,
         // Si hay un servicio ruleado marcado y sin gestionar, la frase "un
         // asesor confirma los detalles" TIENE respaldo: el servicio quedó
         // registrado y la conversación está en la pestaña Servicios. Misma
@@ -1448,9 +1519,7 @@ async function processWebhook(body: unknown): Promise<void> {
         await supabaseAdmin
           .from('conversations')
           .update({
-            status: 'escalated',
-            escalated_at: new Date().toISOString(),
-            context: escalationContext(conversation.context, ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION),
+            ...parcheDeEscalacion(ESCALATION_REASONS.PROMISE_WITHOUT_ESCALATION),
           })
           .eq('id', conversation.id)
         await notifyStaffOfEscalation({
@@ -1485,16 +1554,14 @@ async function processWebhook(body: unknown): Promise<void> {
         agentText: sendText,
         patientText: sanitizedText,
         toolsUsed: agentResponse.toolsUsed,
-        yaVaAEscalar: agentResponse.toolsUsed.includes('escalate_to_human') || Boolean(agentResponse.escalate) || g7.blocked,
+        yaVaAEscalar: agentResponse.toolsUsed.includes('escalate_to_human') || Boolean(agentResponse.escalate) || g7.blocked || yaEstabaEscalada,
       })
       if (g8.blocked) {
         console.warn('[Webhook] 🚨 Guard 8: negó una cita que la paciente afirma tener → escalando')
         await supabaseAdmin
           .from('conversations')
           .update({
-            status: 'escalated',
-            escalated_at: new Date().toISOString(),
-            context: escalationContext(conversation.context, ESCALATION_REASONS.APPOINTMENT_NOT_FOUND),
+            ...parcheDeEscalacion(ESCALATION_REASONS.APPOINTMENT_NOT_FOUND),
           })
           .eq('id', conversation.id)
         await notifyStaffOfEscalation({

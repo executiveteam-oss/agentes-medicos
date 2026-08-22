@@ -247,6 +247,52 @@ Cada decisión del contrato que descarta algo queda en `audit_log`
 (`contrato_salida_descarto` + `origen` + los bloques recortados). Es la fuente
 para contestar después *"¿esto le está borrando algo a alguien?"* con evidencia.
 
+### 11. Un guard se mide PRIMERO contra los textos deterministas del propio sistema.
+
+Un guard nace mirando la salida del modelo, y ahí se queda: se prueba contra lo que el LLM
+escribió mal y se declara listo. Pero el guard no corre sobre "lo que escribió el modelo" —
+corre sobre **todo lo que sale por el canal**, y una parte grande de eso la escribimos nosotros:
+los textos de la Capa 0, los cortes deterministas, las plantillas, los reemplazos de los otros
+guards.
+
+**Un guard que bloquea lo que escribe el sistema no protege a nadie: deja muda a la
+recepcionista.** Y es peor que un guard que no existe, porque el mensaje que no sale es
+justamente el que el sistema garantizaba.
+
+Pasó el 2026-08-22 con el guard 11 (interpretación clínica). La primera versión disparó sobre
+**30 de 32 mensajes reales de 30 días** — y los 30 eran **la misma frase**, la respuesta
+determinista de la Capa 0 cuando alguien pide un servicio ruleado:
+
+> *"Para la ecografía de mapeo, un asesor del consultorio **confirma** los detalles contigo."*
+
+El patrón leía `ecografía … confirma` como una interpretación de resultados. Nunca lo fue: es
+logística, y la escribimos nosotros. De haberse deployado, cada paciente que pedía un mapeo
+—el servicio más frecuente de la clínica— habría dejado de recibir la única respuesta que ese
+camino tiene.
+
+Es la misma forma del gate de `context='authorization'` que dejó tres botones inalcanzables:
+una condición escrita mirando un caso, aplicada sobre un universo más grande que el que se
+tenía en la cabeza.
+
+**La regla operativa, antes de enchufar cualquier guard:**
+
+1. Correlo contra **los textos deterministas del sistema** — Capa 0, cortes del webhook,
+   `message_for_patient` del executor, plantillas, los `replacement` de los otros guards.
+   Cero disparos ahí, o el guard está mal.
+2. Correlo contra **la salida real del modelo de los últimos 30 días** y mirá **cada disparo a
+   mano**. El número solo no alcanza: 32 disparos parecían razonables hasta leerlos.
+3. Recién entonces, señuelos y casos positivos.
+
+El orden importa: si empezás por los señuelos que se te ocurren, no vas a escribir el señuelo
+que dice tu propio sistema.
+
+**Y el corolario del mismo día:** en JavaScript `\b` y `\w` sólo conocen `[A-Za-z0-9_]`. Una
+`á`, una `é` o una `ñ` **no** son carácter de palabra, así que un `\b` pegado a una palabra
+acentuada **nunca matchea** — la regex se ve bien, pasa el typecheck y da falso negativo para
+siempre. `"Tu hemoglobina está baja"` no disparaba porque `está` termina en `á`. Todo guard se
+prueba con su caso escrito **con tilde**, que es como se escribe de verdad en español.
+
+
 ---
 
 ## 🏗️ Stack
